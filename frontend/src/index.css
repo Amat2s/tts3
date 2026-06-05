@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Cormorant Garamond', ui-serif, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent-primary);
+  --color-primary-foreground: var(--text-inverse);
+  --color-secondary: var(--bg-warm);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--bg-muted);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--bg-warm);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--state-error);
+  --color-border: var(--border-default);
+  --color-input: var(--border-default);
+  --color-ring: var(--focus-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  /* Page backgrounds */
+  --bg-base: #FBFAF7;
+  --bg-muted: #F6F1EA;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #FFFDF9;
+  --bg-warm: #F8F2E8;
+
+  /* Text */
+  --text-primary: #251F1F;
+  --text-secondary: #5F5552;
+  --text-muted: #8A7E78;
+  --text-inverse: #FFFFFF;
+
+  /* Accents */
+  --accent-primary: #7A1F2B;
+  --accent-primary-hover: #651923;
+  --accent-primary-soft: #F5E9EB;
+  --accent-secondary: #C9A646;
+  --accent-secondary-hover: #B28F35;
+  --accent-secondary-soft: #F7F0D8;
+
+  /* Borders */
+  --border-default: #E5DED2;
+  --border-strong: #CFC4B4;
+  --border-subtle: #EEE7DC;
+
+  /* Focus */
+  --focus-ring: #7A1F2B;
+
+  /* State */
+  --state-error: #B4232A;
+  --state-error-bg: #FCE8EA;
+  --state-warning: #B7791F;
+  --state-warning-bg: #FFF4D6;
+  --state-success: #2E7D4F;
+  --state-success-bg: #E6F2EC;
+  --state-info: #2F5F8F;
+  --state-info-bg: #E7EEF7;
+
+  /* Disabled */
+  --disabled-bg: #E9E2D8;
+  --disabled-text: #9A8F88;
+
+  /* Timetable grid */
+  --grid-line: #E5DED2;
+  --grid-line-strong: #CFC4B4;
+  --grid-lunch-bg: #F6F1EA;
+  --grid-cell-hover: #F7F0D8;
+  --grid-cell-invalid: #FCE8EA;
+
+  /* Unit card colors */
+  --unit-maroon-bg: #F5E9EB;
+  --unit-maroon-border: #7A1F2B;
+  --unit-gold-bg: #F7F0D8;
+  --unit-gold-border: #C9A646;
+  --unit-blue-bg: #E7EEF7;
+  --unit-blue-border: #2F5F8F;
+  --unit-green-bg: #E6F2EC;
+  --unit-green-border: #2E7D4F;
+  --unit-purple-bg: #EFEAF7;
+  --unit-purple-border: #7256A0;
+  --unit-stone-bg: #EFEAE4;
+  --unit-stone-border: #8A7E78;
+
+  /* Solver accents */
+  --solver-accent: #2F5F8F;
+  --solver-accent-hover: #264D73;
+  --solver-accent-soft: #E7EEF7;
+  --solver-running-bg: #EEF4FA;
+  --solver-partial-bg: #FFF4D6;
+  --solver-success-bg: #E6F2EC;
+  --solver-failure-bg: #FCE8EA;
+}
+
+@layer base {
+  * {
+    border-color: var(--border-default);
+    outline-color: var(--focus-ring);
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
