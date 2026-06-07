@@ -36,3 +36,4 @@ build/
 
 # Alembic (do not ignore migrations themselves)
 backend/alembic/versions/__pycache__/
+
