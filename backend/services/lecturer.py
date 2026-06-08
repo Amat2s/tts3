@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from api.errors import AppError
 from models.lecturer import Lecturer, LecturerAvailability
@@ -6,7 +6,12 @@ from schemas.lecturer import LecturerAvailabilitySet, LecturerCreate, LecturerUp
 
 
 def list_lecturers(db: Session) -> list[Lecturer]:
-    return db.query(Lecturer).order_by(Lecturer.last_name, Lecturer.first_name).all()
+    return (
+        db.query(Lecturer)
+        .options(selectinload(Lecturer.unavailable_slots))
+        .order_by(Lecturer.last_name, Lecturer.first_name)
+        .all()
+    )
 
 
 def get_lecturer(db: Session, lecturer_id: str) -> Lecturer:
@@ -47,6 +52,16 @@ def set_availability(
     db: Session, lecturer_id: str, data: LecturerAvailabilitySet
 ) -> Lecturer:
     lecturer = get_lecturer(db, lecturer_id)
+    seen: set[tuple[str, str]] = set()
+    for entry in data.unavailable:
+        key = (entry.day.value, entry.slot.value)
+        if key in seen:
+            raise AppError(
+                "duplicate_availability_entry",
+                "Duplicate day/slot in unavailable list.",
+                status_code=422,
+            )
+        seen.add(key)
     lecturer.unavailable_slots.clear()
     for entry in data.unavailable:
         lecturer.unavailable_slots.append(

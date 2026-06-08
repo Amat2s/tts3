@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,10 +28,10 @@ class AvailabilitySlot(str, enum.Enum):
     S1 = "s1"
     S2 = "s2"
     S3 = "s3"
+    S4 = "s4"
     S5 = "s5"
     S6 = "s6"
     S7 = "s7"
-    S8 = "s8"
 
 
 class Lecturer(Base):
@@ -49,10 +50,10 @@ class Lecturer(Base):
     )
     first_name: Mapped[str] = mapped_column(String, nullable=False)
     last_name: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[str] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    updated_at: Mapped[str] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),

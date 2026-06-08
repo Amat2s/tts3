@@ -58,7 +58,7 @@
 
 ## Invariants
 
-1. Sessions are atomic scheduling units and always include: name, course, lecturer, students, duration
+1. Sessions are atomic scheduling units and always include: name, course, lecturer, and duration; students are optional
 2. Time is discretized into fixed slots; sessions occupy contiguous slot intervals only
 3. Only two session states exist: locked (scheduled) and unscheduled
 4. Locked sessions are immutable inputs to solver and constraint engine

@@ -96,6 +96,7 @@ function RoomFormFields({
         <Select
           value={values.room_type}
           onValueChange={(v) => onChange({ room_type: v as RoomType })}
+          items={ROOM_TYPES.map((t) => ({ value: t.value, label: t.label }))}
         >
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Select a type" />

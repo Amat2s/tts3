@@ -1,5 +1,6 @@
 import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL } from './slots'
 import { GridCell } from './GridCell'
+import type { TimetableAssignment } from './assignment'
 
 export interface RoomColumn {
   id: string
@@ -8,6 +9,7 @@ export interface RoomColumn {
 
 interface TimetableGridProps {
   rooms: RoomColumn[]
+  assignments?: TimetableAssignment[]
 }
 
 const TIME_COL_W = '6rem'
@@ -16,6 +18,17 @@ const noSelectStyle: React.CSSProperties = { userSelect: 'none' }
 
 function preventDefault(e: React.MouseEvent) {
   e.preventDefault()
+}
+
+// Key format: "${day}:${roomId}:${slotId}"
+function buildAssignmentMap(
+  assignments: TimetableAssignment[]
+): Map<string, TimetableAssignment> {
+  const map = new Map<string, TimetableAssignment>()
+  for (const a of assignments) {
+    map.set(`${a.day}:${a.room_id}:${a.start_slot}`, a)
+  }
+  return map
 }
 
 function TimeLabel({ label }: { label: string }) {
@@ -35,8 +48,10 @@ function TimeLabel({ label }: { label: string }) {
   )
 }
 
-export function TimetableGrid({ rooms }: TimetableGridProps) {
+export function TimetableGrid({ rooms, assignments = [] }: TimetableGridProps) {
   if (rooms.length === 0) return null
+
+  const assignmentMap = buildAssignmentMap(assignments)
 
   return (
     <div
@@ -114,6 +129,7 @@ export function TimetableGrid({ rooms }: TimetableGridProps) {
                 day={day}
                 roomId={room.id}
                 isDayBoundary={rIdx === rooms.length - 1}
+                assignment={assignmentMap.get(`${day}:${room.id}:${slot.id}`)}
               />
             ))
           )}
@@ -170,6 +186,7 @@ export function TimetableGrid({ rooms }: TimetableGridProps) {
                 day={day}
                 roomId={room.id}
                 isDayBoundary={rIdx === rooms.length - 1}
+                assignment={assignmentMap.get(`${day}:${room.id}:${slot.id}`)}
               />
             ))
           )}
