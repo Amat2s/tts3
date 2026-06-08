@@ -53,8 +53,5 @@ def update_room(db: Session, room_id: str, data: RoomUpdate) -> Room:
 
 def delete_room(db: Session, room_id: str) -> None:
     room = get_room(db, room_id)
-    db.query(TimetableAssignment).filter(
-        TimetableAssignment.room_id == room_id
-    ).delete(synchronize_session=False)
     db.delete(room)
     db.commit()

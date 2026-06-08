@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import enum
 import uuid
 from datetime import datetime
@@ -6,6 +8,9 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.session import Base
+
+if TYPE_CHECKING:
+    from models.assignment import TimetableAssignment
 
 
 class SessionType(str, enum.Enum):
@@ -47,7 +52,6 @@ class Session(Base):
     assignment: Mapped["TimetableAssignment"] = relationship(
         "TimetableAssignment",
         back_populates="session",
-        cascade="all, delete-orphan",
         lazy="selectin",
         passive_deletes=True,
         uselist=False,
