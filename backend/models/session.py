@@ -44,3 +44,11 @@ class Session(Base):
     )
 
     unit: Mapped["Unit"] = relationship("Unit", back_populates="sessions")
+    assignment: Mapped["TimetableAssignment"] = relationship(
+        "TimetableAssignment",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        passive_deletes=True,
+        uselist=False,
+    )

@@ -2,6 +2,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.errors import AppError
+from models.assignment import TimetableAssignment
 from models.room import Room
 from schemas.room import RoomCreate, RoomUpdate
 
@@ -52,5 +53,8 @@ def update_room(db: Session, room_id: str, data: RoomUpdate) -> Room:
 
 def delete_room(db: Session, room_id: str) -> None:
     room = get_room(db, room_id)
+    db.query(TimetableAssignment).filter(
+        TimetableAssignment.room_id == room_id
+    ).delete(synchronize_session=False)
     db.delete(room)
     db.commit()
