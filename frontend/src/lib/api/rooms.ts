@@ -25,10 +25,27 @@ export interface RoomUpdate {
 
 function parseRoomError(err: unknown): never {
   if (err instanceof ApiRequestError) {
-    const detail =
+    const rawDetail =
       typeof err.detail === 'object' && err.detail !== null
-        ? (err.detail as { detail?: string }).detail
+        ? (err.detail as { detail?: unknown }).detail
         : undefined
+
+    const detail =
+      typeof rawDetail === 'string'
+        ? rawDetail
+        : Array.isArray(rawDetail)
+          ? rawDetail
+              .map((d) =>
+                typeof d === 'object' &&
+                d !== null &&
+                'msg' in d &&
+                typeof (d as { msg?: unknown }).msg === 'string'
+                  ? (d as { msg: string }).msg
+                  : null
+              )
+              .filter((m): m is string => Boolean(m))
+              .join(' ')
+          : undefined
     if (err.status === 409 || (detail && detail.includes('already exists'))) {
       throw new ApiRequestError({ status: 409, message: 'A room with that name already exists.', detail: err.detail })
     }

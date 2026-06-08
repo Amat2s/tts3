@@ -5,11 +5,11 @@ change.
 
 ## Current Phase
 
-- Unit 12/2 complete — timetable table UI adjustments
+- Unit 16/20 complete — frontend lecturer and student page integrations
 
 ## Current Goal
 
-- Begin Unit 13
+- Begin Unit 17 (next unit TBD)
 
 ## Completed
 
@@ -159,6 +159,12 @@ change.
   - No TanStack Query, no rooms page data wiring, no mock data added
   - Build succeeds with zero errors
 
+- **Units 13/17: Frontend Lecturer and Student Page Shells**
+  - Created `frontend/src/features/lecturers/AvailabilityEditor.tsx` — self-contained availability grid; Mon–Fri columns, AM slots (s1–s4), lunch divider, PM slots (s5–s8); click to toggle unavailable (maroon-soft highlight); legend and instructions; blank initial state
+  - Rewrote `frontend/src/routes/lecturers.tsx` — full management shell: page header with "Add lecturer" action; table with Title/First name/Last name/Actions columns; inline empty state; Create/Edit/Delete/Availability dialogs; `LecturerFormFields` (title, first name, last name); all submit buttons disabled pending API integration; availability dialog uses `AvailabilityEditor` with disabled "Save availability" CTA
+  - Rewrote `frontend/src/routes/students.tsx` — full management shell: page header with "Add student" action; table with Title/First name/Last name/Year level/Actions columns; inline empty state; Create/Edit/Delete dialogs; `StudentFormFields` (title, first name, last name, year level); all submit buttons disabled pending API integration; no lecturer availability controls
+  - No API calls, no mock data, no TanStack Query, no persistence; build succeeds with zero TypeScript errors
+
 - **Unit 12/2: Timetable Table UI Adjustments**
   - Updated `slots.ts`: all 8 time slot labels now show start–end times in `H:MM-H:MM` format; added 4th AM slot `s4` (`12:00-12:50`); PM slots renumbered s5–s8 with labels `1:30-2:20` through `4:30-5:20`
   - `TimetableGrid.tsx`: removed `overflow-x-auto` wrapper and `min-w-max`; grid is now `w-full`; day headers use `flex: rooms.length` to span proportionally; room sub-headers and `GridCell` use `flex-1` so columns distribute across available width without horizontal scroll
@@ -166,6 +172,46 @@ change.
   - All time labels, day headers, room sub-headers, and lunch row use `userSelect: 'none'` and `onContextMenu` prevention; global app text selection and right-click are unaffected
   - `GridCell.tsx`: replaced `shrink-0 w-32` with `flex-1`; cells resize proportionally
   - Build succeeds with zero TypeScript errors
+
+- **Unit 15/19: Frontend Lecturer and Student API Clients**
+  - Created `frontend/src/lib/api/lecturers.ts` — `LecturerTitle`, `AvailabilityDay`, `AvailabilitySlot`, `AvailabilityEntry`, `Lecturer`, `LecturerCreate`, `LecturerUpdate`, `LecturerAvailabilitySet` types; `listLecturers`, `createLecturer`, `updateLecturer`, `deleteLecturer`, `setLecturerAvailability` functions; `parseLecturerError` helper for 409/422
+  - Created `frontend/src/lib/api/students.ts` — `StudentTitle`, `Student`, `StudentCreate`, `StudentUpdate` types; `listStudents`, `createStudent`, `updateStudent`, `deleteStudent` functions; `parseStudentError` helper for 422
+  - All functions use the Unit 6 `apiRequest` authenticated base client; token attachment and 401 handling delegated to base client
+  - DTO types match backend `LecturerResponse` and `StudentResponse` schemas exactly; `AvailabilitySlot` union matches backend enum (s1–s3, s5–s8, no s4)
+  - `/lecturers` and `/students` pages remain unconnected to real data
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 16/20: Frontend Lecturer and Student Page Integrations**
+  - Updated `AvailabilityEditor` to controlled component — accepts `value: AvailabilityEntry[]` and `onChange` props; no internal state
+  - Rewrote `frontend/src/routes/lecturers.tsx` with full TanStack Query integration:
+    - `useQuery({ queryKey: ['lecturers'], queryFn: listLecturers })` — loading, error, empty states driven by real backend data
+    - `useMutation` for create, edit, delete, availability save — each invalidates `['lecturers']` on success
+    - Availability dialog initialises from lecturer's `unavailable_slots`; saves via `setLecturerAvailability`
+    - Per-dialog error messages surface mutation failures; loading text on buttons while mutations run
+    - Removed local `Lecturer`, `LecturerTitle` type definitions; imported from `@/lib/api/lecturers`
+    - No mock data, no Zustand, no student API calls
+  - Rewrote `frontend/src/routes/students.tsx` with full TanStack Query integration:
+    - `useQuery({ queryKey: ['students'], queryFn: listStudents })` — loading, error, empty states
+    - `useMutation` for create, edit, delete — each invalidates `['students']` on success
+    - Per-dialog error messages; loading text on buttons while mutations run
+    - Removed local `Student`, `StudentTitle` type definitions; imported from `@/lib/api/students`
+    - No mock data, no Zustand, no lecturer API calls, no availability controls
+  - Query keys `['lecturers']` and `['students']` are separate and never cross-invalidate
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 14/18: Backend Lecturer and Student Persistence and Protected API**
+  - Created `backend/models/lecturer.py` — `LecturerTitle` enum (`Dr.`, `Prof.`, `A/Prof.`, `Mr.`, `Ms.`), `AvailabilityDay` enum (Monday–Friday), `AvailabilitySlot` enum (`s1`–`s8`, matching timetable slots), `Lecturer` SQLAlchemy model, `LecturerAvailability` model with unique constraint on `(lecturer_id, day, slot)` and `delete-orphan` cascade
+  - Created `backend/models/student.py` — `StudentTitle` enum (`Mr.`, `Ms.`, `Mx.`), `Student` SQLAlchemy model with `year_level` integer field
+  - Created `backend/schemas/lecturer.py` — `AvailabilityEntry`, `LecturerCreate`, `LecturerUpdate`, `LecturerAvailabilitySet`, `LecturerResponse` (includes `unavailable_slots`); validators enforce non-blank names
+  - Created `backend/schemas/student.py` — `StudentCreate`, `StudentUpdate`, `StudentResponse`; validators enforce non-blank names and year level 1–5
+  - Created `backend/services/lecturer.py` — `list_lecturers`, `get_lecturer`, `create_lecturer`, `update_lecturer`, `delete_lecturer`, `set_availability` (replaces all unavailability records via ORM relationship)
+  - Created `backend/services/student.py` — `list_students`, `get_student`, `create_student`, `update_student`, `delete_student`
+  - Created `backend/api/lecturers.py` — `GET /lecturers`, `POST /lecturers`, `PUT /lecturers/{id}`, `DELETE /lecturers/{id}`, `PUT /lecturers/{id}/availability`; all protected by `get_current_admin`
+  - Created `backend/api/students.py` — `GET /students`, `POST /students`, `PUT /students/{id}`, `DELETE /students/{id}`; all protected by `get_current_admin`
+  - Created `backend/alembic/versions/0003_create_lecturers_and_students.py` — creates `lecturertitle`, `availabilityday`, `availabilityslot`, `studenttitle` Postgres enums; creates `lecturers`, `lecturer_availability`, `students` tables
+  - Updated `backend/models/__init__.py` — registers `Lecturer`, `LecturerAvailability`, `Student`
+  - Updated `backend/api/router.py` — registered lecturer and student routers
+  - No frontend API clients, unit/session relationships, constraint evaluation, or solver behavior added
 
 - **Unit 12: Frontend Timetable Room Integration**
   - Replaced static `ROOMS: RoomColumn[]` placeholder in `src/routes/timetable.tsx` with `useQuery(['rooms'], listRooms)` from the room API client
@@ -199,7 +245,7 @@ change.
 
 ## Next Up
 
-- Unit 13
+- Next unit TBD
 
 ## Open Questions
 
