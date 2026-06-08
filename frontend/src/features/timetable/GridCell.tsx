@@ -17,7 +17,7 @@ export function GridCell({
 
   return (
     <div
-      className="h-14 shrink-0 w-32 border-r border-b rounded-none"
+      className="h-14 flex-1 border-r border-b rounded-none"
       style={{
         borderRightColor: isDayBoundary
           ? 'var(--grid-line-strong)'

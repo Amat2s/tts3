@@ -5,11 +5,11 @@ change.
 
 ## Current Phase
 
-- Unit 8 complete — frontend timetable no-room state and grid shell
+- Unit 12/2 complete — timetable table UI adjustments
 
 ## Current Goal
 
-- Begin Unit 9
+- Begin Unit 13
 
 ## Completed
 
@@ -117,6 +117,17 @@ change.
   - No TanStack Query, Zustand, CRUD, mock data, or product API clients added
   - Build succeeds with zero TypeScript errors
 
+- **Unit 9: Backend Room Persistence and Protected API**
+  - Created `backend/models/room.py` — `RoomType` enum (`lecture`, `tutorial`) and `Room` SQLAlchemy model with `id`, `name` (unique), `capacity`, `room_type`, `created_at`, `updated_at`
+  - Created `backend/schemas/room.py` — `RoomCreate`, `RoomUpdate`, and `RoomResponse` Pydantic schemas; validators reject blank names and non-positive capacity values
+  - Created `backend/services/room.py` — `list_rooms`, `get_room`, `create_room`, `update_room`, `delete_room`; raises `AppError` 404 on not-found, 409 on name uniqueness conflict
+  - Created `backend/api/rooms.py` — `GET /rooms`, `POST /rooms`, `PUT /rooms/{room_id}`, `DELETE /rooms/{room_id}`; all routes require `get_current_admin`; returns `RoomResponse` schemas
+  - Updated `backend/api/router.py` — registered rooms router
+  - Created `backend/alembic/versions/0002_create_rooms.py` — creates `rooms` table and `roomtype` Postgres enum; revises `0001`
+  - Updated `backend/models/__init__.py` — imports `Room` so `Base.metadata` includes the table
+  - Updated `backend/alembic/env.py` — imports `models` package so all models are registered for future `--autogenerate`
+  - No frontend API client, no UI integration, no assignment or solver behavior added
+
 - **Unit 8: Frontend Timetable No-Room State and Grid Shell**
   - Updated `/timetable` route to full workspace layout
   - Page header with revised description; reserved action/status bar (`TimetableActionBar`)
@@ -141,13 +152,54 @@ change.
   - No backend calls, API clients, TanStack Query, or CRUD behavior
   - Build succeeds with zero TypeScript errors
 
+- **Unit 10: Frontend Room API Client**
+  - Created `frontend/src/lib/api/rooms.ts` — `Room` DTO type, `RoomCreate` and `RoomUpdate` input types, `RoomType` union, and four API functions: `listRooms`, `createRoom`, `updateRoom`, `deleteRoom`
+  - All functions use `apiRequest` from the Unit 6 authenticated base client; auth token is attached consistently through that shared helper
+  - `parseRoomError` helper adds room-specific messages for 409 (duplicate name) and 422 (validation) errors before re-throwing
+  - No TanStack Query, no rooms page data wiring, no mock data added
+  - Build succeeds with zero errors
+
+- **Unit 12/2: Timetable Table UI Adjustments**
+  - Updated `slots.ts`: all 8 time slot labels now show start–end times in `H:MM-H:MM` format; added 4th AM slot `s4` (`12:00-12:50`); PM slots renumbered s5–s8 with labels `1:30-2:20` through `4:30-5:20`
+  - `TimetableGrid.tsx`: removed `overflow-x-auto` wrapper and `min-w-max`; grid is now `w-full`; day headers use `flex: rooms.length` to span proportionally; room sub-headers and `GridCell` use `flex-1` so columns distribute across available width without horizontal scroll
+  - Time label column widened from `4rem` to `6rem` to accommodate longer `HH:MM-HH:MM` labels
+  - All time labels, day headers, room sub-headers, and lunch row use `userSelect: 'none'` and `onContextMenu` prevention; global app text selection and right-click are unaffected
+  - `GridCell.tsx`: replaced `shrink-0 w-32` with `flex-1`; cells resize proportionally
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 12: Frontend Timetable Room Integration**
+  - Replaced static `ROOMS: RoomColumn[]` placeholder in `src/routes/timetable.tsx` with `useQuery(['rooms'], listRooms)` from the room API client
+  - Loading state: centered "Loading rooms…" panel shown while rooms fetch
+  - Error state: backend error message shown in error panel
+  - No-room state: empty state with `CalendarDays` icon and link to `/rooms` for navigation
+  - Grid state: `TimetableGrid` rendered with real `Room[]` records; `Room` satisfies `RoomColumn` structurally (`id` + `name`)
+  - `queryKey: ['rooms']` matches the rooms page cache — creating a room on `/rooms` invalidates and refetches, causing the timetable to render the grid automatically
+  - Removed dev-only auth verify code from Unit 6 (no longer needed)
+  - No new packages, no Zustand, no localStorage, no fake data
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 11: Frontend Rooms Page Integration**
+  - Installed `@tanstack/react-query`
+  - Added `QueryClientProvider` wrapping the app root in `src/App.tsx`
+  - Rewrote `src/routes/rooms.tsx` with full backend integration:
+    - `useQuery(['rooms'], listRooms)` — loading, error, and empty states driven by real backend data
+    - `useMutation` for create, edit, delete — each invalidates `['rooms']` on success
+    - Controlled form state (`name`, `capacity`, `room_type`) for create and edit dialogs
+    - Required field validation gates submit buttons; buttons show loading text while mutations run
+    - Per-dialog error messages surface mutation errors to the user
+    - Delete requires confirmation; delete dialog shows room name and error state
+    - Room type values corrected to match backend enum (`lecture`, `tutorial`)
+    - Row-level Edit and Delete action buttons wired to real room data
+    - No mock data, no Zustand, no timetable integration, no optimistic updates
+  - Build succeeds with zero TypeScript errors
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Unit 9
+- Unit 13
 
 ## Open Questions
 
