@@ -43,7 +43,16 @@ export async function apiRequest<T>(
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers })
 
   const text = await response.text()
-  const body: unknown = text ? (JSON.parse(text) as unknown) : null
+  let body: unknown = null
+  let parseError = false
+  if (text) {
+    try {
+      body = JSON.parse(text) as unknown
+    } catch {
+      parseError = true
+      body = { detail: text }
+    }
+  }
 
   if (response.status === 401) {
     throw new ApiRequestError({ status: 401, message: 'Unauthorized' })
@@ -53,6 +62,13 @@ export async function apiRequest<T>(
     const detail = (body as { detail?: string } | null)?.detail
     const message = detail ?? `Request failed with status ${response.status}`
     throw new ApiRequestError({ status: response.status, message, detail: body })
+  }
+
+  if (parseError) {
+    throw new ApiRequestError({
+      status: response.status,
+      message: 'Server returned an unexpected response. Is the API base URL configured correctly?',
+    })
   }
 
   return body as T
