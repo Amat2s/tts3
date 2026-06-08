@@ -5,11 +5,21 @@ change.
 
 ## Current Phase
 
-- Unit 16/20 complete — frontend lecturer and student page integrations
+- Unit 30 complete — frontend scheduled session rendering shell
+- Unit 29 complete — frontend unscheduled pool integration (real schedulable-session data)
+- Unit 28 complete — frontend unscheduled pool shell
+- Unit 27 complete — frontend session management integration
+- Unit 26 complete — frontend session API client
+- Unit 25 complete — backend session persistence and protected API
+- Unit 24 complete — frontend unit page integration
+- Unit 23 complete — frontend unit API client
+- Unit 22 complete — backend unit persistence and protected API
+- Unit 21 complete — frontend unit and session management shell
+- Codebase consistency fixes applied (slots, architecture invariants, unit field naming)
 
 ## Current Goal
 
-- Begin Unit 17 (next unit TBD)
+- Next unit TBD (assignment backend + integration phase)
 
 ## Completed
 
@@ -239,17 +249,122 @@ change.
     - No mock data, no Zustand, no timetable integration, no optimistic updates
   - Build succeeds with zero TypeScript errors
 
+- **Unit 23: Frontend Unit API Client**
+  - Created `frontend/src/lib/api/units.ts` — `LecturerSummary`, `StudentSummary` nested types; `Unit` DTO; `UnitCreate`, `UnitUpdate` request types; `listUnits`, `createUnit`, `updateUnit`, `deleteUnit` API functions; `parseUnitError` helper for 409 (duplicate code) and 422 (validation) errors
+  - All functions use the Unit 6 `apiRequest` authenticated base client; token attachment and 401 handling delegated to base client
+  - DTO types match backend `UnitResponse` schema exactly; `LecturerSummary` and `StudentSummary` match backend nested types; `LecturerTitle` imported from existing `lecturers.ts` to avoid duplication
+  - No server-owned unit data in Zustand; `/units` page not connected to real data; no session API client added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 24: Frontend Unit Page Integration**
+  - Rewrote `frontend/src/routes/units.tsx` with full TanStack Query integration:
+    - `useQuery({ queryKey: ['units'], queryFn: listUnits })` — loading, error, empty states driven by real backend data
+    - `useQuery({ queryKey: ['lecturers'], queryFn: listLecturers })` — powers lecturer selector
+    - `useQuery({ queryKey: ['students'], queryFn: listStudents })` — powers student selector
+    - `useMutation` for create, edit, delete — each invalidates `['units']` on success; per-dialog error messages; loading text on CTA buttons
+  - Lecturer selector: real `Select` populated from lecturer records; shows `Title First Last`; required for form validity
+  - Student selector: scrollable checkbox list populated from student records; tracks `student_ids[]`; shows selected count
+  - Create, edit, delete dialogs fully wired to backend mutations; delete dialog shows unit code and name for confirmation
+  - Edit dialog initialises from real unit data (`code`, `name`, `lecturer_id`, `student_ids` extracted from `unit.students`)
+  - Session section kept as non-persistent shell: add/remove session boxes work locally; no backend calls; placeholder text notes next phase
+  - `isFormValid` requires `code`, `name`, and `lecturer_id`; sessions not required
+  - `/lecturers` and `/students` routes not muddled; units page only reads from those query caches
+  - No mock data, no Zustand, no session API calls
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 22: Backend Unit Persistence and Protected API**
+  - Created `backend/models/unit.py` — `Unit` SQLAlchemy model (`id`, `code` unique, `name`, `lecturer_id` FK); `unit_students` many-to-many join table (unit→student, both cascade on delete); `lazy="selectin"` on `lecturer` and `students` relationships to avoid N+1 on list
+  - Created `backend/schemas/unit.py` — `LecturerSummary`, `StudentSummary` (lightweight nested types); `UnitCreate` (code, name, lecturer_id, student_ids); `UnitUpdate` (all optional); `UnitResponse` (includes nested lecturer and students); validators enforce non-blank code and name
+  - Created `backend/services/unit.py` — `list_units`, `get_unit`, `create_unit`, `update_unit`, `delete_unit`; validates lecturer exists (422), all student IDs exist (422), unique unit code (409 on conflict); excludes self on code uniqueness check during update
+  - Created `backend/api/units.py` — `GET /units`, `POST /units`, `PUT /units/{unit_id}`, `DELETE /units/{unit_id}`; all routes require `get_current_admin`; returns `UnitResponse` schemas
+  - Created `backend/alembic/versions/0005_create_units.py` — creates `units` table (with FK to `lecturers`, unique constraint on `code`) and `unit_students` join table; revises `0004`
+  - Updated `backend/models/__init__.py` — registers `Unit` and `unit_students`
+  - Updated `backend/api/router.py` — registered units router
+  - No frontend code, no session model, no session routes added
+
+- **Unit 21: Frontend Unit and Session Management Shell**
+  - Rewrote `frontend/src/routes/units.tsx` — full management shell: page header with "Create unit" action; table with Code/Name/Sessions/Actions columns; inline empty state (BookOpen icon + text)
+  - Create unit `Dialog` — opens via header button; fields for unit code (e.g. HIS101), unit name (e.g. Ancient History), disabled lecturer selector (placeholder), disabled student selector (placeholder); session section with add button, inline session boxes, empty session state; Create CTA disabled until code and name are filled
+  - Edit unit `Dialog` — same form structure as create; Save changes CTA disabled until required fields filled
+  - Delete unit `Dialog` — confirms that the unit and all its sessions will be removed; destructive CTA
+  - `SessionBox` component — compact card with session type `Select` (Lecture/Tutorial/Lab/Workshop) and duration `Select` (1–4 slots); delete button removes the box from local shell state
+  - Session state is local to the form only (add/delete interaction only); no persistence, no backend calls, no TanStack Query wiring
+  - Lecturer and student selectors are disabled with placeholder text; no real data connected
+  - No fake unit, session, lecturer, or student records displayed
+  - Fixed `@base-ui/react` Select `onValueChange` type (`string | null`) with `?? ''` nullish coalescing
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 25: Backend Session Persistence and Protected API**
+  - Created `backend/models/session.py` — `SessionType` enum (`lecture`, `tutorial`, `lab`, `workshop`); `Session` SQLAlchemy model (`id`, `unit_id` FK with CASCADE, `session_type`, `duration`, `created_at`, `updated_at`); back-populates `unit.sessions`
+  - Updated `backend/models/unit.py` — added `sessions` relationship with `cascade="all, delete-orphan"` so deleting a unit removes its child sessions
+  - Created `backend/schemas/session.py` — `SessionCreate` (session_type, duration 1–4 validated); `SessionUpdate` (both optional, same duration guard); `SessionResponse`; `SchedulableSessionResponse` (includes derived lecturer display name, student count)
+  - Created `backend/services/session.py` — `list_sessions_for_unit`, `create_session`, `update_session`, `delete_session`, `list_schedulable_sessions`; schedulable filter requires unit to have a lecturer; student count derived from parent unit; no assignment behavior
+  - Created `backend/api/sessions.py` — two routers: `unit_sessions_router` (`GET/POST /units/{unit_id}/sessions`) and `sessions_router` (`GET /sessions/schedulable`, `PUT /sessions/{session_id}`, `DELETE /sessions/{session_id}`); all routes require `get_current_admin`
+  - Created `backend/alembic/versions/0006_create_sessions.py` — creates `sessiontype` Postgres enum and `sessions` table; revises `0005`
+  - Updated `backend/models/__init__.py` — registers `Session`
+  - Updated `backend/api/router.py` — registered both session routers
+
+- **Unit 26: Frontend Session API Client**
+  - Created `frontend/src/lib/api/sessions.ts` — `SessionType` union (`lecture | tutorial | lab | workshop`); `Session` DTO; `SessionCreate`, `SessionUpdate` request types; `SchedulableSession` DTO (includes derived lecturer display name, student count); `listUnitSessions`, `createUnitSession`, `updateSession`, `deleteSession`, `listSchedulableSessions` API functions; `parseSessionError` helper for 404/422
+  - All functions use the Unit 6 `apiRequest` authenticated base client; token attachment and 401 handling delegated to base client
+  - Paths match Unit 25 backend routes exactly: `/units/{unitId}/sessions` for unit-scoped routes, `/sessions/{sessionId}` for top-level, `/sessions/schedulable` for schedulable listing
+  - No TanStack Query hooks, no Zustand, no `/units` page wiring, no mock data
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 27: Frontend Session Management Integration**
+  - Rewrote `frontend/src/routes/units.tsx` with full session persistence:
+    - `UnitTableRow` component — per-unit `useQuery(['unit-sessions', unit.id], listUnitSessions)` shows live session count in Sessions column; counts update automatically after mutations
+    - `UnitSessionsPanel` component — rendered inside the edit unit dialog; fetches sessions with `['unit-sessions', unitId]`; "Add session" button calls `createUnitSession` with default `{session_type: 'lecture', duration: 1}`; invalidates query on success; loading and error states on both query and mutation
+    - `SessionBoxLive` component — inline session box with per-session `updateMutation` (fires on session type or duration select change) and `deleteMutation` (requires inline delete/cancel confirmation before firing); `Loader2` spinner shown while update is in progress; both errors displayed inline below the box
+    - `UnitFormFields` — sessions section removed (sessions require an existing unit); create dialog updated description to note sessions are added after creation
+    - `SessionType` values use backend enum strings (`lecture`/`tutorial`/`lab`/`workshop`); `DURATION_OPTIONS` values are integers 1–4
+    - All session mutations invalidate `['unit-sessions', unitId]`; unit mutations still invalidate `['units']`
+    - No Zustand, no localStorage, no mock sessions
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 30: Frontend Scheduled Session Rendering Shell**
+  - Created `frontend/src/features/timetable/assignment.ts` — `SlotId` union (`s1`–`s7`, no `s8`); `TimetableAssignment` frontend rendering model with all fields needed to place and display a session (assignment_id optional, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id); aligns with future Unit 32 backend DTO
+  - Created `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `position: absolute inset-x-0 top-0`, height `calc(N * 3.5rem)` where N = duration; left-border 4px accent (vs 3px on unscheduled cards); shows unit code, abbreviated session type, lecturer name (truncated), student count (duration > 1 only); uses `getUnitColor` + same BG/accent token maps as `UnscheduledSessionCard`; `z-index: 10` to overlay subsequent slot rows; `overflow: hidden`; distinct from unscheduled cards by layout, width behavior, and content
+  - Updated `frontend/src/features/timetable/GridCell.tsx` — added `position: relative` (`className="relative h-14 …"`); accepts `assignment?: TimetableAssignment`; renders `ScheduledSessionCard` when assignment is present; suppresses hover state when a card is rendered
+  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `assignments?: TimetableAssignment[]` (defaults to `[]`); `buildAssignmentMap` indexes assignments by `"${day}:${roomId}:${slotId}"`; each `GridCell` receives `assignment={assignmentMap.get(key)}` — undefined when no assignment starts at that cell; grid renders blank as before when `assignments=[]`
+  - Updated `frontend/src/routes/timetable.tsx` — passes `assignments={[]}` to `TimetableGrid`; no backend calls, no fake data
+  - No drag-and-drop, no assignment API client, no backend calls, no mock assignments in production UI
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 29: Frontend Unscheduled Pool Integration**
+  - Added `useQuery({ queryKey: ['schedulable-sessions'], queryFn: listSchedulableSessions })` in `timetable.tsx`; sessions query runs independently from the rooms query so pool and grid states are decoupled
+  - `UnscheduledPool` updated to accept `isLoading`, `isError`, `error` props; renders spinner loading state, error message, empty state, or grouped session cards depending on query state
+  - `buildUnitBuckets` now sorts buckets by unit code (alphabetical) and sorts sessions within each bucket by session type order (lecture → tutorial → lab → workshop) then by duration
+  - `['schedulable-sessions']` query key is invalidated on `createMutation`, `editMutation`, and `deleteMutation` success in `units.tsx`, so the pool refreshes automatically after unit/session changes
+  - No mock data, no Zustand, no scheduling/assignment/drag-drop behavior added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 28: Frontend Unscheduled Pool Shell**
+  - Created `frontend/src/features/timetable/unitColors.ts` — `getUnitColor(identifier)` deterministic helper; hashes identifier string into one of 6 color variant names (maroon, gold, blue, green, purple, stone); no hex values
+  - Created `frontend/src/features/timetable/UnscheduledSessionCard.tsx` — compact card prepared for `SchedulableSession` DTO; displays session type, unit code, unit name, duration, lecturer display name, student count; left-border accent driven by unit color variant tokens; `minWidth: 180px`, `maxWidth: 240px`; no drag-and-drop
+  - Created `frontend/src/features/timetable/UnitGroup.tsx` — groups session cards under a unit label row (code, name, session count); accepts `UnitColorVariant` and `SchedulableSession[]`
+  - Created `frontend/src/features/timetable/UnscheduledPool.tsx` — pool panel with heading, helper text, empty state (`CalendarPlus` icon, "No schedulable sessions yet", link to `/units`), and unit-bucket rendering when sessions provided; `buildUnitBuckets` groups sessions by `unit_id`; no backend calls
+  - Updated `frontend/src/routes/timetable.tsx` — `UnscheduledPool` imported and rendered below `TimetableGrid` only in the rooms-exist grid state; all other states (loading, error, no-room) unchanged
+  - No drag-and-drop, no TanStack Query wiring for sessions, no mock data, no backend calls
+  - Build succeeds with zero TypeScript errors
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Next unit TBD
+- Next unit TBD (timetable integration phase)
 
 ## Open Questions
 
 - None from Unit 3.
+
+## Consistency Fixes
+
+- **Slot renaming (s5-s8 → s4-s7)**: PM slots are now s4-s7 (s1-s3 AM, s4-s7 PM). Updated `slots.ts`, `lecturers.ts` (frontend), `backend/models/lecturer.py`, and created migration `0004_rename_availability_slots.py` to rename the Postgres enum values in existing databases.
+- **architecture-context.md invariant #1**: Updated to state that students are optional (aligns with project-overview.md).
+- **Unit field naming**: Standardised on `id` (DB primary key), `code` (course code e.g. HIS101), `name` (unit name). Updated `units.tsx` form state and specs 21/22/24.
 
 ## Architecture Decisions
 

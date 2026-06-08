@@ -638,23 +638,26 @@ Units 16, 20, and 23.
 
 - Session SQLAlchemy model.
 - Session relationship to unit.
-- Session/student relationship if session-level assignment is used.
 - Session Pydantic schemas.
 - Session service functions.
-- Duration validation.
-- Schedulable-session calculation.
 - Session migration.
-- Protected session routes:
-  - create session;
+- Protected session routes scoped under units where practical:
+  - list sessions for a unit;
+  - create session for a unit;
   - update session;
   - delete session;
-  - list sessions;
   - list schedulable sessions.
+- Session fields:
+  - session type;
+  - duration.
+- Session lecturer/student derivation from the parent unit for v1 scheduling.
+- Duration validation.
+- Schedulable-session calculation.
 - Structured session validation errors.
 
 **Visible result:**
 
-Authenticated API calls can manage sessions under units and list schedulable sessions.
+Authenticated API calls can manage sessions under units and list schedulable sessions. Sessions are persisted as child records of units, using session type and duration, without introducing standalone session management routes or dialogs.
 
 **Dependencies required first:**
 
@@ -671,15 +674,29 @@ Unit 22.
 - Session API functions.
 - Session DTO types.
 - Schedulable-session DTO types.
+- Session create/update request types.
 - Session-specific API error parsing.
+- API functions for:
+  - listing sessions for a unit;
+  - creating a session under a unit;
+  - updating a session;
+  - deleting a session;
+  - listing schedulable sessions.
+- DTO shape aligned to the Unit 21 inline session model:
+  - session id;
+  - unit id;
+  - session type;
+  - duration;
+  - inherited/displayed lecturer details where returned;
+  - inherited/displayed student count where returned.
 
 **Visible result:**
 
-A frontend dev/test call can fetch sessions and schedulable sessions from the protected backend session API.
+A frontend dev/test call can fetch, create, update, and delete sessions through the protected backend session API, and can fetch schedulable sessions for the timetable flow.
 
 **Dependencies required first:**
 
-Units 6, 21, and 25.
+Units 6, 21, 24, and 25.
 
 ---
 
@@ -689,15 +706,19 @@ Units 6, 21, and 25.
 
 **What it builds:**
 
-- Session creation connected to backend.
-- Session editing connected to backend.
-- Session deletion connected to backend.
-- Session list inside units connected to backend.
+- Inline session boxes inside each unit connected to real backend session data.
+- Add session button creates a new inline session record under the selected unit.
+- Session type field connected to backend persistence.
+- Duration field connected to backend persistence.
+- Delete session button on each session box connected to backend deletion.
+- Session updates saved through the backend session API.
+- Session list inside each unit fetched from backend data.
 - Schedulable status reflects backend response rules.
+- Loading and error states for session creation, update, and deletion.
 
 **Visible result:**
 
-Sessions created under units persist to the backend.
+Sessions created inside units persist to the backend as inline unit child records. The `/units` page can manage unit sessions without separate session dialogs, and schedulable sessions are ready for the timetable unscheduled-pool phase.
 
 **Dependencies required first:**
 

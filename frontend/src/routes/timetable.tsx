@@ -5,7 +5,9 @@ import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
+import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
 import { listRooms } from '@/lib/api/rooms'
+import { listSchedulableSessions } from '@/lib/api/sessions'
 
 export default function TimetablePage() {
   const {
@@ -16,6 +18,16 @@ export default function TimetablePage() {
   } = useQuery({
     queryKey: ['rooms'],
     queryFn: listRooms,
+  })
+
+  const {
+    data: schedulableSessions,
+    isLoading: sessionsLoading,
+    isError: sessionsIsError,
+    error: sessionsError,
+  } = useQuery({
+    queryKey: ['schedulable-sessions'],
+    queryFn: listSchedulableSessions,
   })
 
   function renderCanvas() {
@@ -90,7 +102,17 @@ export default function TimetablePage() {
       )
     }
 
-    return <TimetableGrid rooms={rooms} />
+    return (
+      <div className="flex flex-col gap-4">
+        <TimetableGrid rooms={rooms} assignments={[]} />
+        <UnscheduledPool
+          sessions={schedulableSessions}
+          isLoading={sessionsLoading}
+          isError={sessionsIsError}
+          error={sessionsError as Error | null}
+        />
+      </div>
+    )
   }
 
   return (

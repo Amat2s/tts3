@@ -118,6 +118,7 @@ function StudentFormFields({
         <Select
           value={values.year_level}
           onValueChange={(v) => onChange({ year_level: v ?? '' })}
+          items={YEAR_LEVELS.map((y) => ({ value: String(y), label: `Year ${y}` }))}
         >
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Select a year level" />

@@ -2,7 +2,7 @@ import { apiRequest, ApiRequestError } from '@/lib/api/client'
 
 export type LecturerTitle = 'Dr.' | 'Prof.' | 'A/Prof.' | 'Mr.' | 'Ms.'
 export type AvailabilityDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday'
-export type AvailabilitySlot = 's1' | 's2' | 's3' | 's5' | 's6' | 's7' | 's8'
+export type AvailabilitySlot = 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7'
 
 export interface AvailabilityEntry {
   day: AvailabilityDay
