@@ -540,20 +540,16 @@ Unit 19.
 - Edit unit dialog or sheet.
 - Delete confirmation.
 - Unit fields prepared for:
-  - unit name;
+  - unit id (HIS101);
+  - unit name (Ancient History);
   - lecturer selection;
   - student selection.
 - Session section inside each unit.
-- Empty session state.
-- Create session dialog.
-- Edit session dialog.
-- Delete session confirmation.
+- Add session button.
+- Delete session button on each session box.
 - Session fields prepared for:
-  - name or label;
+  - session type;
   - duration;
-  - inherited/displayed lecturer;
-  - optional students;
-  - schedulable status indicator.
 
 **Visible result:**
 

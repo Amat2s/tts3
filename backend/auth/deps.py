@@ -27,7 +27,7 @@ def get_current_admin(
     except InvalidTokenError:
         raise AppError("invalid_token", "Invalid or expired token.", status_code=401)
     except Exception:
-        raise AppError("auth_error", "Authentication failed.", status_code=401)
+        raise
 
     user_id: str | None = payload.get("sub")
     if not user_id:

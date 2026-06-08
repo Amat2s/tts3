@@ -59,8 +59,20 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    const detail = (body as { detail?: string } | null)?.detail
-    const message = detail ?? `Request failed with status ${response.status}`
+    const parsed = body as
+      | { detail?: unknown; error?: { message?: unknown } }
+      | null
+
+    const detailMessage =
+      typeof parsed?.detail === 'string' ? parsed.detail : undefined
+    const envelopeMessage =
+      typeof parsed?.error?.message === 'string' ? parsed.error.message : undefined
+
+    const message =
+      envelopeMessage ??
+      detailMessage ??
+      `Request failed with status ${response.status}`
+
     throw new ApiRequestError({ status: response.status, message, detail: body })
   }
 
