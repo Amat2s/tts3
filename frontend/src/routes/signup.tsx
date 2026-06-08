@@ -71,19 +71,22 @@ export default function SignupPage() {
     }
 
     setLoading(true)
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp({ email, password })
 
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password })
+      if (signUpError) {
+        setError(friendlyError(signUpError.message))
+        return
+      }
 
-    if (signUpError) {
-      setError(friendlyError(signUpError.message))
-      setLoading(false)
-      return
-    }
-
-    if (data.session) {
-      navigate('/timetable', { replace: true })
-    } else {
-      setSuccess(true)
+      if (data.session) {
+        navigate('/timetable', { replace: true })
+      } else {
+        setSuccess(true)
+      }
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
       setLoading(false)
     }
   }

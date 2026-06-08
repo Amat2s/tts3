@@ -5,11 +5,11 @@ change.
 
 ## Current Phase
 
-- Unit 5/2 complete — signup functionality wired to Supabase Auth
+- Unit 8 complete — frontend timetable no-room state and grid shell
 
 ## Current Goal
 
-- Begin Unit 6
+- Begin Unit 9
 
 ## Completed
 
@@ -79,12 +79,12 @@ change.
 
 - **Unit 4: Backend Supabase Auth Boundary**
   - Added `PyJWT[crypto]>=2.8.0` to `requirements.txt`
-  - Added `supabase_jwt_secret` field to `config.py` `Settings`
-  - Created `backend/auth/jwt.py` — `decode_supabase_token()` verifies HS256 Supabase JWTs using `SUPABASE_JWT_SECRET`
+  - Added `supabase_url` field to `config.py` `Settings`
+  - Created `backend/auth/jwt.py` — `decode_supabase_token()` verifies RS256/ES256 Supabase JWTs via `PyJWKClient` fetching keys from `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`; JWKS client caches keys across requests
   - Created `backend/auth/deps.py` — `CurrentAdmin` model and `get_current_admin` FastAPI dependency; extracts Bearer token, verifies JWT, raises `AppError` 401 on missing or invalid tokens
   - Created `backend/api/protected.py` — `GET /auth/verify` test endpoint requiring `get_current_admin`; returns `{"authenticated": true, "user_id": "..."}` for valid tokens
   - Registered protected router in `api/router.py`
-  - Updated `.env.example` with `SUPABASE_JWT_SECRET`
+  - Updated `.env.example` with `SUPABASE_URL`
   - No product CRUD routes, no frontend auth code, no RBAC added
 
 - **Unit 5: Frontend Supabase Auth and Protected Routes**
@@ -109,13 +109,45 @@ change.
   - Added `Sign in` link on signup page; added `Create one` link on login page
   - Build succeeds with zero errors
 
+- **Unit 6: Frontend Authenticated API Base Client**
+  - Renamed `VITE_API_URL` → `VITE_API_BASE_URL` in `frontend/.env.example`
+  - Created `frontend/src/lib/api/client.ts` — `apiRequest<T>` generic helper: reads `VITE_API_BASE_URL`, retrieves Supabase access token via `getSession()`, attaches `Authorization: Bearer`, sends/parses JSON, handles empty responses, normalizes backend errors into `ApiRequestError`, handles `401` consistently
+  - Created `frontend/src/lib/api/auth.ts` — `verifyAuth()` calls `GET /auth/verify` (Unit 4 protected endpoint); exports `VerifyResponse` type
+  - Updated `frontend/src/routes/timetable.tsx` — dev-only `useEffect` calls `verifyAuth()` on mount; renders inline status line (idle / loading / ✓ authenticated / ✗ error) via `import.meta.env.DEV` guard; stripped in production build
+  - No TanStack Query, Zustand, CRUD, mock data, or product API clients added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 8: Frontend Timetable No-Room State and Grid Shell**
+  - Updated `/timetable` route to full workspace layout
+  - Page header with revised description; reserved action/status bar (`TimetableActionBar`)
+  - No-room empty state rendered when `ROOMS` array is empty (default — no room API yet)
+  - Created `frontend/src/features/timetable/slots.ts` — centralized `DAYS`, `TIME_SLOTS`, `AM_SLOTS`, `PM_SLOTS`, `LUNCH_LABEL`; Monday–Friday; AM slots 9:00–11:00, PM slots 13:00–16:00
+  - Created `frontend/src/features/timetable/GridCell.tsx` — blank cell (h-14, w-32), hover treatment via `--grid-cell-hover`, day-boundary border via `--grid-line-strong`, all tokens from `ui-context.md`
+  - Created `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `RoomColumn[]`; renders day headers, room sub-headers, AM rows, lunch divider (`--grid-lunch-bg`), PM rows; returns null when rooms empty
+  - Created `frontend/src/features/timetable/TimetableActionBar.tsx` — reserved shell for future validation and solver controls
+  - No room API, fake rooms, fake sessions, fake assignments, drag-and-drop, or solver behavior added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 7: Frontend Rooms Page Shell**
+  - Replaced placeholder `RoomsPage` with full management-page layout
+  - Page header with title, description, and `Create room` primary action
+  - Bordered table panel with column headers: Name, Capacity, Type, Actions
+  - Inline empty state (icon + text) inside `TableBody` when no rooms exist — no fake rows
+  - `RoomForm` component with Name (`Input`), Capacity (`Input[type=number]`), Room type (`Select`) fields
+  - Create room `Dialog` — opens via header button, form shell, disabled Create CTA
+  - Edit room `Dialog` — state-controlled, row-level trigger wired when real data exists
+  - Delete confirmation `Dialog` — state-controlled, destructive CTA, explains session impact
+  - All styling via design tokens, no hardcoded hex values
+  - No backend calls, API clients, TanStack Query, or CRUD behavior
+  - Build succeeds with zero TypeScript errors
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Unit 6
+- Unit 9
 
 ## Open Questions
 
