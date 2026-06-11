@@ -50,8 +50,8 @@ interface UnscheduledPoolProps {
   isLoading?: boolean
   isError?: boolean
   error?: Error | null
-  pendingSessionId?: string | null
-  onSelectSession?: (sessionId: string) => void
+  selectedSessionId?: string | null
+  onSelectSession?: (session: SchedulableSession) => void
 }
 
 export function UnscheduledPool({
@@ -59,7 +59,7 @@ export function UnscheduledPool({
   isLoading = false,
   isError = false,
   error,
-  pendingSessionId,
+  selectedSessionId,
   onSelectSession,
 }: UnscheduledPoolProps) {
   const unitBuckets = buildUnitBuckets(sessions)
@@ -80,7 +80,9 @@ export function UnscheduledPool({
           Unscheduled Sessions
         </h2>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Sessions available for placement on the timetable, grouped by unit.
+          {onSelectSession
+            ? 'Click a session to select it, then click a time slot to place it.'
+            : 'Sessions available for placement on the timetable, grouped by unit.'}
         </p>
       </div>
 
@@ -136,7 +138,7 @@ export function UnscheduledPool({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-row gap-3 overflow-x-auto pb-1">
           {unitBuckets.map((bucket) => (
             <UnitGroup
               key={bucket.unitId}
@@ -145,7 +147,7 @@ export function UnscheduledPool({
               unitName={bucket.unitName}
               sessions={bucket.sessions}
               colorVariant={getUnitColor(bucket.unitId)}
-              pendingSessionId={pendingSessionId}
+              selectedSessionId={selectedSessionId}
               onSelectSession={onSelectSession}
             />
           ))}
