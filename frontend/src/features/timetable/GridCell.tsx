@@ -1,3 +1,4 @@
+import { useDroppable } from '@dnd-kit/core'
 import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import type { TimetableAssignment } from './assignment'
@@ -42,6 +43,22 @@ export function GridCell({
     id: `${day}:${roomId}:${slotId}`,
   })
 
+  // Droppable ID format matches buildAssignmentMap key: "${day}:${roomId}:${slotId}"
+  // isOccupied covers all slots spanned by a multi-slot session, not just the start slot.
+  const { setNodeRef, isOver } = useDroppable({
+    id: `${day}:${roomId}:${slotId}`,
+    disabled: isOccupied,
+  })
+
+  const isClickDropTarget = !!pendingSessionId && !isOccupied
+  const showDropHighlight = isOver || (isClickDropTarget && hovered)
+
+  function handleClick() {
+    if (isClickDropTarget) {
+      onCellClick?.()
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -59,7 +76,7 @@ export function GridCell({
         outline: isOver ? '2px solid var(--accent-secondary)' : 'none',
         outlineOffset: '-2px',
       }}
-      onMouseEnter={() => { if (!assignment) setHovered(true) }}
+      onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={canClick ? onClick : undefined}
       data-slot={slotId}

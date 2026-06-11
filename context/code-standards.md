@@ -9,15 +9,15 @@
 - Treat sessions as the atomic scheduling unit throughout the codebase.
 - Treat scheduled sessions as locked by definition.
 - Do not introduce a third persistent session state beyond scheduled and unscheduled in v1.
-- Invalid placements are allowed in the UI, but they must be represented as constraint violations, not as a separate persistent state.
+- Warning placements are allowed in the UI, but they must be represented as validation warnings, not as a separate persistent state. Blocking placements must be rejected before entering the frontend draft.
 - Keep hard constraint definitions explicit, versioned, and developer-defined.
 - Do not add user-defined constraint rules in v1.
 - Prefer clear data transformations over implicit side effects.
 - Prefer deterministic behavior for validation, constraint compilation, and solver input generation.
 - Long-running work must not run inside request handlers.
 - Solver execution must happen through the background job system.
-- The frontend may perform fast local validation for responsiveness, but backend validation remains the final authority.
-- Avoid hidden recovery behavior. If the system changes timetable state automatically, the reason must be explicit in the code and visible in the UI when relevant.
+- The frontend owns user-facing timetable validation in v1. Backend assignment save validation is defensive and should not drive normal UX.
+- Avoid hidden recovery behavior. If data changes make an assignment violate a blocking rule, the frontend may automatically unschedule it, but the reason must be explicit in the code and visible in the UI when relevant.
 - Do not silently discard sessions, assignments, constraint violations, or solver failures.
 
 ## TypeScript
@@ -26,7 +26,7 @@
 - Avoid `any`. Use explicit interfaces, discriminated unions, or narrowly scoped unknown parsing.
 - Validate unknown external input at system boundaries before trusting it.
 - Shared domain types must represent real product concepts, not UI convenience structures.
-- Use explicit types for session state, timetable assignment, solver status, and constraint violation objects.
+- Use explicit types for session state, timetable assignment, solver status, and validation issue objects.
 - Prefer discriminated unions for state that has different valid shapes.
 
 Example:
@@ -48,7 +48,7 @@ type SessionScheduleState =
 - Keep frontend-only view models separate from API DTOs.
 - Do not store server-owned data in Zustand.
 - Use TanStack Query for server state.
-- Use Zustand only for UI state such as selected session, active drag state, expanded panels, filters, and local layout preferences.
+- Use Zustand only for UI state such as selected session, active drag state, expanded panels, filters, local layout preferences, and the current unsaved timetable draft.
 - All async API calls must have explicit loading, success, and error handling.
 - Avoid broad catch blocks that hide API or validation failures.
 - Do not ignore TypeScript errors with `// @ts-ignore` unless there is a documented reason and no practical alternative.
@@ -69,10 +69,11 @@ type SessionScheduleState =
 - Do not perform destructive timetable mutations without confirmation when dependencies are affected.
 - Disable editing while the solver is running.
 - Do not allow UI actions that create impossible persistent state shapes.
-- Invalid timetable placements may be rendered, but they must always be paired with visible constraint feedback.
-- The solver button must be disabled whenever authoritative validation reports hard constraint violations.
+- Warning timetable placements may be rendered, but they must always be paired with visible validation feedback.
+- Blocking timetable placements must not enter the draft through manual scheduling.
+- The solver button must be disabled whenever frontend validation reports any blocking or warning issue.
 - The disabled solver state must explain why the solver cannot run.
-- Scheduled session cards should be rendered from assignment data, not from duplicated local placement state.
+- Scheduled session cards should be rendered from assignment data. During editing, they render from the frontend draft assignment set initialized from saved backend data.
 - The unscheduled pool should be derived from sessions without assignments.
 - Keep accessibility in mind for drag/drop interactions; provide non-drag alternatives where practical.
 
@@ -96,7 +97,7 @@ type SessionScheduleState =
 - Use explicit HTTP status codes.
 - Keep authentication and authorization checks near the API boundary.
 - Enforce admin access before mutations.
-- Treat backend validation as authoritative even when the frontend performs local checks.
+- Treat backend assignment validation as defensive for persistence and solver integrity; user-facing timetable validation remains frontend-owned in v1.
 - Keep database transactions scoped and intentional.
 - Do not leak internal stack traces or solver internals into user-facing API responses.
 - Use structured errors for validation failures, constraint violations, and solver failures.
@@ -157,29 +158,47 @@ type SessionScheduleState =
 - Solver runs should be deterministic where practical.
 - Solver timeout behavior must be explicit.
 
-## Constraint Evaluation
+## Frontend Validation
 
-- Constraint definitions must be centralized.
-- Do not duplicate conflicting interpretations of the same constraint across frontend, backend, and solver.
-- Constraint evaluation must produce structured violation objects.
-- A violation object should include:
-  - violation type
-  - severity
-  - affected session IDs
-  - affected room ID when relevant
-  - affected lecturer ID when relevant
-  - affected student IDs when relevant
-  - human-readable message
-- The frontend may use local constraint evaluation for immediate UI feedback.
-- Backend validation must be used before solver execution.
-- Solver gating must be based on authoritative hard constraint validation.
-- Invalid placements must be highlighted, not silently corrected.
-- When data changes make the timetable invalid, keep the timetable visible and surface violations.
-- Do not treat unscheduled sessions as constraint violations.
+- User-facing timetable validation must live in frontend validation modules, not inside React rendering components.
+- Validation helpers must be pure where possible and receive explicit input objects.
+- Use two severities only in v1:
+  - `blocking`;
+  - `warning`.
+- Blocking validation prevents a proposed placement from entering the timetable draft.
+- Blocking rules are:
+  - room double-booking;
+  - room capacity too small;
+  - session crossing lunch;
+  - session running off the timetable.
+- Warning validation allows the placement to remain visible but blocks solver execution.
+- Warning rules are:
+  - lecturer overlap conflict;
+  - student overlap conflict;
+  - unit/session overlap conflict where applicable from existing v1 data;
+  - lecturer availability conflict;
+  - other non-blocking conflicts represented by current v1 data.
+- A validation issue object should include:
+  - issue type;
+  - severity;
+  - affected session IDs;
+  - affected room ID when relevant;
+  - affected lecturer ID when relevant;
+  - affected student IDs when relevant;
+  - human-readable message.
+- Do not treat unscheduled sessions as validation issues.
 - Do not treat sessions without students as incomplete solely because students are missing.
 - Sessions without students have no known student-conflict constraints.
-- Constraint graph generation must be deterministic and testable.
-- Constraint graph generation should be independent of React, FastAPI route handlers, and database session objects.
+- When data changes make a scheduled assignment violate a blocking rule, automatically unschedule the affected session and surface the reason when relevant.
+- Warning-invalid assignments may be saved. They must remain visibly flagged after being loaded again.
+- Solver execution must be blocked whenever any blocking or warning issue exists.
+
+## Backend Constraint Mirror
+
+- Backend constraint code exists for solver input compilation, not for user-facing validation in v1.
+- Backend constraint definitions should mirror the frontend validation model closely enough that solver behavior matches the editor.
+- Backend assignment save endpoints may defensively reject impossible persisted states, but those checks should not replace frontend UX validation.
+- Do not add a user-facing validation API in v1 unless a later spec explicitly reintroduces it.
 
 ## Trigger.dev Jobs
 
@@ -210,7 +229,7 @@ type SessionScheduleState =
   - invalid sessions
   - disabled solver state
   - solver running state
-- Constraint violation styling must be accessible and must not rely on color alone.
+- Validation issue styling must be accessible and must not rely on color alone.
 - Use consistent spacing for form pages, management tables, and timetable cards.
 - Avoid deeply nested custom CSS unless the timetable grid requires it.
 - Keep layout primitives reusable.
@@ -226,14 +245,13 @@ type SessionScheduleState =
 - Keep CRUD endpoints predictable and resource-oriented.
 - Keep solver endpoints separate from entity CRUD endpoints.
 - Do not trigger solver execution through generic update endpoints.
-- Backend must validate timetable state before starting a solver job.
+- Backend must defensively validate solver-start integrity, but normal solver gating is frontend-owned in v1.
 - Solver start endpoint must return a job identifier or status object.
 - Solver status endpoint must return predictable job state.
-- Constraint validation endpoint should return structured violations.
-- Mutations that affect scheduled sessions must clearly define whether they preserve, invalidate, or remove assignments.
+- Mutations that affect scheduled sessions must clearly define whether they preserve, warn, or automatically unschedule assignments.
 - Do not silently cascade destructive changes without explicit product behavior.
 - Deleting a room must unschedule sessions assigned to that room.
-- Data changes that invalidate scheduled sessions must surface violations rather than silently changing unrelated assignments.
+- Data changes that create blocking violations must automatically unschedule affected assignments; data changes that create warning violations must surface warnings without silently changing unrelated assignments.
 
 ## Data and Storage
 
@@ -246,10 +264,10 @@ type SessionScheduleState =
 - Treat the database as the source of truth for persisted timetable state.
 - Treat the solver input model and conflict graph as derived data.
 - Do not persist derived solver structures unless required for performance or debugging.
-- Keep scheduled assignment integrity enforceable:
-  - scheduled sessions must have day, start slot, and room
-  - unscheduled sessions must not have day, start slot, or room
-- Do not store invalid placements as a separate persistent state.
+- Keep saved assignment integrity enforceable:
+  - saved scheduled sessions must have day, start slot, and room;
+  - unscheduled sessions must not have day, start slot, or room.
+- Do not store validation severity as a separate persistent session state. Derive blocking/warning status from current data.
 - Preserve existing timetable assignments when data changes, unless the product rule explicitly requires unscheduling.
 - If a room is deleted, sessions assigned to that room become unscheduled.
 - If a solver run fails, existing timetable state must remain unchanged.

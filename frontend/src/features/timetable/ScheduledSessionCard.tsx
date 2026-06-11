@@ -65,6 +65,11 @@ export const ScheduledSessionCard = memo(function ScheduledSessionCard({
   const bg = isInvalid ? 'var(--state-error-bg)' : BG_MAP[colorVariant]
   const showActions = (hovered || isMoving) && !isUnscheduling
 
+  function handleUnschedule(e: React.MouseEvent) {
+    e.stopPropagation()
+    onUnschedule?.()
+  }
+
   return (
     <div
       ref={setNodeRef}

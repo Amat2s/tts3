@@ -7,6 +7,8 @@ This build plan follows these implementation rules:
 - Each unit produces one visible, testable, or reviewable result.
 - Each unit stays within one system boundary: `frontend/`, `backend/`, `backend/solver/`, `backend/constraints/`, `jobs/`, or deployment/config.
 - Connections between layers are always handled in separate integration units.
+- Timetable manual scheduling uses frontend draft state first; backend persistence happens only through an explicit save action.
+- User-facing timetable validation is owned by the frontend. Backend checks are defensive only until solver-specific constraint mirroring is introduced.
 - Dependencies come first. No unit depends on a feature that has not already been built.
 - Security comes before protected functionality. Auth and access control are established before protected API features are built and before connected app pages rely on protected data.
 - Backend API routes come before frontend wiring.
@@ -789,28 +791,31 @@ Unit 29.
 
 ---
 
-## 31. Backend Assignment Persistence and Protected Manual Scheduling API
+## 31. Backend Saved Timetable Assignment Persistence and Protected Save API
 
 **System boundary:** `backend/`
 
 **What it builds:**
 
-- Timetable assignment persistence model.
+- Timetable assignment persistence model for the latest saved timetable state.
 - Assignment service functions.
 - Assignment migration.
-- Invariant enforcement:
-  - scheduled sessions must have day, start slot, and room;
-  - unscheduled sessions must not have day, start slot, or room.
-- Protected manual scheduling routes:
-  - schedule session;
-  - move scheduled session;
-  - unschedule session;
-  - list assignments.
-- Room deletion behavior that unschedules affected sessions.
+- Protected assignment routes:
+  - list saved assignments;
+  - save full assignment set;
+  - clear saved assignment set if useful for reset behavior.
+- Defensive backend invariants only for impossible persisted states:
+  - no room double-booking;
+  - room capacity must be sufficient;
+  - sessions must not cross lunch;
+  - sessions must not run off the timetable;
+  - scheduled sessions must have day, start slot, and room.
+- Backend save behavior that accepts warning-invalid assignments, including lecturer conflicts, student conflicts, unit/session overlap warnings, and lecturer availability warnings.
+- Room deletion behavior that unschedules affected saved assignments.
 
 **Visible result:**
 
-Authenticated API calls can schedule, move, unschedule, and list assignments.
+Authenticated API calls can load and save the current timetable assignment set. The backend protects the database from impossible assignment states, but it does not provide user-facing validation or block warning-level conflicts.
 
 **Dependencies required first:**
 
@@ -824,14 +829,17 @@ Units 9 and 25.
 
 **What it builds:**
 
-- Assignment API functions.
-- Assignment DTO types.
-- Schedule/move/unschedule request types.
+- Assignment DTO types aligned with the backend saved-assignment API.
+- API functions for:
+  - listing saved assignments;
+  - saving the current assignment set;
+  - clearing saved assignments if supported.
 - Assignment-specific API error parsing.
+- Save-response types for successful saves and defensive backend rejections.
 
 **Visible result:**
 
-Frontend dev/test calls can schedule, move, unschedule, and list assignments.
+Frontend dev/test calls can load and save timetable assignments through the protected backend API.
 
 **Dependencies required first:**
 
@@ -839,21 +847,24 @@ Units 6, 30, and 31.
 
 ---
 
-## 33. Frontend Manual Scheduling Integration
+## 33. Frontend Timetable Draft Assignment State
 
-**System boundary:** frontend/backend connection
+**System boundary:** `frontend/`
 
 **What it builds:**
 
-- Select unscheduled session.
-- Place selected session into a timetable cell through the backend.
-- Move scheduled session through the backend.
-- Remove scheduled session back to the unscheduled pool through the backend.
-- Refresh assignments and unscheduled pool after mutations.
+- Frontend draft timetable state for unsaved manual scheduling edits.
+- Saved assignment loading from the backend on `/timetable`.
+- Draft initialization from saved assignments.
+- Dirty/clean state tracking.
+- Save timetable button in the timetable action bar.
+- Save mutation using the assignment API client.
+- Unsaved changes messaging.
+- Refresh behavior after successful save.
 
 **Visible result:**
 
-Manual scheduling persists after page refresh.
+The timetable can load saved assignments, maintain a separate unsaved frontend draft, and save the draft to the database only when the admin clicks the save button.
 
 **Dependencies required first:**
 
@@ -861,22 +872,23 @@ Unit 32.
 
 ---
 
-## 34. Frontend Drag-and-Drop Scheduling Shell
+## 34. Frontend Manual Scheduling Controls
 
 **System boundary:** `frontend/`
 
 **What it builds:**
 
-- dnd-kit installed just in time.
-- Drag handle behavior.
-- Drop target behavior.
-- Accessible fallback path retained through manual controls.
-- Local drag UI state only, such as active drag item and hovered drop target.
-- No fake scheduling data and no invented assignments.
+- Select unscheduled session for placement.
+- Place selected session into a timetable cell in frontend draft state.
+- Move scheduled session within frontend draft state.
+- Remove scheduled session back to the unscheduled pool in frontend draft state.
+- Update unscheduled pool derivation from draft assignments.
+- No immediate backend mutation on each placement, move, or removal.
+- Save button remains the only persistence action for manual scheduling edits.
 
 **Visible result:**
 
-Real sessions can be dragged over real timetable cells visually, without persisting drops yet.
+Manual scheduling works inside the frontend draft and can be saved explicitly to the backend.
 
 **Dependencies required first:**
 
@@ -884,43 +896,55 @@ Unit 33.
 
 ---
 
-## 35. Frontend Drag-and-Drop Persistence Integration
+## 35. Frontend Blocking Validation Engine
 
-**System boundary:** frontend/backend connection
+**System boundary:** `frontend/validation`
 
 **What it builds:**
 
-- Drop unscheduled session onto grid through assignment API.
-- Drag scheduled session to another cell through assignment API.
-- Mutation loading state.
-- Refetch behavior on failure.
+- Central frontend validation module for blocking placement checks.
+- Blocking validation result type.
+- Pure helper functions for proposed drops and full draft validation.
+- Blocking rules:
+  - room duplication / room double-booking;
+  - room capacity too small;
+  - session duration crosses lunch;
+  - session duration runs off the timetable.
+- Drop prevention behavior for blocking violations.
+- Automatic unscheduling behavior when data changes make an existing draft or saved assignment violate a blocking rule.
+- Unit tests or fixture-based checks for blocking rules where practical.
 
 **Visible result:**
 
-Drag-and-drop scheduling persists to the backend.
+The frontend prevents impossible placements before they enter the timetable draft and automatically removes sessions from the timetable when changed data makes them impossible to keep scheduled.
 
 **Dependencies required first:**
 
-Unit 34.
+Units 33 and 34.
 
 ---
 
-## 36. Frontend Constraint Display Shell
+## 36. Frontend Warning Validation Engine
 
-**System boundary:** `frontend/`
+**System boundary:** `frontend/validation`
 
 **What it builds:**
 
-- Timetable validation status area.
-- Violation alert component.
-- Invalid session card styling.
-- Warning icon treatment.
-- Violation details panel or popover.
-- Solver blocked message area.
+- Central frontend validation module for warning-level conflicts.
+- Warning violation type and severity enum.
+- Warning rules:
+  - lecturer overlap conflict;
+  - student overlap conflict;
+  - unit/session overlap conflict where applicable from existing session and unit data;
+  - lecturer availability conflict;
+  - any other non-blocking hard conflict already represented by current v1 data.
+- Full-draft warning evaluation.
+- Warning placements are allowed to remain scheduled.
+- Solver-blocked flag derived from all blocking and warning issues.
 
 **Visible result:**
 
-The timetable has the full UI surface required to show constraint violations, but shows no fake violations.
+The frontend can identify allowed-but-invalid timetable states and produce structured warnings that block solver execution without blocking manual placement.
 
 **Dependencies required first:**
 
@@ -928,24 +952,103 @@ Unit 35.
 
 ---
 
-## 37. Backend Constraint Definitions and Conflict Graph
+## 37. Frontend Validation Display and Solver Gate Shell
+
+**System boundary:** `frontend/`
+
+**What it builds:**
+
+- Timetable validation status area.
+- Blocking rejection feedback for failed drop/place attempts.
+- Warning alert component.
+- Invalid/warning session card styling.
+- Warning icon treatment.
+- Violation details panel or popover.
+- Solver blocked message area.
+- Solver button shell disabled whenever frontend validation has any blocking or warning issue.
+
+**Visible result:**
+
+The timetable clearly distinguishes blocked placement attempts from allowed warning placements, and the solver action area explains why the solver cannot run.
+
+**Dependencies required first:**
+
+Unit 36.
+
+---
+
+## 38. Frontend Drag-and-Drop Scheduling Shell
+
+**System boundary:** `frontend/`
+
+**What it builds:**
+
+- dnd-kit installed just in time.
+- Drag unscheduled session cards over timetable cells.
+- Drag scheduled session cards to other cells.
+- Drag scheduled sessions back to the unscheduled pool if supported by the interaction design.
+- Drop target highlighting.
+- Local drag UI state only.
+- Blocking validation checked before a drop is accepted into the frontend draft.
+- Warning validation recalculated after accepted drops.
+- Accessible non-drag fallback retained from manual controls.
+- No backend mutation on drop.
+
+**Visible result:**
+
+Real sessions can be dragged and scheduled in the frontend draft with immediate blocking/warning validation, without saving until the admin clicks save.
+
+**Dependencies required first:**
+
+Units 34 and 37.
+
+---
+
+## 39. Frontend Drag-and-Drop Save Integration
+
+**System boundary:** frontend/backend connection
+
+**What it builds:**
+
+- Save button persists the current drag/drop-edited draft assignment set.
+- Save loading state.
+- Save success state.
+- Defensive backend save rejection handling for impossible states.
+- Refetch saved assignments after successful save.
+- Preserve frontend draft safely if save fails.
+- No authoritative backend validation display endpoint.
+
+**Visible result:**
+
+The admin can drag sessions locally, review warnings, and explicitly save the timetable draft to the database.
+
+**Dependencies required first:**
+
+Units 32 and 38.
+
+---
+
+## 40. Backend Solver Constraint Mirror
 
 **System boundary:** `backend/constraints/`
 
 **What it builds:**
 
-- Centralized hard constraint definitions.
+- Backend constraint definitions that mirror the frontend validation model for solver use.
 - Constraint type enum.
-- Constraint severity enum.
-- Structured violation object schema.
-- Deterministic conflict graph generation.
+- Constraint severity enum using the same concepts as frontend:
+  - blocking;
+  - warning.
+- Conflict graph generation for solver input.
 - Student-overlap conflict derivation.
 - Lecturer-overlap conflict derivation.
+- Unit/session overlap derivation where applicable.
 - Tests using real-format fixtures.
+- No user-facing validation API.
 
 **Visible result:**
 
-Backend tests can generate typed constraint definitions and conflict graphs from real-format fixture data.
+Backend tests can generate solver-ready constraint structures that match the frontend validation rules, without becoming the source of user-facing validation.
 
 **Dependencies required first:**
 
@@ -953,85 +1056,23 @@ Units 14, 18, 25, and 31.
 
 ---
 
-## 38. Backend Constraint Evaluation Service
+## 41. Backend Solver Input Snapshot Builder
 
-**System boundary:** `backend/constraints/`
-
-**What it builds:**
-
-- Lecturer conflict validation.
-- Student conflict validation.
-- Room conflict validation.
-- Room capacity validation.
-- Lecturer availability validation.
-- Duration boundary validation.
-- Lunch crossing validation.
-- Structured violation results.
-
-**Visible result:**
-
-Backend tests return structured violations for invalid persisted timetable states.
-
-**Dependencies required first:**
-
-Unit 37.
-
----
-
-## 39. Backend Constraint Validation API
-
-**System boundary:** `backend/`
+**System boundary:** `backend/solver/`
 
 **What it builds:**
 
-- Protected current timetable validation endpoint.
-- Structured response containing violation list.
-- No treatment of unscheduled sessions as violations.
+- Canonical solver input builder.
+- Loads current saved timetable state.
+- Includes rooms, lecturers, students, units, sessions, saved assignments, and availability.
+- Treats saved scheduled sessions as locked inputs if they have no current frontend-resolved issues when the solver is started.
+- Treats unscheduled sessions as solver variables.
+- Includes backend constraint mirror and conflict graph.
+- Tests using real-format fixtures.
 
 **Visible result:**
 
-Authenticated API calls return authoritative hard constraint violations.
-
-**Dependencies required first:**
-
-Units 4 and 38.
-
----
-
-## 40. Frontend Constraint API Client
-
-**System boundary:** `frontend/`
-
-**What it builds:**
-
-- Constraint validation API function.
-- Violation DTO types.
-- Constraint-specific API error parsing.
-
-**Visible result:**
-
-Frontend dev/test calls can fetch current validation results.
-
-**Dependencies required first:**
-
-Units 6, 36, and 39.
-
----
-
-## 41. Frontend Constraint Validation Integration
-
-**System boundary:** frontend/backend connection
-
-**What it builds:**
-
-- Timetable page fetches backend validation results.
-- Invalid scheduled cards are highlighted.
-- Violation details are displayed.
-- Validation refreshes after schedule, move, unschedule, and drag/drop operations.
-
-**Visible result:**
-
-Invalid placements are allowed but visibly flagged using authoritative backend validation.
+Backend tests can compile solver input from saved timetable data and mirrored constraints.
 
 **Dependencies required first:**
 
@@ -1039,58 +1080,7 @@ Unit 40.
 
 ---
 
-## 42. Frontend Solver UI Shell and Validation Gating
-
-**System boundary:** `frontend/`
-
-**What it builds:**
-
-- Solver action bar.
-- Solver button.
-- Disabled state.
-- Disabled explanation area.
-- Running state display shell.
-- Success alert shell.
-- Partial-success warning shell.
-- Failure alert shell.
-- Scheduled/unscheduled count display shell.
-- Solver button enabled only when authoritative validation returns no hard violations.
-
-**Visible result:**
-
-The timetable has a complete solver UI shell, and the solver button is gated by real backend validation.
-
-**Dependencies required first:**
-
-Unit 41.
-
----
-
-## 43. Backend Solver Input Snapshot Builder
-
-**System boundary:** `backend/solver/`
-
-**What it builds:**
-
-- Canonical solver input builder.
-- Loads current persisted timetable state.
-- Includes rooms, lecturers, students, sessions, assignments, and availability.
-- Treats scheduled sessions as locked inputs.
-- Treats unscheduled sessions as solver variables.
-- Includes conflict graph.
-- Tests using real-format fixtures.
-
-**Visible result:**
-
-Backend tests can compile solver input from persisted timetable data.
-
-**Dependencies required first:**
-
-Units 37 and 39.
-
----
-
-## 44. Solver CP-SAT Module
+## 42. Solver CP-SAT Module
 
 **System boundary:** `backend/solver/`
 
@@ -1100,15 +1090,16 @@ Units 37 and 39.
 - OR-Tools CP-SAT model.
 - Room assignment variables.
 - Start-slot variables.
-- Locked session fixed constraints.
+- Locked saved-assignment fixed constraints.
 - Student no-overlap constraints.
 - Lecturer no-overlap constraints.
+- Unit/session overlap constraints where applicable.
 - Room no-overlap constraints.
 - Room capacity constraints.
 - Lecturer availability constraints.
 - Contiguous duration handling.
 - Lunch boundary handling.
-- Objective to maximize scheduled sessions.
+- Objective to maximize the number of scheduled sessions.
 
 **Visible result:**
 
@@ -1116,17 +1107,17 @@ Solver tests produce valid schedules from real-format fixture inputs.
 
 **Dependencies required first:**
 
-Unit 43.
+Unit 41.
 
 ---
 
-## 45. Backend Solver Result Application Service
+## 43. Backend Solver Result Application Service
 
 **System boundary:** `backend/solver/`
 
 **What it builds:**
 
-- Applies successful solver assignments.
+- Applies successful solver assignments to saved timetable state.
 - Leaves failed sessions unscheduled.
 - Preserves locked scheduled sessions.
 - Avoids corrupting existing timetable state on failure.
@@ -1138,11 +1129,11 @@ Backend tests can apply solver results safely to persisted timetable state.
 
 **Dependencies required first:**
 
-Units 31 and 44.
+Units 31 and 42.
 
 ---
 
-## 46. Jobs Boundary and Trigger.dev Setup
+## 44. Jobs Boundary and Trigger.dev Setup
 
 **System boundary:** `jobs/`
 
@@ -1161,11 +1152,11 @@ A minimal Trigger.dev job can run and log completion.
 
 **Dependencies required first:**
 
-Unit 45.
+Unit 43.
 
 ---
 
-## 47. Async Solver Job
+## 45. Async Solver Job
 
 **System boundary:** `jobs/`
 
@@ -1184,19 +1175,20 @@ The solver can run asynchronously outside request handlers.
 
 **Dependencies required first:**
 
-Unit 46.
+Unit 44.
 
 ---
 
-## 48. Backend Solver Start and Status API
+## 46. Backend Solver Start and Status API
 
 **System boundary:** `backend/`
 
 **What it builds:**
 
 - Protected production solver start endpoint.
-- Runs authoritative validation before starting job.
-- Rejects solver start if hard violations exist.
+- Starts only from saved timetable state.
+- Assumes the frontend has already blocked solver execution when validation issues exist.
+- Performs defensive backend checks before starting the job to protect solver integrity.
 - Triggers async solver job.
 - Returns job/status identifier.
 - Protected solver status endpoint.
@@ -1216,11 +1208,11 @@ Authenticated API calls can safely start an async solver run and read its status
 
 **Dependencies required first:**
 
-Units 39 and 47.
+Units 40 and 45.
 
 ---
 
-## 49. Frontend Solver API Client
+## 47. Frontend Solver API Client
 
 **System boundary:** `frontend/`
 
@@ -1237,34 +1229,35 @@ Frontend dev/test calls can start and read solver job status.
 
 **Dependencies required first:**
 
-Units 6, 42, and 48.
+Units 6, 37, and 46.
 
 ---
 
-## 50. Frontend Async Solver Integration
+## 48. Frontend Async Solver Integration
 
 **System boundary:** frontend/backend/jobs connection
 
 **What it builds:**
 
-- Solver UI calls production solver start endpoint.
+- Solver UI calls production solver start endpoint only when the frontend validation engine reports no blocking or warning issues.
 - Solver UI reads solver status.
 - Editing disabled while solver is running.
 - Timetable refreshes on completion.
 - Partial-success warning displays real counts.
 - Failure state displays actionable message.
+- Solver result updates the saved assignment state and resets the frontend draft from the latest saved data.
 
 **Visible result:**
 
-The full async solver flow works from the timetable page.
+The full async solver flow works from the timetable page while preserving frontend-owned user-facing validation.
 
 **Dependencies required first:**
 
-Unit 49.
+Unit 47.
 
 ---
 
-## 51. Backend Observability
+## 49. Backend Observability
 
 **System boundary:** `backend/`
 
@@ -1281,11 +1274,11 @@ Unexpected backend failures are captured and traceable.
 
 **Dependencies required first:**
 
-Unit 48.
+Unit 46.
 
 ---
 
-## 52. Frontend Error Handling and Observability
+## 50. Frontend Error Handling and Observability
 
 **System boundary:** `frontend/`
 
@@ -1296,6 +1289,7 @@ Unit 48.
 - Form-level errors.
 - Field-level errors.
 - Timetable action errors.
+- Save errors.
 - Solver action errors.
 - Frontend Sentry setup.
 - Error boundary.
@@ -1307,17 +1301,17 @@ Users see specific, actionable errors, and unexpected frontend failures are capt
 
 **Dependencies required first:**
 
-Unit 50.
+Unit 48.
 
 ---
 
-## 53. Backend Constraint and Solver Test Suite
+## 51. Backend Constraint and Solver Test Suite
 
 **System boundary:** `backend/` + `backend/solver/`
 
 **What it builds:**
 
-- Constraint logic tests.
+- Backend constraint mirror tests.
 - Conflict graph tests.
 - Solver input compilation tests.
 - Solver behavior tests.
@@ -1326,6 +1320,7 @@ Unit 50.
   - student conflict;
   - lecturer conflict;
   - lecturer unavailable slot;
+  - unit/session overlap;
   - room double-booking;
   - room capacity failure;
   - duration crossing lunch;
@@ -1336,15 +1331,15 @@ Unit 50.
 
 **Visible result:**
 
-A backend test command verifies core scheduling correctness.
+A backend test command verifies solver-side scheduling correctness.
 
 **Dependencies required first:**
 
-Units 38, 44, 45, and 47.
+Units 40, 42, 43, and 45.
 
 ---
 
-## 54. Frontend Timetable Interaction Test Suite
+## 52. Frontend Timetable Validation and Interaction Test Suite
 
 **System boundary:** `frontend/`
 
@@ -1353,23 +1348,26 @@ Units 38, 44, 45, and 47.
 - Timetable no-room state tests.
 - Room-created grid rendering tests.
 - Unscheduled pool tests.
-- Manual scheduling UI tests.
+- Manual scheduling draft-state tests.
+- Blocking validation tests.
+- Warning validation tests.
+- Automatic unscheduling tests for data changes that violate blocking rules.
 - Drag/drop outcome tests where practical.
-- Violation display tests.
+- Save button tests.
 - Solver blocked/running/success/failure state tests.
 - Test fixtures, if used, must match real DTO formats exactly and stay outside production feature state.
 
 **Visible result:**
 
-A frontend test command verifies key timetable UI behavior.
+A frontend test command verifies key timetable UI, validation, save, and solver-gating behavior.
 
 **Dependencies required first:**
 
-Units 50 and 52.
+Units 48 and 50.
 
 ---
 
-## 55. Full V1 Acceptance Flow
+## 53. Full V1 Acceptance Flow
 
 **System boundary:** Full app verification
 
@@ -1385,16 +1383,20 @@ A complete manual acceptance pass:
 6. Create a unit.
 7. Create a session.
 8. See the session appear in the unscheduled pool.
-9. Manually schedule the session.
-10. Move the scheduled session.
-11. Remove the scheduled session back to the pool.
-12. Create an invalid placement.
-13. See the violation displayed.
-14. See the solver disabled with explanation.
-15. Fix the violation.
-16. Run the solver.
-17. See success or partial-success result.
-18. Confirm unscheduled sessions remain visible.
+9. Manually schedule the session in the frontend draft.
+10. Save the timetable draft.
+11. Refresh and confirm saved assignment persists.
+12. Move the scheduled session in the draft.
+13. Remove the scheduled session back to the pool.
+14. Attempt a blocked placement and confirm it is rejected.
+15. Create an allowed warning placement.
+16. See the warning displayed.
+17. See the solver disabled with explanation.
+18. Fix the warning.
+19. Save the valid timetable.
+20. Run the solver.
+21. See success or partial-success result.
+22. Confirm unscheduled sessions remain visible.
 
 **Visible result:**
 
@@ -1402,11 +1404,11 @@ The full v1 product works end to end.
 
 **Dependencies required first:**
 
-Units 1-54.
+Units 1-52.
 
 ---
 
-## 56. Frontend Deployment to Vercel
+## 54. Frontend Deployment to Vercel
 
 **System boundary:** Deployment
 
@@ -1423,11 +1425,11 @@ The frontend is accessible from a deployed URL.
 
 **Dependencies required first:**
 
-Unit 55.
+Unit 53.
 
 ---
 
-## 57. Backend Deployment to Railway
+## 55. Backend Deployment to Railway
 
 **System boundary:** Deployment
 
@@ -1445,11 +1447,11 @@ The deployed frontend can call the deployed backend.
 
 **Dependencies required first:**
 
-Units 51 and 56.
+Units 49 and 54.
 
 ---
 
-## 58. Trigger.dev Production Wiring
+## 56. Trigger.dev Production Wiring
 
 **System boundary:** Deployment + `jobs/`
 
@@ -1466,11 +1468,11 @@ The deployed app can run solver jobs asynchronously.
 
 **Dependencies required first:**
 
-Units 47, 48, and 57.
+Units 45, 46, and 55.
 
 ---
 
-## 59. Final V1 Scope Guard and Hardening Pass
+## 57. Final V1 Scope Guard and Hardening Pass
 
 **System boundary:** Full app verification
 
@@ -1484,8 +1486,11 @@ Units 47, 48, and 57.
 - Confirms no multi-admin collaboration is introduced.
 - Confirms no timetable version history is introduced.
 - Confirms no user-defined constraint rules are introduced.
-- Confirms invalid states remain visible.
+- Confirms frontend owns all user-facing validation.
+- Confirms blocked placements are rejected immediately.
+- Confirms warning placements remain visible and block the solver.
 - Confirms solver-blocked states explain why.
+- Confirms timetable edits persist only through explicit save.
 - Confirms destructive changes require confirmation where relevant.
 - Confirms all styling uses design tokens or Tailwind theme values.
 
@@ -1495,4 +1500,4 @@ The app matches the intended v1 scope and avoids accidental v2 complexity.
 
 **Dependencies required first:**
 
-Units 1-58.
+Units 1-56.

@@ -43,6 +43,22 @@ function buildAssignmentMap(
   return map
 }
 
+const SLOT_IDS = TIME_SLOTS.map((s) => s.id)
+
+// Returns every "${day}:${roomId}:${slotId}" key covered by each session,
+// not just the start slot, so intermediate cells are treated as occupied.
+function buildCoveredSet(assignments: TimetableAssignment[]): Set<string> {
+  const set = new Set<string>()
+  for (const a of assignments) {
+    const startIdx = SLOT_IDS.indexOf(a.start_slot)
+    for (let i = 0; i < a.duration; i++) {
+      const slotId = SLOT_IDS[startIdx + i]
+      if (slotId) set.add(`${a.day}:${a.room_id}:${slotId}`)
+    }
+  }
+  return set
+}
+
 function TimeLabel({ label }: { label: string }) {
   return (
     <div

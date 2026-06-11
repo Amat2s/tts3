@@ -2,7 +2,7 @@
 
 ## Overview
 
-This application is a university timetable scheduling system for administrators. The admin manually creates rooms, lecturers, students, units, and sessions, then uses a timetable workspace to manually place sessions or run a constraint solver to schedule the remaining unscheduled sessions. The system uses fixed weekly time slots, room-based timetable columns, and hard constraints to prevent conflicts involving lecturers, students, rooms, capacity, availability, and session duration. In v1, the application is focused on a single admin creating and managing one timetable, with no student or lecturer-facing views.
+This application is a university timetable scheduling system for administrators. The admin manually creates rooms, lecturers, students, units, and sessions, then uses a timetable workspace to manually place sessions or run a constraint solver to schedule the remaining unscheduled sessions. The system uses fixed weekly time slots, room-based timetable columns, and frontend-owned validation rules to block impossible placements, warn about allowed conflicts, and prevent solver execution when any issue exists. In v1, the application is focused on a single admin creating and managing one timetable, with no student or lecturer-facing views.
 
 ## Goals
 
@@ -12,8 +12,8 @@ This application is a university timetable scheduling system for administrators.
 4. Represent the timetable as a fixed weekly grid with Monday to Friday columns, rooms nested under each day, and time slots as rows.
 5. Allow unscheduled sessions to be dragged onto the timetable manually.
 6. Allow scheduled sessions to be moved within the timetable or removed back to the unscheduled pool.
-7. Highlight hard constraint violations without preventing the admin from making invalid manual placements.
-8. Disable solver execution while hard constraint violations exist.
+7. Block impossible manual placements in the frontend before they enter the timetable draft.
+8. Allow warning-level conflicts to remain visible while blocking solver execution.
 9. Use the solver to schedule as many unscheduled sessions as possible while respecting all locked scheduled sessions.
 10. Keep v1 focused on hard constraints only, with soft constraints deferred to v2.
 
@@ -43,20 +43,21 @@ This application is a university timetable scheduling system for administrators.
 13. Schedulable sessions appear underneath the timetable grid in the unscheduled pool.
 14. The unscheduled pool groups sessions by unit.
 15. The admin can drag an unscheduled session onto the timetable grid.
-16. A placed session immediately becomes scheduled and locked.
-17. The admin can drag a scheduled session to a different day, time slot, or room.
-18. The admin can remove a scheduled session from the timetable, returning it to the unscheduled pool.
-19. If a manual placement violates a hard constraint, the placement is allowed but the violation is highlighted.
-20. While any hard constraint violation exists, the solver button is disabled.
-21. Once no hard constraint violations exist, the admin can run the solver.
-22. While the solver is running, editing is disabled.
-23. The solver runs against a snapshot of the current timetable state.
-24. Locked scheduled sessions are treated as fixed inputs to the solver.
-25. The solver attempts to schedule all remaining unscheduled sessions.
-26. Sessions successfully scheduled by the solver are placed onto the timetable and become locked.
-27. Sessions the solver cannot place remain in the unscheduled pool.
-28. If the solver returns a partial result, the UI shows a warning and leaves failed sessions visible below the timetable.
-29. The admin can continue manually adjusting the timetable after the solver finishes.
+16. Manual scheduling changes update a frontend timetable draft first.
+17. Blocking placement rules reject impossible placements immediately: room duplication, room too small, crossing lunch, and running off the timetable.
+18. Warning-level conflicts are allowed to remain scheduled but are visibly flagged.
+19. Warning-level conflicts include lecturer conflicts, student conflicts, unit/session overlap conflicts where applicable, lecturer availability conflicts, and other non-blocking conflicts already represented by v1 data.
+20. The admin explicitly saves the timetable draft to persist assignment results to the database.
+21. While any frontend validation issue exists, the solver button is disabled.
+22. Once no frontend validation issues exist, the admin can run the solver.
+23. While the solver is running, editing is disabled.
+24. The solver runs against the saved timetable state.
+25. Saved scheduled sessions are treated as fixed inputs to the solver.
+26. The solver attempts to schedule all remaining unscheduled sessions.
+27. Sessions successfully scheduled by the solver are placed onto the timetable and become saved scheduled assignments.
+28. Sessions the solver cannot place remain in the unscheduled pool.
+29. If the solver returns a partial result, the UI shows a warning and leaves failed sessions visible below the timetable.
+30. The admin can continue manually adjusting the timetable after the solver finishes.
 
 ## Features
 
@@ -99,8 +100,8 @@ This application is a university timetable scheduling system for administrators.
   - first name
   - last name
   - availability
-- Lecturer availability is used as a hard scheduling constraint.
-- A lecturer cannot be scheduled for overlapping sessions.
+- Lecturer availability is a warning-level validation rule in the frontend editor and a hard solver constraint later.
+- A lecturer conflict can remain scheduled as a visible warning, but it blocks solver execution until resolved.
 
 ### Student Management
 
@@ -111,8 +112,8 @@ This application is a university timetable scheduling system for administrators.
   - first name
   - last name
   - year level
-- Student assignment is used to derive student-conflict constraints.
-- If two sessions share one or more students, those sessions cannot overlap.
+- Student assignment is used to derive student-conflict warnings in the frontend editor and hard solver constraints later.
+- If two sessions share one or more students and overlap, the frontend allows the placement to remain but flags it as a warning and blocks solver execution.
 - Sessions may exist without students in v1.
 
 ### Room Management
@@ -132,14 +133,42 @@ This application is a university timetable scheduling system for administrators.
 - Admin can drag unscheduled sessions onto the timetable.
 - Admin can move scheduled sessions around the timetable.
 - Admin can remove scheduled sessions back to the unscheduled pool.
-- Scheduled sessions are locked by definition.
-- Invalid placements are allowed but highlighted.
-- Solver execution is blocked while hard constraint violations exist.
+- Manual scheduling edits update a frontend draft first.
+- The admin explicitly saves the timetable draft to persist assignments to the database.
+- Blocking-invalid placements are rejected before entering the draft.
+- Warning-invalid placements are allowed, highlighted, and may be saved.
+- Solver execution is blocked while any frontend validation issue exists.
+
+
+### Frontend Validation Model
+
+The frontend owns all user-facing validation in v1. Validation is split into two severities:
+
+- `blocking`: the attempted placement is rejected and does not enter the draft timetable.
+- `warning`: the placement is allowed to remain visible, but the scheduled card is marked with a warning and the solver is disabled.
+
+Blocking rules are:
+
+- room duplication / room double-booking;
+- room capacity too small;
+- session crossing lunch;
+- session running off the timetable.
+
+Warning rules are:
+
+- lecturer overlap conflicts;
+- student overlap conflicts;
+- unit/session overlap conflicts where applicable from existing unit and session data;
+- lecturer availability conflicts;
+- any other non-blocking conflicts already represented by current v1 data.
+
+If a room, unit, session, student, or lecturer change makes an existing scheduled assignment violate a blocking rule, the frontend automatically unschedules that session. Warning-invalid assignments may remain scheduled and may be saved, but the solver remains blocked until warnings are resolved.
 
 ### Constraint Evaluation
 
-- The application evaluates hard constraints against the current timetable state.
+- The frontend evaluates user-facing constraints against the current timetable draft and saved assignments.
 - Constraint violations are shown in the UI.
+- Backend constraint definitions are added later only to mirror frontend validation for solver use.
 - Hard constraints in v1 include:
   - lecturer conflicts
   - student conflicts
@@ -153,12 +182,12 @@ This application is a university timetable scheduling system for administrators.
 
 ### Solver
 
-- The solver uses the current timetable state as input.
-- Scheduled sessions are fixed and treated as locked.
+- The solver uses the saved timetable state as input.
+- Saved scheduled sessions are fixed and treated as locked.
 - Unscheduled sessions are solver variables.
 - The solver attempts to schedule as many unscheduled sessions as possible.
 - Solver output may be partial.
-- Successfully scheduled sessions become locked.
+- Successfully scheduled sessions become saved scheduled assignments.
 - Failed sessions remain unscheduled.
 - Solver runs asynchronously.
 - Editing is disabled during solver execution.
@@ -180,7 +209,7 @@ This application is a university timetable scheduling system for administrators.
 - Removing scheduled sessions back to the unscheduled pool.
 - Hard constraint evaluation.
 - Constraint violation highlighting.
-- Solver button gating based on hard violations.
+- Solver button gating based on frontend validation issues.
 - OR-Tools-based hard-constraint solver.
 - Partial solver result handling.
 - Warning message for partially solved timetables.
@@ -222,13 +251,17 @@ This application is a university timetable scheduling system for administrators.
 6. The admin can drag unscheduled sessions onto the timetable.
 7. The admin can move scheduled sessions to a different day, time, or room.
 8. The admin can remove scheduled sessions back to the unscheduled pool.
-9. Constraint violations are detected and displayed for invalid timetable states.
-10. The solver button is disabled whenever hard constraint violations exist.
-11. The solver respects all locked scheduled sessions.
-12. The solver schedules as many unscheduled sessions as possible.
-13. Sessions placed by the solver appear on the timetable and become locked.
-14. Sessions that cannot be placed by the solver remain in the unscheduled pool.
-15. The UI shows a warning when the solver produces a partial result.
-16. Editing is disabled while the solver is running.
-17. Data changes that make the timetable invalid do not silently modify the timetable; instead, the timetable remains visible and violations are shown.
-18. The application does not require file upload, export, soft constraints, version history, or student/lecturer views to be considered complete for v1.
+9. Blocking placements are rejected immediately by the frontend.
+10. Warning placements are allowed to remain scheduled and are visibly flagged.
+11. The timetable draft can be explicitly saved to the backend with a save button.
+12. Saved assignments persist after refresh.
+13. The solver button is disabled whenever frontend validation reports any blocking or warning issue.
+14. Data changes that create blocking violations automatically unschedule affected sessions.
+15. Data changes that create warning violations keep sessions visible and flagged.
+16. The solver respects all saved locked scheduled sessions.
+17. The solver schedules as many unscheduled sessions as possible.
+18. Sessions placed by the solver appear on the timetable as saved scheduled assignments.
+19. Sessions that cannot be placed by the solver remain in the unscheduled pool.
+20. The UI shows a warning when the solver produces a partial result.
+21. Editing is disabled while the solver is running.
+22. The application does not require file upload, export, soft constraints, version history, or student/lecturer views to be considered complete for v1.

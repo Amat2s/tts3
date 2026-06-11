@@ -708,7 +708,7 @@ export default function TimetablePage() {
           onCellWidthChange={handleCellWidthChange}
         />
         <UnscheduledPool
-          sessions={schedulableSessions}
+          sessions={unscheduledSessions}
           isLoading={sessionsLoading}
           isError={sessionsIsError}
           error={sessionsError as Error | null}
