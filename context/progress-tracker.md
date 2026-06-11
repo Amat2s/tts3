@@ -5,6 +5,8 @@ change.
 
 ## Current Phase
 
+- Unit 42 complete — backend solver CP-SAT module
+- Unit 41 complete — backend solver input snapshot builder
 - Unit 40 complete — backend solver constraint mirror
 - Unit 39 complete — frontend drag-and-drop save integration
 - Unit 38 complete — frontend drag-and-drop scheduling shell
@@ -28,9 +30,31 @@ change.
 
 ## Current Goal
 
-- Next unit TBD (solver CP-SAT model or solver job integration)
+- Next unit TBD (solver result application / async job execution — consumes SolverRunResult)
 
 ## Completed
+
+- **Unit 42: Backend Solver CP-SAT Module**
+  - Added `ortools>=9.15.6755` to `backend/requirements.txt` (installed in backend venv; only this unit uses it)
+  - Extended `backend/solver/types.py` with output DTOs — `SolverStatus` enum (`optimal`, `feasible`, `infeasible`, `unknown`); `GeneratedAssignment` frozen dataclass (session_id, day, start_slot, room_id, duration); `SolverRunResult` (status, generated_assignments, locked_assignments preserved from input, unscheduled_session_ids, scheduled_count, unscheduled_count, timed_out, concise message)
+  - Created `backend/solver/model.py` — `solve_timetable(snapshot, time_limit_seconds=30.0)` entry function; accepts only a `SolverInputSnapshot`, never touches the DB/API/ORM/frontend draft
+  - Modeling: one optional BoolVar per feasible (day, start slot, room) candidate per unscheduled session plus a `scheduled` BoolVar with `sum(candidates) == scheduled` (optional placement → partial results; a session with zero candidates is forced unscheduled, never dropped); candidates violating static hard constraints are never created — room capacity, lunch crossing (must fit AM or PM block), off-timetable, lecturer unavailability (hard for solver even though warning-only in frontend), overlap with locked room occupancy, and overlap with a locked conflict partner's time cells
+  - Locked saved assignments are fixed occupied intervals: no variables, excluded at candidate level, returned unchanged; locked-vs-locked warning conflicts (e.g. saved placement during lecturer unavailability) are tolerated and cannot make the model infeasible
+  - Constraints: per-(day, room, slot) `AddAtMostOne` for room no-overlap; lecturer/student/unit-session conflict pairs (merged + deduped from the snapshot's three pair lists) enforced as per-time-cell `sum(occ_a) + sum(occ_b) <= 1` between unscheduled pairs; duration contiguity inherent in candidate construction
+  - Objective: maximize count of scheduled previously-unscheduled sessions; no soft preferences
+  - Determinism: `num_search_workers = 1`, `random_seed = 0`, deterministic model-build order from sorted snapshot collections; explicit timeout via `max_time_in_seconds` with `timed_out` flag (true when search stopped without optimality proof)
+  - Updated `backend/solver/__init__.py` — re-exports `solve_timetable`, `DEFAULT_TIME_LIMIT_SECONDS`, `SolverStatus`, `GeneratedAssignment`, `SolverRunResult`
+  - Created `backend/tests/test_solver.py` — 24 deterministic fixture tests: result shape, empty snapshot, single placement, locked preservation, locked room occupancy blocking, locked conflict partner blocking, saved warning-state tolerance, room capacity (direct + failure), room no-overlap, lecturer no-overlap (partial + spread), student no-overlap, unit/session overlap in isolation, availability forced placement, fully unavailable lecturer, duration-4 PM-only start, duration exceeding available block, lunch-crossing prevention, objective maximization, explicit partial result, determinism (two runs equal), input snapshot not mutated; shared `assert_valid_solution` helper re-checks every hard constraint on solver output
+  - No DB result application, no snapshot builder changes, no Trigger.dev job, no solver API, no frontend changes
+  - All 103 backend tests pass
+
+- **Unit 41: Backend Solver Input Snapshot Builder**
+  - Created `backend/solver/types.py` — `RoomSnapshot`, `SessionSnapshot`, `AvailabilitySnapshot`, `LockedAssignment`, `TimetableConstants`, `SolverInputSnapshot` frozen dataclasses; `ORDERED_DAYS` (Monday–Friday), `ORDERED_SLOTS` (s1–s7), `AM_SLOTS`, `PM_SLOTS`, `AM_PM_BOUNDARY_INDEX` (3), `SESSION_TYPE_ORDER`; `TIMETABLE_CONSTANTS` singleton with all schedule grid constants
+  - Created `backend/solver/snapshot.py` — `SnapshotIntegrityError` for defensive rejections; `build_snapshot_from_data(rooms, sessions, availability, saved_assignments)` pure builder (no DB access); `build_solver_input_snapshot(db)` DB loader using SQLAlchemy selectinload; `_validate_saved_assignments` defensive checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking); `_extract_conflict_pairs` per-category deduplication from Unit 40 conflict graph; all output collections sorted deterministically (rooms by name, sessions by unit_code/type_order/id, availability by lecturer_id, assignments by day/room/slot/session_id, conflict pairs sorted)
+  - Created `backend/solver/__init__.py` — re-exports all public symbols
+  - Created `backend/tests/test_snapshot.py` — 41 fixture-based tests covering: DTO fields, timetable constants (Monday–Friday, s1–s7, AM/PM blocks, lunch gap), snapshot population from all input types, locked assignment extraction, unscheduled session derivation, all three conflict graph types, deterministic ordering for all collections, all 7 defensive integrity checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking including multi-slot overlap), valid edge cases (empty snapshot, no students, AM-only, PM-only)
+  - No CP-SAT model, no solver API, no new packages; builder does not query frontend draft state or create/modify assignments
+  - All 41 tests pass
 
 - **Unit 40: Backend Solver Constraint Mirror**
   - Created `backend/constraints/types.py` — `ConstraintType` enum (8 values: room_double_booking, room_capacity, lunch_crossing, off_timetable, lecturer_overlap, student_overlap, unit_session_overlap, lecturer_availability); `ConstraintSeverity` enum (blocking, warning); `CONSTRAINT_SEVERITY` dict mapping each type to its severity (mirrors frontend blocking/warning split); `SessionInput`, `RoomInput`, `LecturerInput`, `AssignedSession` frozen dataclasses for ORM-detached solver input; `SolverConstraint` dataclass for violation output
@@ -477,6 +501,7 @@ change.
 
 ## Consistency Fixes
 
+- **Stale constraint enum test assertion**: commit ed2cd7e renamed `ConstraintType.LECTURER_AVAILABILITY`'s value to `lecturer_unavailable` (matching the frontend `WarningIssueType` naming) but left `test_constraints.py` asserting the old `lecturer_availability` string; the test now asserts `lecturer_unavailable`.
 - **Slot renaming (s5-s8 → s4-s7)**: PM slots are now s4-s7 (s1-s3 AM, s4-s7 PM). Updated `slots.ts`, `lecturers.ts` (frontend), `backend/models/lecturer.py`, and created migration `0004_rename_availability_slots.py` to rename the Postgres enum values in existing databases.
 - **architecture-context.md invariant #1**: Updated to state that students are optional (aligns with project-overview.md).
 - **Unit field naming**: Standardised on `id` (DB primary key), `code` (course code e.g. HIS101), `name` (unit name). Updated `units.tsx` form state and specs 21/22/24.

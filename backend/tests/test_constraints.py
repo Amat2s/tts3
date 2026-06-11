@@ -143,7 +143,8 @@ def test_constraint_type_values():
     assert ConstraintType.LECTURER_OVERLAP == "lecturer_overlap"
     assert ConstraintType.STUDENT_OVERLAP == "student_overlap"
     assert ConstraintType.UNIT_SESSION_OVERLAP == "unit_session_overlap"
-    assert ConstraintType.LECTURER_AVAILABILITY == "lecturer_availability"
+    # Value matches the frontend WarningIssueType naming (lecturer_unavailable).
+    assert ConstraintType.LECTURER_AVAILABILITY == "lecturer_unavailable"
     assert len(ConstraintType) == 8
 
 
