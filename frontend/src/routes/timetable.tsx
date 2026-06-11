@@ -1,15 +1,129 @@
-import { useQuery } from '@tanstack/react-query'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  type DragEndEvent,
+  type DragStartEvent,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
+import type { TimetableAssignment } from '@/features/timetable/assignment'
+import { getUnitColor } from '@/features/timetable/unitColors'
+import type { UnitColorVariant } from '@/features/timetable/unitColors'
+import {
+  type AssignmentResponse,
+  listAssignments,
+  saveAssignments,
+} from '@/lib/api/assignments'
+import { listLecturers } from '@/lib/api/lecturers'
 import { listRooms } from '@/lib/api/rooms'
-import { listSchedulableSessions } from '@/lib/api/sessions'
+import {
+  type SchedulableSession,
+  listSchedulableSessions,
+} from '@/lib/api/sessions'
+import {
+  checkDraftForBlockingViolations,
+  checkProposedPlacement,
+  getBlockingViolatorIds,
+} from '@/lib/validation/blocking'
+import { checkDraftForWarnings } from '@/lib/validation/warning'
+
+function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
+  return {
+    assignment_id: r.assignment_id,
+    session_id: r.session_id,
+    unit_id: r.unit_id,
+    unit_code: r.unit_code,
+    unit_name: r.unit_name,
+    session_type: r.session_type,
+    duration: r.duration,
+    lecturer_display_name: r.lecturer_display_name,
+    student_count: r.student_count,
+    day: r.day,
+    start_slot: r.start_slot,
+    room_id: r.room_id,
+  }
+}
+
+// Token maps for the drag preview overlay.
+const BG_MAP: Record<UnitColorVariant, string> = {
+  maroon: 'var(--unit-maroon-bg)',
+  gold: 'var(--unit-gold-bg)',
+  blue: 'var(--unit-blue-bg)',
+  green: 'var(--unit-green-bg)',
+  purple: 'var(--unit-purple-bg)',
+  stone: 'var(--unit-stone-bg)',
+}
+const BORDER_MAP: Record<UnitColorVariant, string> = {
+  maroon: 'var(--unit-maroon-border)',
+  gold: 'var(--unit-gold-border)',
+  blue: 'var(--unit-blue-border)',
+  green: 'var(--unit-green-border)',
+  purple: 'var(--unit-purple-border)',
+  stone: 'var(--unit-stone-border)',
+}
+const SESSION_TYPE_LABEL: Record<string, string> = {
+  lecture: 'Lecture',
+  tutorial: 'Tutorial',
+  lab: 'Lab',
+  workshop: 'Workshop',
+}
+
+function DragPreviewCard({ session }: { session: SchedulableSession }) {
+  const colorVariant = getUnitColor(session.unit_id)
+  return (
+    <div
+      className="rounded-md border px-3 py-2 flex flex-col gap-1 select-none shadow-md"
+      style={{
+        backgroundColor: BG_MAP[colorVariant],
+        borderColor: BORDER_MAP[colorVariant],
+        borderLeftWidth: '3px',
+        minWidth: '180px',
+        maxWidth: '240px',
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className="text-xs font-semibold"
+          style={{ color: BORDER_MAP[colorVariant] }}
+        >
+          {session.unit_code}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {SESSION_TYPE_LABEL[session.session_type] ?? session.session_type}
+        </span>
+      </div>
+      <p
+        className="text-sm font-medium leading-tight truncate"
+        style={{ color: 'var(--text-primary)' }}
+      >
+        {session.unit_name}
+      </p>
+      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+        {session.duration} slot{session.duration !== 1 ? 's' : ''} · {session.lecturer_display_name}
+      </span>
+    </div>
+  )
+}
 
 export default function TimetablePage() {
+  const queryClient = useQueryClient()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
+
   const {
     data: rooms,
     isLoading,
@@ -29,6 +143,205 @@ export default function TimetablePage() {
     queryKey: ['schedulable-sessions'],
     queryFn: listSchedulableSessions,
   })
+
+  const { data: savedAssignments } = useQuery({
+    queryKey: ['assignments'],
+    queryFn: listAssignments,
+  })
+
+  const { data: lecturers } = useQuery({
+    queryKey: ['lecturers'],
+    queryFn: listLecturers,
+  })
+
+  const [draft, setDraft] = useState<TimetableAssignment[]>([])
+  const [isDirty, setIsDirty] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [blockingError, setBlockingError] = useState<string | null>(null)
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+
+  // Keep a ref of the latest draft so data-change effects can read it without
+  // adding draft to their dependency arrays (which would cause validation loops).
+  const draftRef = useRef<TimetableAssignment[]>([])
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
+
+  useEffect(() => {
+    if (savedAssignments !== undefined) {
+      setDraft(savedAssignments.map(toTimetableAssignment))
+      setIsDirty(false)
+      setSaveError(null)
+      setBlockingError(null)
+      setPendingSessionId(null)
+    }
+  }, [savedAssignments])
+
+  // Auto-unschedule any draft assignments that now violate blocking rules after
+  // room or session data changes (e.g. room capacity reduced, student count increased).
+  useEffect(() => {
+    const currentDraft = draftRef.current
+    if (!rooms || currentDraft.length === 0) return
+
+    const sessionCountMap = schedulableSessions
+      ? new Map(schedulableSessions.map((s) => [s.session_id, s.student_count]))
+      : null
+
+    const validationDraft = sessionCountMap
+      ? currentDraft.map((a) => {
+          const count = sessionCountMap.get(a.session_id)
+          return count !== undefined ? { ...a, student_count: count } : a
+        })
+      : currentDraft
+
+    const violators = getBlockingViolatorIds(validationDraft, rooms)
+    if (violators.size > 0) {
+      setDraft((prev) => prev.filter((a) => !violators.has(a.session_id)))
+      setIsDirty(true)
+    }
+  }, [rooms, schedulableSessions])
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveAssignments({
+        assignments: draft.map((a) => ({
+          session_id: a.session_id,
+          day: a.day,
+          start_slot: a.start_slot,
+          room_id: a.room_id,
+        })),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+    },
+    onError: (err: Error) => {
+      setSaveError(err.message ?? 'Failed to save timetable. Please try again.')
+    },
+  })
+
+  // Sessions not currently placed in the draft.
+  const scheduledIds = new Set(draft.map((a) => a.session_id))
+  const unscheduledSessions = schedulableSessions?.filter(
+    (s) => !scheduledIds.has(s.session_id)
+  ) ?? []
+
+  const warningIssues = checkDraftForWarnings(draft, lecturers)
+  const warningSessionIds = new Set(
+    warningIssues.flatMap((i) => i.affected_session_ids)
+  )
+  const blockingViolations = rooms ? checkDraftForBlockingViolations(draft, rooms) : []
+  const canRunSolver = blockingViolations.length === 0 && warningIssues.length === 0
+
+  // The session being actively dragged (for DragOverlay preview).
+  const activeSession = activeSessionId
+    ? schedulableSessions?.find((s) => s.session_id === activeSessionId)
+    : null
+
+  function handleSelectSession(sessionId: string) {
+    setBlockingError(null)
+    setPendingSessionId((prev) => (prev === sessionId ? null : sessionId))
+  }
+
+  function handleCellClick(day: string, slotId: string, roomId: string) {
+    if (!pendingSessionId) return
+    const session = schedulableSessions?.find(
+      (s) => s.session_id === pendingSessionId
+    )
+    if (!session) return
+
+    const proposed: TimetableAssignment = {
+      session_id: session.session_id,
+      unit_id: session.unit_id,
+      unit_code: session.unit_code,
+      unit_name: session.unit_name,
+      session_type: session.session_type,
+      duration: session.duration,
+      lecturer_display_name: session.lecturer_display_name,
+      student_count: session.student_count,
+      day: day as TimetableAssignment['day'],
+      start_slot: slotId as TimetableAssignment['start_slot'],
+      room_id: roomId,
+    }
+
+    const issues = checkProposedPlacement(proposed, draft, rooms ?? [])
+    if (issues.length > 0) {
+      setBlockingError(issues[0].message)
+      return
+    }
+
+    const withoutOld = draft.filter((a) => a.session_id !== pendingSessionId)
+    setBlockingError(null)
+    setDraft([...withoutOld, proposed])
+    setIsDirty(true)
+    setPendingSessionId(null)
+  }
+
+  function handleUnschedule(sessionId: string) {
+    setBlockingError(null)
+    setDraft((prev) => prev.filter((a) => a.session_id !== sessionId))
+    setIsDirty(true)
+    setPendingSessionId((prev) => (prev === sessionId ? null : prev))
+  }
+
+  function handleSave() {
+    setSaveError(null)
+    saveMutation.mutate()
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const sessionId = event.active.id as string
+    setActiveSessionId(sessionId)
+    // Cancel any pending click-based selection when drag starts.
+    setPendingSessionId(null)
+    setBlockingError(null)
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveSessionId(null)
+    const { active, over } = event
+    if (!over) return
+
+    const sessionId = active.id as string
+    // Droppable ID format: "${day}:${roomId}:${slotId}" (matches buildAssignmentMap key)
+    const parts = (over.id as string).split(':')
+    if (parts.length < 3) return
+    // day can be a single word, roomId is a UUID (no colons), slotId is "s1"–"s7"
+    const [day, roomId, slotId] = parts
+
+    const session = schedulableSessions?.find((s) => s.session_id === sessionId)
+    if (!session) return
+
+    const proposed: TimetableAssignment = {
+      session_id: session.session_id,
+      unit_id: session.unit_id,
+      unit_code: session.unit_code,
+      unit_name: session.unit_name,
+      session_type: session.session_type,
+      duration: session.duration,
+      lecturer_display_name: session.lecturer_display_name,
+      student_count: session.student_count,
+      day: day as TimetableAssignment['day'],
+      start_slot: slotId as TimetableAssignment['start_slot'],
+      room_id: roomId,
+    }
+
+    const issues = checkProposedPlacement(proposed, draft, rooms ?? [])
+    if (issues.length > 0) {
+      setBlockingError(issues[0].message)
+      return
+    }
+
+    // Remove any existing placement for this session (handles moves), then place.
+    const withoutOld = draft.filter((a) => a.session_id !== sessionId)
+    setBlockingError(null)
+    setDraft([...withoutOld, proposed])
+    setIsDirty(true)
+  }
+
+  function handleDragCancel() {
+    setActiveSessionId(null)
+  }
 
   function renderCanvas() {
     if (isLoading) {
@@ -104,12 +417,22 @@ export default function TimetablePage() {
 
     return (
       <div className="flex flex-col gap-4">
-        <TimetableGrid rooms={rooms} assignments={[]} />
+        <TimetableGrid
+          rooms={rooms}
+          assignments={draft}
+          pendingSessionId={pendingSessionId}
+          warningSessionIds={warningSessionIds}
+          onCellClick={handleCellClick}
+          onUnschedule={handleUnschedule}
+          onMoveSelect={handleSelectSession}
+        />
         <UnscheduledPool
-          sessions={schedulableSessions}
+          sessions={unscheduledSessions}
           isLoading={sessionsLoading}
           isError={sessionsIsError}
           error={sessionsError as Error | null}
+          pendingSessionId={pendingSessionId}
+          onSelectSession={handleSelectSession}
         />
       </div>
     )
@@ -121,10 +444,32 @@ export default function TimetablePage() {
         title="Timetable"
         description="Weekly scheduling workspace. Assign sessions to rooms and time slots, or run the constraint solver."
       />
-      <div className="flex flex-col gap-4">
-        <TimetableActionBar />
-        {renderCanvas()}
-      </div>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex flex-col gap-4">
+          <TimetableActionBar
+            isDirty={isDirty}
+            isSaving={saveMutation.isPending}
+            saveError={saveError}
+            blockingError={blockingError}
+            violationMessages={blockingViolations.map((v) => v.message)}
+            warningMessages={warningIssues.map((i) => i.message)}
+            canRunSolver={canRunSolver}
+            onSave={handleSave}
+            isPendingPlacement={!!pendingSessionId}
+          />
+          {renderCanvas()}
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {activeSession ? (
+            <DragPreviewCard session={activeSession} />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </AppFrame>
   )
 }

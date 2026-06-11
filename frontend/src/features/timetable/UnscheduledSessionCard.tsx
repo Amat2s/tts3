@@ -1,3 +1,4 @@
+import { useDraggable } from '@dnd-kit/core'
 import { Clock, User, Users } from 'lucide-react'
 import type { SchedulableSession } from '@/lib/api/sessions'
 import type { UnitColorVariant } from './unitColors'
@@ -30,22 +31,38 @@ const SESSION_TYPE_LABEL: Record<string, string> = {
 interface UnscheduledSessionCardProps {
   session: SchedulableSession
   colorVariant: UnitColorVariant
+  isSelected?: boolean
+  onClick?: () => void
 }
 
 export function UnscheduledSessionCard({
   session,
   colorVariant,
+  isSelected = false,
+  onClick,
 }: UnscheduledSessionCardProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: session.session_id,
+    data: { sessionId: session.session_id },
+  })
+
   return (
     <div
-      className="rounded-md border px-3 py-2 flex flex-col gap-1 cursor-default select-none"
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className="rounded-md border px-3 py-2 flex flex-col gap-1 cursor-pointer select-none"
       style={{
         backgroundColor: BG_MAP[colorVariant],
         borderColor: BORDER_MAP[colorVariant],
         borderLeftWidth: '3px',
         minWidth: '180px',
         maxWidth: '240px',
+        outline: isSelected ? `2px solid ${BORDER_MAP[colorVariant]}` : undefined,
+        outlineOffset: isSelected ? '1px' : undefined,
+        opacity: isDragging ? 0.3 : 1,
       }}
+      onClick={onClick}
     >
       <div className="flex items-center justify-between gap-2">
         <span

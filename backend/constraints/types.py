@@ -1,0 +1,77 @@
+import enum
+from dataclasses import dataclass, field
+
+
+class ConstraintType(str, enum.Enum):
+    ROOM_DOUBLE_BOOKING = "room_double_booking"
+    ROOM_CAPACITY = "room_capacity"
+    LUNCH_CROSSING = "lunch_crossing"
+    OFF_TIMETABLE = "off_timetable"
+    LECTURER_OVERLAP = "lecturer_overlap"
+    STUDENT_OVERLAP = "student_overlap"
+    UNIT_SESSION_OVERLAP = "unit_session_overlap"
+    LECTURER_AVAILABILITY = "lecturer_availability"
+
+
+class ConstraintSeverity(str, enum.Enum):
+    BLOCKING = "blocking"
+    WARNING = "warning"
+
+
+# Mirrors the frontend blocking/warning split.
+CONSTRAINT_SEVERITY: dict[ConstraintType, ConstraintSeverity] = {
+    ConstraintType.ROOM_DOUBLE_BOOKING: ConstraintSeverity.BLOCKING,
+    ConstraintType.ROOM_CAPACITY: ConstraintSeverity.BLOCKING,
+    ConstraintType.LUNCH_CROSSING: ConstraintSeverity.BLOCKING,
+    ConstraintType.OFF_TIMETABLE: ConstraintSeverity.BLOCKING,
+    ConstraintType.LECTURER_OVERLAP: ConstraintSeverity.WARNING,
+    ConstraintType.STUDENT_OVERLAP: ConstraintSeverity.WARNING,
+    ConstraintType.UNIT_SESSION_OVERLAP: ConstraintSeverity.WARNING,
+    ConstraintType.LECTURER_AVAILABILITY: ConstraintSeverity.WARNING,
+}
+
+
+@dataclass(frozen=True)
+class SessionInput:
+    """Flat solver-side session descriptor — detached from ORM."""
+    session_id: str
+    unit_id: str
+    duration: int
+    lecturer_id: str
+    student_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class RoomInput:
+    """Flat solver-side room descriptor."""
+    room_id: str
+    capacity: int
+
+
+@dataclass(frozen=True)
+class LecturerInput:
+    """Flat solver-side lecturer descriptor."""
+    lecturer_id: str
+    unavailable: frozenset[tuple[str, str]]  # (day, slot) pairs
+
+
+@dataclass(frozen=True)
+class AssignedSession:
+    """A session with its timetable position — input to assignment-based checks."""
+    session: SessionInput
+    day: str        # e.g. "Monday"
+    start_slot: str  # e.g. "s1"
+    room_id: str
+
+
+@dataclass
+class SolverConstraint:
+    """A concrete constraint violation or structural restriction for the solver."""
+    constraint_type: ConstraintType
+    severity: ConstraintSeverity
+    affected_session_ids: tuple[str, ...]
+    room_id: str | None = None
+    lecturer_id: str | None = None
+    unit_id: str | None = None
+    day: str | None = None
+    slot: str | None = None

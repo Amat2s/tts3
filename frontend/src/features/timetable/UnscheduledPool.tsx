@@ -50,6 +50,8 @@ interface UnscheduledPoolProps {
   isLoading?: boolean
   isError?: boolean
   error?: Error | null
+  pendingSessionId?: string | null
+  onSelectSession?: (sessionId: string) => void
 }
 
 export function UnscheduledPool({
@@ -57,6 +59,8 @@ export function UnscheduledPool({
   isLoading = false,
   isError = false,
   error,
+  pendingSessionId,
+  onSelectSession,
 }: UnscheduledPoolProps) {
   const unitBuckets = buildUnitBuckets(sessions)
 
@@ -141,6 +145,8 @@ export function UnscheduledPool({
               unitName={bucket.unitName}
               sessions={bucket.sessions}
               colorVariant={getUnitColor(bucket.unitId)}
+              pendingSessionId={pendingSessionId}
+              onSelectSession={onSelectSession}
             />
           ))}
         </div>

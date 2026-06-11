@@ -1,0 +1,216 @@
+from sqlalchemy.orm import Session as DBSession, selectinload
+
+from api.errors import AppError
+from models.assignment import TimetableAssignment
+from models.room import Room
+from models.session import Session
+from models.unit import Unit
+from schemas.assignment import AssignmentItem, AssignmentResponse, AssignmentSaveRequest
+
+# Ordered slot IDs matching the frontend timetable (s1–s7, no lunch slot).
+ORDERED_SLOTS: list[str] = ["s1", "s2", "s3", "s4", "s5", "s6", "s7"]
+
+# AM block: s1, s2, s3 (indices 0–2). PM block: s4–s7 (indices 3–6).
+_AM_SLOT_COUNT = 3
+
+
+def _slot_index(slot: str) -> int:
+    return ORDERED_SLOTS.index(slot)
+
+
+def _crosses_lunch(start_slot: str, duration: int) -> bool:
+    """True if an AM-starting session would spill into the PM block."""
+    idx = _slot_index(start_slot)
+    if idx >= _AM_SLOT_COUNT:
+        return False
+    return idx + duration > _AM_SLOT_COUNT
+
+
+def _off_timetable(start_slot: str, duration: int) -> bool:
+    """True if the session extends past the last timetable slot (s7)."""
+    return _slot_index(start_slot) + duration > len(ORDERED_SLOTS)
+
+
+def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
+    session = assignment.session
+    unit = session.unit
+    lecturer = unit.lecturer
+    return AssignmentResponse(
+        assignment_id=assignment.id,
+        session_id=session.id,
+        unit_id=unit.id,
+        unit_code=unit.code,
+        unit_name=unit.name,
+        session_type=session.session_type,
+        duration=session.duration,
+        lecturer_display_name=(
+            f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}"
+        ),
+        student_count=len(unit.students),
+        day=assignment.day,
+        start_slot=assignment.start_slot,
+        room_id=assignment.room_id,
+        created_at=assignment.created_at,
+        updated_at=assignment.updated_at,
+    )
+
+
+def _assignment_query(db: DBSession):
+    return db.query(TimetableAssignment).options(
+        selectinload(TimetableAssignment.session)
+        .selectinload(Session.unit)
+        .selectinload(Unit.lecturer),
+        selectinload(TimetableAssignment.session)
+        .selectinload(Session.unit)
+        .selectinload(Unit.students),
+        selectinload(TimetableAssignment.room),
+    )
+
+
+def list_assignments(db: DBSession) -> list[AssignmentResponse]:
+    assignments = _assignment_query(db).all()
+    return [_build_response(a) for a in assignments]
+
+
+def save_assignments(
+    db: DBSession, data: AssignmentSaveRequest
+) -> list[AssignmentResponse]:
+    items = data.assignments
+
+    if not items:
+        db.query(TimetableAssignment).delete()
+        db.commit()
+        return []
+
+    # Deduplicate input: reject duplicate session_ids in the request.
+    seen_session_ids: set[str] = set()
+    for item in items:
+        if item.session_id in seen_session_ids:
+            raise AppError(
+                "duplicate_session_in_request",
+                f"Session {item.session_id} appears more than once in the assignment list.",
+                status_code=422,
+            )
+        seen_session_ids.add(item.session_id)
+
+    # Fetch all referenced sessions (with unit + lecturer + students) and rooms.
+    session_ids = {item.session_id for item in items}
+    room_ids = {item.room_id for item in items}
+
+    sessions_map: dict[str, Session] = {
+        s.id: s
+        for s in db.query(Session)
+        .options(
+            selectinload(Session.unit).selectinload(Unit.lecturer),
+            selectinload(Session.unit).selectinload(Unit.students),
+        )
+        .filter(Session.id.in_(session_ids))
+        .all()
+    }
+    rooms_map: dict[str, Room] = {
+        r.id: r
+        for r in db.query(Room).filter(Room.id.in_(room_ids)).all()
+    }
+
+    # Verify all referenced sessions and rooms exist.
+    for item in items:
+        if item.session_id not in sessions_map:
+            raise AppError(
+                "session_not_found",
+                f"Session {item.session_id} not found.",
+                status_code=422,
+            )
+        if item.room_id not in rooms_map:
+            raise AppError(
+                "room_not_found",
+                f"Room {item.room_id} not found.",
+                status_code=422,
+            )
+
+    # Per-item defensive checks.
+    for item in items:
+        session = sessions_map[item.session_id]
+        room = rooms_map[item.room_id]
+        unit = session.unit
+        duration = session.duration
+        student_count = len(unit.students)
+        start_slot = item.start_slot.value
+
+        if room.capacity < student_count:
+            raise AppError(
+                "room_capacity_too_small",
+                (
+                    f"Room '{room.name}' capacity ({room.capacity}) is smaller than "
+                    f"the session's student count ({student_count})."
+                ),
+                status_code=422,
+            )
+
+        if _crosses_lunch(start_slot, duration):
+            raise AppError(
+                "session_crosses_lunch",
+                (
+                    f"Session starting at {start_slot} with duration {duration} "
+                    "would cross the lunch break."
+                ),
+                status_code=422,
+            )
+
+        if _off_timetable(start_slot, duration):
+            raise AppError(
+                "session_off_timetable",
+                (
+                    f"Session starting at {start_slot} with duration {duration} "
+                    "extends past the end of the timetable."
+                ),
+                status_code=422,
+            )
+
+    # Cross-item: room double-booking (checks multi-slot overlaps, not just same start slot).
+    occupied: dict[tuple[str, str, str], str] = {}
+    for item in items:
+        session = sessions_map[item.session_id]
+        duration = session.duration
+        start_index = _slot_index(item.start_slot.value)
+        slots_used = ORDERED_SLOTS[start_index : start_index + duration]
+        for slot in slots_used:
+            key = (item.day.value, item.room_id, slot)
+            if key in occupied:
+                room = rooms_map[item.room_id]
+                raise AppError(
+                    "room_double_booking",
+                    (
+                        f"Room '{room.name}' is already occupied on "
+                        f"{item.day.value} at slot {slot}."
+                    ),
+                    status_code=422,
+                )
+            occupied[key] = item.session_id
+
+    # All checks passed — replace assignments in one transaction.
+    db.query(TimetableAssignment).delete()
+
+    new_records: list[TimetableAssignment] = []
+    for item in items:
+        record = TimetableAssignment(
+            session_id=item.session_id,
+            day=item.day,
+            start_slot=item.start_slot,
+            room_id=item.room_id,
+        )
+        db.add(record)
+        new_records.append(record)
+
+    db.commit()
+    for record in new_records:
+        db.refresh(record)
+
+    # Re-query with full eager loading so responses include all joined display data.
+    saved_ids = [r.id for r in new_records]
+    saved = _assignment_query(db).filter(TimetableAssignment.id.in_(saved_ids)).all()
+    return [_build_response(a) for a in saved]
+
+
+def clear_assignments(db: DBSession) -> None:
+    db.query(TimetableAssignment).delete()
+    db.commit()

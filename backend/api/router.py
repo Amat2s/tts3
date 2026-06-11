@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from api.assignments import router as assignments_router
 from api.health import router as health_router
 from api.lecturers import router as lecturers_router
 from api.protected import router as protected_router
@@ -17,3 +18,4 @@ api_router.include_router(students_router)
 api_router.include_router(units_router)
 api_router.include_router(unit_sessions_router)
 api_router.include_router(sessions_router)
+api_router.include_router(assignments_router)

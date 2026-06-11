@@ -8,6 +8,8 @@ interface UnitGroupProps {
   unitName: string
   sessions: SchedulableSession[]
   colorVariant: UnitColorVariant
+  pendingSessionId?: string | null
+  onSelectSession?: (sessionId: string) => void
 }
 
 export function UnitGroup({
@@ -15,6 +17,8 @@ export function UnitGroup({
   unitName,
   sessions,
   colorVariant,
+  pendingSessionId,
+  onSelectSession,
 }: UnitGroupProps) {
   return (
     <div className="flex flex-col gap-2">
@@ -38,6 +42,8 @@ export function UnitGroup({
             key={session.session_id}
             session={session}
             colorVariant={colorVariant}
+            isSelected={pendingSessionId === session.session_id}
+            onClick={() => onSelectSession?.(session.session_id)}
           />
         ))}
       </div>

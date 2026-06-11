@@ -10,6 +10,11 @@ export interface RoomColumn {
 interface TimetableGridProps {
   rooms: RoomColumn[]
   assignments?: TimetableAssignment[]
+  pendingSessionId?: string | null
+  warningSessionIds?: Set<string>
+  onCellClick?: (day: string, slotId: string, roomId: string) => void
+  onUnschedule?: (sessionId: string) => void
+  onMoveSelect?: (sessionId: string) => void
 }
 
 const TIME_COL_W = '6rem'
@@ -48,7 +53,15 @@ function TimeLabel({ label }: { label: string }) {
   )
 }
 
-export function TimetableGrid({ rooms, assignments = [] }: TimetableGridProps) {
+export function TimetableGrid({
+  rooms,
+  assignments = [],
+  pendingSessionId,
+  warningSessionIds,
+  onCellClick,
+  onUnschedule,
+  onMoveSelect,
+}: TimetableGridProps) {
   if (rooms.length === 0) return null
 
   const assignmentMap = buildAssignmentMap(assignments)
@@ -122,16 +135,24 @@ export function TimetableGrid({ rooms, assignments = [] }: TimetableGridProps) {
         >
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
-            rooms.map((room, rIdx) => (
-              <GridCell
-                key={`${day}-${room.id}-${slot.id}`}
-                slotId={slot.id}
-                day={day}
-                roomId={room.id}
-                isDayBoundary={rIdx === rooms.length - 1}
-                assignment={assignmentMap.get(`${day}:${room.id}:${slot.id}`)}
-              />
-            ))
+            rooms.map((room, rIdx) => {
+              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              return (
+                <GridCell
+                  key={`${day}-${room.id}-${slot.id}`}
+                  slotId={slot.id}
+                  day={day}
+                  roomId={room.id}
+                  isDayBoundary={rIdx === rooms.length - 1}
+                  assignment={a}
+                  pendingSessionId={pendingSessionId}
+                  hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
+                  onUnschedule={onUnschedule}
+                  onMoveSelect={onMoveSelect}
+                />
+              )
+            })
           )}
         </div>
       ))}
@@ -179,16 +200,24 @@ export function TimetableGrid({ rooms, assignments = [] }: TimetableGridProps) {
         >
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
-            rooms.map((room, rIdx) => (
-              <GridCell
-                key={`${day}-${room.id}-${slot.id}`}
-                slotId={slot.id}
-                day={day}
-                roomId={room.id}
-                isDayBoundary={rIdx === rooms.length - 1}
-                assignment={assignmentMap.get(`${day}:${room.id}:${slot.id}`)}
-              />
-            ))
+            rooms.map((room, rIdx) => {
+              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              return (
+                <GridCell
+                  key={`${day}-${room.id}-${slot.id}`}
+                  slotId={slot.id}
+                  day={day}
+                  roomId={room.id}
+                  isDayBoundary={rIdx === rooms.length - 1}
+                  assignment={a}
+                  pendingSessionId={pendingSessionId}
+                  hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
+                  onUnschedule={onUnschedule}
+                  onMoveSelect={onMoveSelect}
+                />
+              )
+            })
           )}
         </div>
       ))}

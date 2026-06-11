@@ -5,6 +5,15 @@ change.
 
 ## Current Phase
 
+- Unit 40 complete — backend solver constraint mirror
+- Unit 39 complete — frontend drag-and-drop save integration
+- Unit 38 complete — frontend drag-and-drop scheduling shell
+- Unit 37 complete — frontend validation display and solver gate shell
+- Unit 36 complete — frontend warning validation engine
+- Unit 35 complete — frontend blocking validation engine
+- Unit 34 complete — frontend manual scheduling controls
+- Unit 32 complete — frontend assignment API client
+- Unit 31 complete — backend saved timetable assignment persistence and protected save API
 - Unit 30 complete — frontend scheduled session rendering shell
 - Unit 29 complete — frontend unscheduled pool integration (real schedulable-session data)
 - Unit 28 complete — frontend unscheduled pool shell
@@ -19,9 +28,115 @@ change.
 
 ## Current Goal
 
-- Next unit TBD (assignment backend + integration phase)
+- Next unit TBD (solver CP-SAT model or solver job integration)
 
 ## Completed
+
+- **Unit 40: Backend Solver Constraint Mirror**
+  - Created `backend/constraints/types.py` — `ConstraintType` enum (8 values: room_double_booking, room_capacity, lunch_crossing, off_timetable, lecturer_overlap, student_overlap, unit_session_overlap, lecturer_availability); `ConstraintSeverity` enum (blocking, warning); `CONSTRAINT_SEVERITY` dict mapping each type to its severity (mirrors frontend blocking/warning split); `SessionInput`, `RoomInput`, `LecturerInput`, `AssignedSession` frozen dataclasses for ORM-detached solver input; `SolverConstraint` dataclass for violation output
+  - Created `backend/constraints/graph.py` — slot order constants (s1–s7, AM/PM boundary at index 3); `ConflictEdge` and `ConflictGraph` dataclasses; `ConflictGraph.neighbors()` and `conflicts_between()` methods; `derive_lecturer_overlap_conflicts`, `derive_student_overlap_conflicts`, `derive_unit_session_overlap_conflicts` structural derivation functions; `build_conflict_graph` aggregator; assignment-based violation checks: `check_room_double_booking`, `check_room_capacity`, `check_lunch_crossing`, `check_off_timetable`, `check_lecturer_overlap`, `check_student_overlap`, `check_unit_session_overlap`, `check_lecturer_availability`; `compile_assignment_violations` aggregator
+  - Created `backend/constraints/__init__.py` — re-exports all public symbols
+  - Created `backend/tests/__init__.py` and `backend/tests/test_constraints.py` — 38 pytest fixture-based tests covering all constraint types, conflict graph construction, positive and negative cases
+  - Added `pytest>=8.0.0` to `backend/requirements.txt`
+  - No user-facing validation API added; no solver CP-SAT model; module is pure Python with no SQLAlchemy dependencies
+  - All 38 tests pass
+
+- **Unit 39: Frontend Drag-and-Drop Save Integration**
+  - No new code required — all Unit 39 scope was already delivered by Units 33 and 38 combined
+  - Drag/drop changes mark draft dirty: `handleDragEnd` sets `setIsDirty(true)` after every successful placement
+  - Save sends the complete draft: `saveMutation` maps `draft` to `AssignmentItem[]` and calls `saveAssignments`
+  - Save loading state: `isSaving={saveMutation.isPending}` passed to `TimetableActionBar`; spinner shown while pending
+  - Successful save refetches: `onSuccess` calls `queryClient.invalidateQueries({ queryKey: ['assignments'] })`
+  - Dirty-state reset: `useEffect` on `savedAssignments` calls `setIsDirty(false)` and `setSaveError(null)` when the refetch lands
+  - Failed save preserves draft: `onError` only sets `saveError`; draft state is untouched
+  - Backend defensive rejections visible as save errors: `parseAssignmentSaveError` parses 404/409/422 responses into readable messages; `saveError` displayed in `TimetableActionBar`
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 38: Frontend Drag-and-Drop Scheduling Shell**
+  - Installed `@dnd-kit/core` and `@dnd-kit/utilities` (already present in package.json)
+  - `GridCell`: added `useDroppable` with id `${day}:${roomId}:${slotId}`; `disabled: !!assignment` so occupied start-slot cells don't accept drops; `isOver` drives drop-target highlight; highlight logic combines DnD `isOver` and existing click-mode `isClickDropTarget && hovered`
+  - `UnscheduledSessionCard`: added `useDraggable` with `id={session.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; CSS transform intentionally not applied (DragOverlay handles visual movement)
+  - `ScheduledSessionCard`: added `useDraggable` with `id={assignment.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; X (unschedule) button gets `onPointerDown={stopPropagation}` to prevent drag starting from the unschedule button
+  - `timetable.tsx`: `DndContext` wraps the full timetable canvas (action bar + grid + pool); `PointerSensor` with `activationConstraint: { distance: 5 }` prevents accidental drags; `KeyboardSensor` for accessibility; `activeSessionId` state tracks dragged session for overlay; `handleDragStart` sets `activeSessionId`, clears `pendingSessionId` and `blockingError`; `handleDragEnd` parses droppable id (`day:roomId:slotId`), calls `checkProposedPlacement`, rejects with `blockingError` on blocking violations, updates draft on success; `handleDragCancel` clears `activeSessionId`; `DragOverlay` with `dropAnimation={null}` renders `DragPreviewCard` while dragging
+  - `DragPreviewCard`: private component in `timetable.tsx`; renders session info (unit code, type, unit name, duration, lecturer) matching unscheduled card size; uses same design token maps
+  - Warning recalculation is automatic — warning state is derived from draft on every render; no extra wiring needed
+  - Manual click-based scheduling controls remain fully functional alongside drag-and-drop
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 37: Frontend Validation Display and Solver Gate Shell**
+  - `TimetableActionBar`: replaced `warningCount` prop with `violationMessages: string[]` and `warningMessages: string[]`; added `onRunSolver?: () => void` prop
+  - Added **Run Solver** button shell (using `--solver-accent` blue); enabled only when `canRunSolver` is true; HTML `title` attribute carries the full blocked reason for browser tooltip
+  - Solver blocked reason message in status area: "N blocking violations and N scheduling warnings must be resolved before running the solver" — uses error color when violations present, warning color when warnings only
+  - Added expandable **violation detail panel** (toggled via "View details (N)" / "Hide details" chevron button); renders below the main action bar row with `--bg-muted` background; lists blocking violations with `XCircle` icon and warning issues with `AlertTriangle` icon, grouped by severity
+  - `timetable.tsx`: changed from computing just `hasBlockingViolations: boolean` to `blockingViolations: BlockingIssue[]` (full array); passes `.map(v => v.message)` and `warningIssues.map(i => i.message)` to the action bar
+  - Verification checklist: blocking rejection visible ✓; warning cards marked ✓; warning detail messages accessible via "View details" ✓; solver disabled when any issue exists ✓; solver disabled state explains why ✓; no backend validation API added ✓
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 36: Frontend Warning Validation Engine**
+  - Created `frontend/src/lib/validation/warning.ts` — pure warning validation helpers; `WarningIssueType` union (`lecturer_overlap`, `unit_session_overlap`, `lecturer_unavailable`); `WarningIssue` interface (type, severity: `'warning'`, affected_session_ids, optional affected_lecturer_id / affected_student_ids / affected_day / affected_slot, human-readable message)
+  - `checkDraftForWarnings(draft, lecturers?)` — checks all draft assignments for three warning rules: (1) lecturer overlap: two assignments with the same `lecturer_display_name` on the same day with overlapping slots; (2) unit/session overlap: two assignments from the same `unit_id` on the same day with overlapping slots (detects student conflicts via unit enrollment); (3) lecturer unavailable: assignment occupies a slot marked unavailable by the lecturer; returns all warning issues found
+  - `getWarningSessionIds(draft, lecturers?)` — returns `Set<string>` of session IDs with any warning, used for grid visual flagging
+  - `ScheduledSessionCard`: added `hasWarning?: boolean` prop; when true, changes border color to `--state-warning` and shows `AlertTriangle` icon (h-3 w-3) alongside the unschedule button for accessible non-color-only indicator
+  - `GridCell`: added `hasWarning?: boolean` prop; passes through to `ScheduledSessionCard`
+  - `TimetableGrid`: added `warningSessionIds?: Set<string>` prop; computes `hasWarning` per cell using `warningSessionIds.has(assignment.session_id)` and passes to `GridCell`
+  - `TimetableActionBar`: added `warningCount?: number` and `canRunSolver?: boolean` props; shows amber warning summary with `AlertTriangle` icon when warnings exist ("N scheduling warnings — solver blocked until resolved"); updated placeholder text
+  - `timetable.tsx`: added `useQuery(['lecturers'], listLecturers)` for availability data; computes `warningIssues` and `warningSessionIds` inline from draft + lecturers; computes `canRunSolver = !hasBlockingViolations && warningIssues.length === 0`; passes `warningSessionIds` to `TimetableGrid`, `warningCount` and `canRunSolver` to `TimetableActionBar`
+  - Warning placements remain scheduled and saveable; solver gate (`canRunSolver`) is false whenever any blocking or warning issue exists
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 35: Frontend Blocking Validation Engine**
+  - Created `frontend/src/lib/validation/blocking.ts` — pure validation helpers; `BlockingIssueType` union (`room_double_booking`, `room_capacity_too_small`, `session_crossing_lunch`, `session_off_timetable`); `BlockingIssue` interface (type, severity: `'blocking'`, affected_session_ids, optional affected_room_id / affected_day / affected_slot, human-readable message)
+  - `checkProposedPlacement(proposed, existingDraft, rooms)` — checks a single proposed assignment against the current draft and room data before it enters the draft; excludes the pending session's own old position so moves don't self-conflict; returns all blocking issues found
+  - `checkDraftForBlockingViolations(draft, rooms)` — checks all current draft assignments for off-timetable, lunch-crossing, room-capacity, and room-double-booking violations
+  - `getBlockingViolatorIds(draft, rooms)` — returns a `Set<string>` of session IDs that violate any blocking rule; used for automatic unscheduling
+  - `isOffTimetable`: `SLOT_INDEX[startSlot] + duration > 7` (7 total slots); `crossesLunch`: occupied indices span both AM (indices 0–2) and PM (indices 3–6); `rangesOverlap`: standard interval overlap test
+  - `timetable.tsx`: added `blockingError: string | null` state; added `draftRef` (synced via effect) so data-change effects can read the latest draft without dependency array issues; `handleCellClick` now calls `checkProposedPlacement` before placing — sets `blockingError` and returns early on any blocking issue, clears it and places on success; `handleSelectSession` and `handleUnschedule` clear `blockingError`
+  - Auto-unschedule effect runs when `rooms` or `schedulableSessions` query data changes: builds a validation copy of the draft with current session student counts, finds violators via `getBlockingViolatorIds`, removes them from draft, sets `isDirty = true`; no-op when draft is empty
+  - `TimetableActionBar`: added `blockingError?: string | null` prop; shown in error style with "Cannot place session: …" prefix; priority below `saveError`, above pending placement hint
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 34: Frontend Manual Scheduling Controls**
+  - `pendingSessionId: string | null` state in `timetable.tsx` — shared selection for both fresh placement (from pool) and move (from grid)
+  - `handleSelectSession` toggles pending: clicking same session again cancels selection; clicking a different session switches it
+  - `handleCellClick(day, slotId, roomId)` places the pending session — removes any existing draft entry for that session_id first (handles move), builds a new `TimetableAssignment` from the schedulable sessions list, appends to draft, sets `isDirty`, clears pending
+  - `handleUnschedule(sessionId)` removes the session from draft, sets `isDirty`, also clears pending if the removed session was pending
+  - `unscheduledSessions` derived in `timetable.tsx` — `schedulableSessions` filtered to exclude any session_id already present in `draft`; pool receives this filtered list
+  - `ScheduledSessionCard` — added `×` unschedule button (top-right, stopsPropagation); card body click calls `onMoveSelect`; `isPending` shows outline ring and reduced opacity
+  - `GridCell` — `isDropTarget = !!pendingSessionId && !assignment`; drop-target cells show hover highlight and pointer cursor; click fires `onCellClick`; passes `isPending`, `onUnschedule`, `onMoveSelect` to `ScheduledSessionCard`
+  - `TimetableGrid` — added `pendingSessionId`, `onCellClick`, `onUnschedule`, `onMoveSelect` props; each GridCell closure captures its `day`, `slot.id`, `room.id`
+  - `UnscheduledSessionCard` — added `isSelected` (outline ring) and `onClick` props; `cursor-pointer`
+  - `UnitGroup` — passes `pendingSessionId` and `onSelectSession` through to each card
+  - `UnscheduledPool` — passes `pendingSessionId` and `onSelectSession` through to each `UnitGroup`
+  - `TimetableActionBar` — added `isPendingPlacement` prop; shows placement hint in accent color when a session is selected; hint message overrides normal status text (not the save error)
+  - `pendingSessionId` also cleared when `savedAssignments` refetch resets the draft
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 33: Frontend Timetable Draft Assignment State**
+  - Added `useQuery(['assignments'], listAssignments)` in `timetable.tsx` to load saved assignments from the backend
+  - Added `useState<TimetableAssignment[]>` draft initialized from saved assignments via `useEffect`; draft resets clean whenever saved assignments refetch
+  - `isDirty: boolean` and `saveError: string | null` state tracks unsaved changes and save failure independently
+  - `useMutation(saveAssignments)` sends the complete draft as `AssignmentSaveRequest` on save; on success invalidates `['assignments']` (triggering refetch and draft reset); on error preserves draft and surfaces `saveError`
+  - `TimetableGrid` now receives `assignments={draft}` instead of `[]` — scheduled cards render from the draft set
+  - `TimetableActionBar` rewritten with props (`isDirty`, `isSaving`, `saveError`, `onSave`): Save Timetable button (enabled when dirty, spinner while saving); unsaved-changes label visible when dirty; save error shown inline; placeholder text shown when clean and no error
+  - `toTimetableAssignment` helper converts `AssignmentResponse` → `TimetableAssignment` (field-aligned, no casting needed)
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 32: Frontend Assignment API Client**
+  - Created `frontend/src/lib/api/assignments.ts` — `AssignmentResponse` DTO (all display fields matching backend `AssignmentResponse`); `AssignmentItem` (session_id, day, start_slot, room_id — save request per-assignment); `AssignmentSaveRequest` (wraps list of `AssignmentItem`); `listAssignments()` (`GET /assignments`); `saveAssignments(input)` (`POST /assignments`); `clearAssignments()` (`DELETE /assignments`)
+  - `AvailabilityDay` and `AvailabilitySlot` imported from `@/lib/api/lecturers` (canonical source, avoids duplication); `SessionType` imported from `@/lib/api/sessions`
+  - `parseAssignmentSaveError` handles backend defensive rejections (404, 409, 422) as save errors; not normal validation UX
+  - All functions use `apiRequest` from authenticated base client; no draft state, no drag-drop, no validation logic added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 31: Backend Saved Timetable Assignment Persistence and Protected Save API**
+  - Created `backend/models/assignment.py` — `TimetableAssignment` SQLAlchemy model; `session_id` FK with CASCADE on session delete; `room_id` FK with CASCADE on room delete (satisfies room-deletion unschedule requirement); reuses existing Postgres `availabilityday`/`availabilityslot` enum types via `create_type=False`; unique constraint on `session_id` (one assignment per session); unique constraint on `(day, start_slot, room_id)` for same-start-slot double-booking guard at DB level
+  - Created `backend/alembic/versions/0007_create_assignments.py` — creates `timetable_assignments` table; references existing Postgres enum types without recreation
+  - Created `backend/schemas/assignment.py` — `AssignmentItem` (session_id, day, start_slot, room_id); `AssignmentSaveRequest` (list of AssignmentItem); `AssignmentResponse` (all joined display fields per spec: assignment_id, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id, timestamps)
+  - Created `backend/services/assignment.py` — `list_assignments` (eager-loads session→unit→lecturer/students via selectinload); `save_assignments` (replace-all transaction with full defensive validation); `clear_assignments` (optional clear); defensive checks reject: duplicate session in request, session/room not found, room capacity < student count, session crossing lunch, session running off timetable, room double-booking (multi-slot overlap detection, not just same-start-slot); warning-level conflicts (lecturer/student/availability) are not checked and are allowed through
+  - Created `backend/api/assignments.py` — `GET /assignments` (list), `POST /assignments` (save/replace), `DELETE /assignments` (clear); all routes require `get_current_admin`
+  - Updated `backend/models/__init__.py` — registered `TimetableAssignment`
+  - Updated `backend/api/router.py` — registered assignments router
+  - Room deletion cascade: handled by `ondelete="CASCADE"` FK constraint in migration; no service-layer changes needed; Postgres removes orphaned assignments automatically when a room is deleted
 
 - **Unit 1: Repository, Frontend Bootstrap, and UI Foundation**
   - Scaffolded `frontend/` with Vite + React + TypeScript
@@ -354,7 +469,7 @@ change.
 
 ## Next Up
 
-- Next unit TBD (timetable integration phase)
+- Next unit TBD
 
 ## Open Questions
 
@@ -367,6 +482,11 @@ change.
 - **Unit field naming**: Standardised on `id` (DB primary key), `code` (course code e.g. HIS101), `name` (unit name). Updated `units.tsx` form state and specs 21/22/24.
 
 ## Architecture Decisions
+
+- **Frontend-owned validation and explicit save workflow**: Manual scheduling now edits a frontend draft first. The admin explicitly saves the timetable to persist assignments. The frontend owns all user-facing validation: blocking rules reject impossible placements, warning rules allow placements but block solver execution. Backend assignment validation is defensive only until backend constraints are mirrored later for solver use.
+- **Validation severity split**: `blocking` means the placement cannot enter/remain in the timetable draft. `warning` means the placement remains visible but invalid/warning-styled and blocks solver execution.
+- **Blocking placement rules**: room double-booking, room capacity too small, crossing lunch, and running off the timetable. Data changes that create these states automatically unschedule affected sessions.
+- **Warning placement rules**: lecturer conflicts, student conflicts, unit/session overlap conflicts where applicable, lecturer availability conflicts, and other non-blocking conflicts represented by v1 data. Warning-invalid assignments may be saved.
 
 - **`backend/log/` not `backend/logging/`**: The spec suggests `backend/logging/` for structlog helpers, but naming a local package `logging` shadows Python's stdlib `logging` module, breaking structlog's own imports. The directory is named `log/` instead.
 - **Backend runs from `backend/` as working directory**: Import paths in `main.py`, routers, and `alembic/env.py` omit the `backend.` prefix (e.g., `from config import settings`). Commands: `uvicorn main:app --reload` and `alembic upgrade head` are both run from inside `backend/`.
