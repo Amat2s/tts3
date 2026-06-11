@@ -1,10 +1,15 @@
+from typing import TYPE_CHECKING
+
 import enum
 import uuid
 
 from sqlalchemy import DateTime, Enum, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.session import Base
+
+if TYPE_CHECKING:
+    from models.assignment import TimetableAssignment
 
 
 class RoomType(str, enum.Enum):
@@ -32,4 +37,9 @@ class Room(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    assignments: Mapped[list["TimetableAssignment"]] = relationship(
+        "TimetableAssignment",
+        back_populates="room",
+        passive_deletes=True,
     )

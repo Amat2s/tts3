@@ -2,6 +2,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.errors import AppError
+from models.assignment import TimetableAssignment
 from models.room import Room
 from schemas.room import RoomCreate, RoomUpdate
 

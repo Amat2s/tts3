@@ -1,4 +1,5 @@
-import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
+import { memo, useMemo, useRef, useEffect } from 'react'
+import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL } from './slots'
 import { GridCell } from './GridCell'
 import type { TimetableAssignment } from './assignment'
 
@@ -10,22 +11,28 @@ export interface RoomColumn {
 interface TimetableGridProps {
   rooms: RoomColumn[]
   assignments?: TimetableAssignment[]
-  pendingSessionId?: string | null
-  warningSessionIds?: Set<string>
-  onCellClick?: (day: string, slotId: string, roomId: string) => void
-  onUnschedule?: (sessionId: string) => void
-  onMoveSelect?: (sessionId: string) => void
+  onCellClick?: (day: string, roomId: string, slotId: string) => void
+  isInteractive?: boolean
+  movingAssignmentId?: string | null
+  unschedulingAssignmentId?: string | null
+  onMoveStart?: (assignmentId: string) => void
+  onUnschedule?: (assignmentId: string) => void
+  frozenAssignmentIds?: Set<string>
+  invalidSessionIds?: Set<string>
+  onCellWidthChange?: (width: number) => void
 }
 
 const TIME_COL_W = '6rem'
 
 const noSelectStyle: React.CSSProperties = { userSelect: 'none' }
 
+const EMPTY_FROZEN = new Set<string>()
+const EMPTY_INVALID = new Set<string>()
+
 function preventDefault(e: React.MouseEvent) {
   e.preventDefault()
 }
 
-// Key format: "${day}:${roomId}:${slotId}"
 function buildAssignmentMap(
   assignments: TimetableAssignment[]
 ): Map<string, TimetableAssignment> {
@@ -69,19 +76,62 @@ function TimeLabel({ label }: { label: string }) {
   )
 }
 
-export function TimetableGrid({
+export const TimetableGrid = memo(function TimetableGrid({
   rooms,
   assignments = [],
-  pendingSessionId,
-  warningSessionIds,
   onCellClick,
+  isInteractive = false,
+  movingAssignmentId,
+  unschedulingAssignmentId,
+  onMoveStart,
   onUnschedule,
-  onMoveSelect,
+  frozenAssignmentIds = EMPTY_FROZEN,
+  invalidSessionIds = EMPTY_INVALID,
+  onCellWidthChange,
 }: TimetableGridProps) {
+  const cellMeasureRef = useRef<HTMLDivElement>(null)
+  const assignmentMap = useMemo(() => buildAssignmentMap(assignments), [assignments])
+
+  useEffect(() => {
+    const el = cellMeasureRef.current
+    if (!el || !onCellWidthChange) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) onCellWidthChange(Math.round(w))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [onCellWidthChange])
+
   if (rooms.length === 0) return null
 
-  const assignmentMap = buildAssignmentMap(assignments)
-  const coveredSet = buildCoveredSet(assignments)
+  function renderCells(day: string, slotId: string) {
+    return rooms.map((room, rIdx) => {
+      const assignment = assignmentMap.get(`${day}:${room.id}:${slotId}`)
+      const assignId = assignment?.assignment_id
+      const sessionId = assignment?.session_id
+      const isCardMutating = assignId != null && frozenAssignmentIds.has(assignId)
+      const isInvalid = sessionId != null && invalidSessionIds.has(sessionId)
+      return (
+        <GridCell
+          key={`${day}-${room.id}-${slotId}`}
+          slotId={slotId}
+          day={day}
+          roomId={room.id}
+          isDayBoundary={rIdx === rooms.length - 1}
+          assignment={assignment}
+          onClick={onCellClick ? () => onCellClick(day, room.id, slotId) : undefined}
+          isInteractive={isInteractive}
+          isMoving={movingAssignmentId != null && assignId === movingAssignmentId}
+          isUnscheduling={unschedulingAssignmentId != null && assignId === unschedulingAssignmentId}
+          isInvalid={isInvalid}
+          onMoveStart={assignId ? () => onMoveStart?.(assignId) : undefined}
+          onUnschedule={assignId ? () => onUnschedule?.(assignId) : undefined}
+          isMutating={isCardMutating}
+        />
+      )
+    })
+  }
 
   return (
     <div
@@ -113,7 +163,7 @@ export function TimetableGrid({
         ))}
       </div>
 
-      {/* Room sub-header row */}
+      {/* Room sub-header row — first cell is used to measure column width */}
       <div
         className="flex border-b"
         style={{ borderColor: 'var(--grid-line)' }}
@@ -122,10 +172,11 @@ export function TimetableGrid({
           className="shrink-0 border-r"
           style={{ width: TIME_COL_W, borderColor: 'var(--grid-line-strong)' }}
         />
-        {DAYS.flatMap((day) =>
+        {DAYS.flatMap((day, dIdx) =>
           rooms.map((room, rIdx) => (
             <div
               key={`header-${day}-${room.id}`}
+              ref={dIdx === 0 && rIdx === 0 ? cellMeasureRef : undefined}
               className="flex-1 flex items-center justify-center py-1 border-r text-xs select-none overflow-hidden"
               style={{
                 borderRightColor:
@@ -151,27 +202,7 @@ export function TimetableGrid({
           style={{ borderColor: 'var(--grid-line)' }}
         >
           <TimeLabel label={slot.label} />
-          {DAYS.flatMap((day) =>
-            rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
-              return (
-                <GridCell
-                  key={`${day}-${room.id}-${slot.id}`}
-                  slotId={slot.id}
-                  day={day}
-                  roomId={room.id}
-                  isDayBoundary={rIdx === rooms.length - 1}
-                  assignment={a}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
-                  pendingSessionId={pendingSessionId}
-                  hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
-                  onUnschedule={onUnschedule}
-                  onMoveSelect={onMoveSelect}
-                />
-              )
-            })
-          )}
+          {DAYS.flatMap((day) => renderCells(day, slot.id))}
         </div>
       ))}
 
@@ -217,29 +248,9 @@ export function TimetableGrid({
           }}
         >
           <TimeLabel label={slot.label} />
-          {DAYS.flatMap((day) =>
-            rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
-              return (
-                <GridCell
-                  key={`${day}-${room.id}-${slot.id}`}
-                  slotId={slot.id}
-                  day={day}
-                  roomId={room.id}
-                  isDayBoundary={rIdx === rooms.length - 1}
-                  assignment={a}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
-                  pendingSessionId={pendingSessionId}
-                  hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
-                  onUnschedule={onUnschedule}
-                  onMoveSelect={onMoveSelect}
-                />
-              )
-            })
-          )}
+          {DAYS.flatMap((day) => renderCells(day, slot.id))}
         </div>
       ))}
     </div>
   )
-}
+})

@@ -1,36 +1,53 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
-from models.lecturer import AvailabilityDay, AvailabilitySlot
+from models.assignment import AssignmentDay, AssignmentSlot
 from models.session import SessionType
 
 
-class AssignmentItem(BaseModel):
+class AssignmentCreate(BaseModel):
     session_id: str
-    day: AvailabilityDay
-    start_slot: AvailabilitySlot
     room_id: str
+    day: AssignmentDay
+    start_slot: AssignmentSlot
 
 
-class AssignmentSaveRequest(BaseModel):
-    assignments: list[AssignmentItem]
+class AssignmentMove(BaseModel):
+    room_id: str
+    day: AssignmentDay
+    start_slot: AssignmentSlot
+
+
+class AssignmentSessionSummary(BaseModel):
+    id: str
+    unit_id: str
+    session_type: SessionType
+    duration: int
+    lecturer_id: str
+    lecturer_display_name: str
+    student_count: int
+
+
+class AssignmentUnitSummary(BaseModel):
+    id: str
+    code: str
+    name: str
+
+
+class AssignmentRoomSummary(BaseModel):
+    id: str
+    name: str
 
 
 class AssignmentResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    assignment_id: str
+    id: str
     session_id: str
-    unit_id: str
-    unit_code: str
-    unit_name: str
-    session_type: SessionType
-    duration: int
-    lecturer_display_name: str
-    student_count: int
-    day: AvailabilityDay
-    start_slot: AvailabilitySlot
     room_id: str
+    day: AssignmentDay
+    start_slot: AssignmentSlot
     created_at: datetime
     updated_at: datetime
+    session: AssignmentSessionSummary
+    unit: AssignmentUnitSummary
+    room: AssignmentRoomSummary

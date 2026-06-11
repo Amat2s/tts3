@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session as DBSession
 
 from api.errors import AppError
+from models.assignment import TimetableAssignment
 from models.session import Session
 from models.unit import Unit
 from schemas.session import SchedulableSessionResponse, SessionCreate, SessionUpdate
@@ -59,7 +60,9 @@ def list_schedulable_sessions(db: DBSession) -> list[SchedulableSessionResponse]
     sessions = (
         db.query(Session)
         .join(Unit, Session.unit_id == Unit.id)
+        .outerjoin(TimetableAssignment, TimetableAssignment.session_id == Session.id)
         .filter(Unit.lecturer_id.isnot(None))
+        .filter(TimetableAssignment.id.is_(None))
         .all()
     )
     results = []

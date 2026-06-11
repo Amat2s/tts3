@@ -15,7 +15,7 @@ change.
 - Unit 35 complete — frontend blocking validation engine
 - Unit 34 complete — frontend manual scheduling controls
 - Unit 32 complete — frontend assignment API client
-- Unit 31 complete — backend saved timetable assignment persistence and protected save API
+- Unit 31 complete — backend assignment persistence and protected manual scheduling API
 - Unit 30 complete — frontend scheduled session rendering shell
 - Unit 29 complete — frontend unscheduled pool integration (real schedulable-session data)
 - Unit 28 complete — frontend unscheduled pool shell
@@ -461,13 +461,13 @@ change.
     - No Zustand, no localStorage, no mock sessions
   - Build succeeds with zero TypeScript errors
 
-- **Unit 30: Frontend Scheduled Session Rendering Shell**
-  - Created `frontend/src/features/timetable/assignment.ts` — `SlotId` union (`s1`–`s7`, no `s8`); `TimetableAssignment` frontend rendering model with all fields needed to place and display a session (assignment_id optional, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id); aligns with future Unit 32 backend DTO
-  - Created `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `position: absolute inset-x-0 top-0`, height `calc(N * 3.5rem)` where N = duration; left-border 4px accent (vs 3px on unscheduled cards); shows unit code, abbreviated session type, lecturer name (truncated), student count (duration > 1 only); uses `getUnitColor` + same BG/accent token maps as `UnscheduledSessionCard`; `z-index: 10` to overlay subsequent slot rows; `overflow: hidden`; distinct from unscheduled cards by layout, width behavior, and content
-  - Updated `frontend/src/features/timetable/GridCell.tsx` — added `position: relative` (`className="relative h-14 …"`); accepts `assignment?: TimetableAssignment`; renders `ScheduledSessionCard` when assignment is present; suppresses hover state when a card is rendered
-  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `assignments?: TimetableAssignment[]` (defaults to `[]`); `buildAssignmentMap` indexes assignments by `"${day}:${roomId}:${slotId}"`; each `GridCell` receives `assignment={assignmentMap.get(key)}` — undefined when no assignment starts at that cell; grid renders blank as before when `assignments=[]`
-  - Updated `frontend/src/routes/timetable.tsx` — passes `assignments={[]}` to `TimetableGrid`; no backend calls, no fake data
-  - No drag-and-drop, no assignment API client, no backend calls, no mock assignments in production UI
+- **Unit 28: Frontend Unscheduled Pool Shell**
+  - Created `frontend/src/features/timetable/unitColors.ts` — `getUnitColor(identifier)` deterministic helper; hashes identifier string into one of 6 color variant names (maroon, gold, blue, green, purple, stone); no hex values
+  - Created `frontend/src/features/timetable/UnscheduledSessionCard.tsx` — compact card prepared for `SchedulableSession` DTO; displays session type, unit code, unit name, duration, lecturer display name, student count; left-border accent driven by unit color variant tokens; `minWidth: 180px`, `maxWidth: 240px`; no drag-and-drop
+  - Created `frontend/src/features/timetable/UnitGroup.tsx` — groups session cards under a unit label row (code, name, session count); accepts `UnitColorVariant` and `SchedulableSession[]`
+  - Created `frontend/src/features/timetable/UnscheduledPool.tsx` — pool panel with heading, helper text, empty state (`CalendarPlus` icon, "No schedulable sessions yet", link to `/units`), and unit-bucket rendering when sessions provided; `buildUnitBuckets` groups sessions by `unit_id`; no backend calls
+  - Updated `frontend/src/routes/timetable.tsx` — `UnscheduledPool` imported and rendered below `TimetableGrid` only in the rooms-exist grid state; all other states (loading, error, no-room) unchanged
+  - No drag-and-drop, no TanStack Query wiring for sessions, no mock data, no backend calls
   - Build succeeds with zero TypeScript errors
 
 - **Unit 29: Frontend Unscheduled Pool Integration**
@@ -478,22 +478,171 @@ change.
   - No mock data, no Zustand, no scheduling/assignment/drag-drop behavior added
   - Build succeeds with zero TypeScript errors
 
-- **Unit 28: Frontend Unscheduled Pool Shell**
-  - Created `frontend/src/features/timetable/unitColors.ts` — `getUnitColor(identifier)` deterministic helper; hashes identifier string into one of 6 color variant names (maroon, gold, blue, green, purple, stone); no hex values
-  - Created `frontend/src/features/timetable/UnscheduledSessionCard.tsx` — compact card prepared for `SchedulableSession` DTO; displays session type, unit code, unit name, duration, lecturer display name, student count; left-border accent driven by unit color variant tokens; `minWidth: 180px`, `maxWidth: 240px`; no drag-and-drop
-  - Created `frontend/src/features/timetable/UnitGroup.tsx` — groups session cards under a unit label row (code, name, session count); accepts `UnitColorVariant` and `SchedulableSession[]`
-  - Created `frontend/src/features/timetable/UnscheduledPool.tsx` — pool panel with heading, helper text, empty state (`CalendarPlus` icon, "No schedulable sessions yet", link to `/units`), and unit-bucket rendering when sessions provided; `buildUnitBuckets` groups sessions by `unit_id`; no backend calls
-  - Updated `frontend/src/routes/timetable.tsx` — `UnscheduledPool` imported and rendered below `TimetableGrid` only in the rooms-exist grid state; all other states (loading, error, no-room) unchanged
-  - No drag-and-drop, no TanStack Query wiring for sessions, no mock data, no backend calls
+- **Unit 30: Frontend Scheduled Session Rendering Shell**
+  - Created `frontend/src/features/timetable/assignment.ts` — `SlotId` union (`s1`–`s7`, no `s8`); `TimetableAssignment` frontend rendering model with all fields needed to place and display a session (assignment_id optional, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id); aligns with future Unit 32 backend DTO
+  - Created `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `position: absolute inset-x-0 top-0`, height `calc(N * 3.5rem)` where N = duration; left-border 4px accent (vs 3px on unscheduled cards); shows unit code, abbreviated session type, lecturer name (truncated), student count (duration > 1 only); uses `getUnitColor` + same BG/accent token maps as `UnscheduledSessionCard`; `z-index: 10` to overlay subsequent slot rows; `overflow: hidden`; distinct from unscheduled cards by layout, width behavior, and content
+  - Updated `frontend/src/features/timetable/GridCell.tsx` — added `position: relative` (`className="relative h-14 …"`); accepts `assignment?: TimetableAssignment`; renders `ScheduledSessionCard` when assignment is present; suppresses hover state when a card is rendered
+  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `assignments?: TimetableAssignment[]` (defaults to `[]`); `buildAssignmentMap` indexes assignments by `"${day}:${roomId}:${slotId}"`; each `GridCell` receives `assignment={assignmentMap.get(key)}` — undefined when no assignment starts at that cell; grid renders blank as before when `assignments=[]`
+  - Updated `frontend/src/routes/timetable.tsx` — passes `assignments={[]}` to `TimetableGrid`; no backend calls, no fake data
+  - No drag-and-drop, no assignment API client, no backend calls, no mock assignments in production UI
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 35/3: Frontend Unscheduled Pool Layout and Drag Preview Refinement**
+  - `UnscheduledPool.tsx`: changed bucket container from `flex-col gap-6` to `flex flex-row gap-3 overflow-x-auto` — units now render as horizontal columns with overflow scroll
+  - `UnitGroup.tsx`: redesigned as a fixed-width (160px) column with a unit header card and vertically stacked session cards underneath; header shows unit code, unit name, lecturer display name, student count; `BG_MAP`/`BORDER_MAP` defined locally consistent with other timetable components
+  - `UnscheduledSessionCard.tsx`: stripped unit code, unit name, and lecturer from card (now shown in unit header); compact card shows only session type, duration (with Clock icon), and student count (with Users icon); `borderLeftWidth` updated to 4px to match scheduled card style; fixed width removed — card fills column width
+  - `timetable.tsx` `DragPreview`: updated to match `ScheduledSessionCard` shape — fixed `width: 8rem`, `height: calc(duration * 3.5rem)`, 4px left border, content mirrors scheduled card (unit code, abbreviated session type, lecturer name, student count when duration > 1); added `SESSION_TYPE_ABBREV` map for abbreviated labels
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 35/2: Frontend Optimistic Drag-and-Drop Assignment Updates**
+  - `scheduleMutation` updated with TanStack Query optimistic update pattern:
+    - `onMutate`: snapshots `['assignments']` and `['schedulable-sessions']`, immediately applies cache updates (before `await cancelQueries` to avoid render gap flicker), builds optimistic `Assignment` (temp id `optimistic_${Date.now()}`), adds it to `['assignments']`, removes session from `['schedulable-sessions']`
+    - `onError`: rolls back both caches to snapshots, shows error; mode stays `placing` so user can retry
+    - `onSuccess`: reconciles cache by replacing the optimistic entry (matched by `session_id`) with the real backend response via `setQueryData`
+    - `onSettled`: background `invalidateQueries` on both keys for eventual consistency
+  - `moveMutation` updated with optimistic update pattern:
+    - `onMutate`: snapshots `['assignments']`, immediately patches the moved assignment's location in cache (before `await cancelQueries`)
+    - `onError`: rolls back `['assignments']` to snapshot, shows error, resets to idle
+    - `onSuccess`: writes backend response directly into cache via `setQueryData`
+    - `onSettled`: background `invalidateQueries` on both keys
+  - `unscheduleMutation` updated with optimistic update pattern:
+    - `onMutate`: snapshots both caches, immediately removes assignment from `['assignments']`, reconstructs `SchedulableSession` from cached assignment data and adds it back to `['schedulable-sessions']`
+    - `onError`: rolls back both caches
+    - `onSettled`: background `invalidateQueries` on both keys
+  - All `setQueryData` calls happen synchronously before `await cancelQueries` to eliminate the render gap that caused the drop-flicker
+  - Optimistic ids (`optimistic_*`) cannot leak into API calls; `handleDragEnd` guards against moving optimistic cards before the schedule round-trip completes
+  - `TimetableGrid` wrapped in `React.memo`; `buildAssignmentMap` memoized with `useMemo`; `ScheduledSessionCard` wrapped in `React.memo`; `handleMoveStart`, `handleCellClick`, `handleUnschedule` stabilised with `useCallback` — reduces cascade re-renders during drag
+  - `frozenAssignmentIds` set replaces global `isMutating` for card-button disabling: only the specific card being scheduled/moved/unscheduled is locked; all other cards remain immediately interactive
+  - `DragPreview` gets `transition: none; will-change: transform` to eliminate inherited CSS transition lag on the overlay
+  - `useDraggable` in `ScheduledSessionCard` receives `disabled: isMutating` to prevent dragging a card that is already being processed
+  - No new packages, no mock data, no backend/solver/constraint changes, no shadow local state
+  - Build succeeds with zero TypeScript errors
+  - **Known issues (not yet fixed)**:
+    - Drag movement still feels glitchy — overlay tracking does not feel smooth during pointer movement; further investigation needed
+    - Newly placed session cannot immediately be deleted or moved via button clicks — the optimistic card's buttons remain blocked until the schedule round-trip completes; per-card `frozenAssignmentIds` approach was attempted but did not resolve the issue in practice
+
+- **Unit 35: Frontend Drag-and-Drop Persistence Integration**
+  - `handleDragEnd` now accepts `DragEndEvent` and parses the droppable id (`${day}:${roomId}:${slotId}`) to extract target cell coordinates
+  - Dropping an unscheduled session card calls `scheduleMutation.mutate(...)` with the target cell's room, day, and slot
+  - Dropping a scheduled session card calls `moveMutation.mutate(...)` with the assignment id and target cell coordinates
+  - Drop is a no-op when no valid cell is under the pointer, a mutation is already in flight (`isMutating`), or the dragged item has no assignment id
+  - `moveMutation.onSuccess` now also invalidates `['schedulable-sessions']` so both queries refresh after any successful drop
+  - Existing `scheduleMutation.onSuccess` already invalidates both `['assignments']` and `['schedulable-sessions']`; error banners are driven by `actionError` state; grid always reflects backend data — no fake local state
+  - Manual click-based scheduling mode unchanged and works as a fallback
+  - `DragEndEvent` type imported from `@dnd-kit/core`; no new packages required
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 34: Frontend Drag-and-Drop Scheduling Shell**
+  - Installed `@dnd-kit/core`
+  - `UnscheduledSessionCard` uses `useDraggable` (`id: unscheduled:{session_id}`, `data: { type, session }`); fades to 0.4 opacity when dragging; `touchAction: none`; cursor `grab`/`grabbing`; `onClick` for manual scheduling mode continues to work (PointerSensor `distance: 8` activation constraint preserves click events)
+  - `ScheduledSessionCard` uses `useDraggable` (`id: scheduled:{assignment_id ?? session_id}`); same opacity/cursor/touchAction treatment; action button wrapper has `onPointerDown={stopPropagation}` so grip/X buttons don't initiate drag
+  - `GridCell` uses `useDroppable` (`id: ${day}:${roomId}:${slotId}`); shows `--grid-cell-hover` background on empty cells when `isOver`; shows `--accent-secondary` (gold) 2px outline on all cells (including occupied) when `isOver`
+  - `timetable.tsx`: `DndContext` wraps the entire canvas area with a `PointerSensor` (8px activation distance); `DragOverlay` renders a floating `DragPreview` card (unit code, session type, duration) following the cursor; `activeDrag` state (`{ kind: 'unscheduled'|'scheduled', ... }`) is cleared on `dragEnd` and `dragCancel` with no API call; existing click-based placing/moving mode is unaffected
+  - `DragPreview` is a module-level component in `timetable.tsx`; uses same color token maps as the cards
+  - No persistence on drop, no backend changes, no mock data, no constraint behavior
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 33: Frontend Manual Scheduling Integration**
+  - Added `useQuery({ queryKey: ['assignments'], queryFn: listAssignments })` on `/timetable`; maps backend `Assignment[]` to `TimetableAssignment[]` via `toTimetableAssignment`
+  - `TimetableGrid` renders scheduled sessions from real assignment data; no mock assignments
+  - `SchedulingMode` discriminated union (`idle | placing | moving`) drives interaction state as React `useState` (UI state only; server data stays in TanStack Query)
+  - Selecting an unscheduled session card enters `placing` mode with a status banner; clicking same card again or Cancel exits mode
+  - Clicking a timetable cell in `placing` mode calls `scheduleSession`; on success invalidates `['assignments']` and `['schedulable-sessions']`, clears mode; on failure shows actionable error and keeps session selected for retry
+  - `ScheduledSessionCard` gains hover-revealed inline action buttons: grip (enter move mode) and X (unschedule)
+  - Clicking grip on a card enters `moving` mode; clicking a target cell calls `moveAssignment`; on failure resets to idle
+  - Unschedule calls `unscheduleAssignment`; on success invalidates both queries; loading spinner overlays card during in-flight unschedule
+  - `isMutating` flag blocks all interactions (cell clicks, button presses) while any mutation is in flight
+  - `isInteractive` flag (`mode !== idle && !isMutating`) drives crosshair cursor and hover highlight on cells
+  - Assignment query loading and error states shown inline above the grid
+  - Mutation errors shown in dismissible error banner; assignment fetch errors shown separately
+  - No drag-and-drop, no constraint validation, no mock data, no Zustand added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 32: Frontend Assignment API Client**
+  - Created `frontend/src/lib/api/assignments.ts` — `AssignmentDay` union (`Monday`–`Friday`); `AssignmentSlot` union (`s1`–`s7`); `AssignmentSessionSummary`, `AssignmentUnitSummary`, `AssignmentRoomSummary` nested DTO interfaces; `Assignment` DTO matching `AssignmentResponse` backend shape with `id`, `session_id`, `room_id`, `day`, `start_slot`, `created_at`, `updated_at`, and nested `session`, `unit`, `room`; `AssignmentCreate` schedule request type; `AssignmentMove` move request type; `listAssignments`, `scheduleSession`, `moveAssignment`, `unscheduleAssignment` API functions; `parseAssignmentError` helper for 409 (already scheduled), 404 (session/room/assignment not found), and 422 (invalid day/slot) errors
+  - All functions use the Unit 6 `apiRequest` authenticated base client; `SessionType` imported from `sessions.ts` to avoid duplication
+  - API paths match Unit 31 backend routes: `GET /assignments`, `POST /assignments`, `PUT /assignments/{id}`, `DELETE /assignments/{id}`
+  - No server-owned assignment data in Zustand; timetable page not connected; no drag-drop, constraint, solver, or mock assignment behavior added
+  - Build succeeds with zero errors
+
+- **Unit 31: Backend Assignment Persistence and Protected Manual Scheduling API**
+  - Created `backend/models/assignment.py` — `TimetableAssignment` SQLAlchemy model with assignment-specific day and slot enums, `session_id`, `room_id`, `day`, `start_slot`, timestamps, a unique constraint on `session_id`, and relationships to `Session` and `Room`
+  - Updated `backend/models/session.py` and `backend/models/room.py` with assignment relationships; session deletion cascades assignment cleanup, and room assignment cleanup is supported without deleting sessions
+  - Created `backend/schemas/assignment.py` — schedule and move request schemas plus explicit assignment response DTOs with nested session, unit, and room summaries for timetable rendering
+  - Created `backend/services/assignment.py` — list, schedule, move, and unschedule service functions; validates real sessions and rooms; rejects scheduling an already assigned session; does not run constraints or solver behavior
+  - Created `backend/api/assignments.py` — protected `GET /assignments`, `POST /assignments`, `PUT /assignments/{assignment_id}`, and `DELETE /assignments/{assignment_id}` routes using the existing current-admin dependency
+  - Created `backend/alembic/versions/0007_create_timetable_assignments.py` — creates `assignmentday` and `assignmentslot` enums plus the `timetable_assignments` table; enforces one assignment per session and references sessions and rooms
+  - Updated `backend/services/room.py` so deleting a room removes only assignments for that room before deleting the room; session records remain intact and become unscheduled by assignment removal
+  - Updated `backend/services/session.py` so `GET /sessions/schedulable` returns only unscheduled schedulable sessions by excluding sessions with assignments
+  - Registered the assignment model and assignment router in backend package/router registration
+  - Verification run: Python compile check succeeded, SQLAlchemy mapper import succeeded, assignment routes registered, Alembic offline SQL for `0006:0007` generated successfully, and an in-memory smoke test passed schedule/move/unschedule/room-delete behavior
+  - No frontend API client, frontend integration, drag-and-drop, constraint validation, solver behavior, conflict detection, or mock assignment data added
+
+- **Unit 41: Frontend Constraint Validation Integration**
+  - Added `useQuery({ queryKey: ['validation'], queryFn: validateTimetable })` in `timetable.tsx`; validation query runs independently from assignments/sessions queries
+  - `violations` derived from `validationData?.violations ?? []`; `invalidSessionIds` set derived from violation `affected_session_ids`
+  - All three mutation `onSettled` callbacks now invalidate `['validation']` so validation refreshes after schedule, move, unschedule, and drag-and-drop operations
+  - `TimetableActionBar` updated with `validationLoading` and `validationError` props: shows spinner+"Validating…" during fetch, warning icon+"Validation unavailable" on error, success/"No violations" / violation counts when resolved
+  - Updated `violations.ts`: `ConstraintViolation` type now matches backend `ViolationResponse` exactly (`constraint_type`, nullable `affected_room_id`/`affected_lecturer_id`, required `affected_student_ids`); removed `id` and renamed `type` → `constraint_type`
+  - Updated `ViolationAlertArea.tsx` to use array index as React key (no `v.id` dependency)
+  - Invalid sessions remain visible and highlighted; no blocking, no fake violations, no solver behavior added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 40: Frontend Constraint API Client**
+  - Created `frontend/src/lib/api/constraints.ts` — `ConstraintViolationType` union (all 7 v1 hard constraint types: `lecturer_conflict`, `student_conflict`, `room_conflict`, `room_capacity`, `lecturer_availability`, `duration_boundary`, `lunch_crossing`); `ConstraintViolationSeverity` union (`error | warning`); `ViolationResponse` DTO matching the backend `ViolationResponse` shape exactly (`constraint_type`, `severity`, `affected_session_ids`, `affected_room_id`, `affected_lecturer_id`, `affected_student_ids`, `message`); `ValidationSummary` DTO (`total`, `errors`, `warnings`); `ConstraintValidationResponse` DTO (`violations`, `summary`); `validateTimetable()` API function calling `GET /constraints/validate`
+  - All types match backend Unit 39 `constraints.py` response schemas exactly
+  - `validateTimetable()` uses the Unit 6 `apiRequest` authenticated base client; token attachment and 401 handling delegated to base client
+  - Constraint DTOs kept separate from assignment, session, and display types in `violations.ts`
+  - No timetable page integration, no Zustand, no localStorage, no mock violations added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 39: Backend Constraint Validation API**
+  - Created `backend/api/constraints.py` — `GET /constraints/validate` protected endpoint; requires `get_current_admin`; calls `load_and_evaluate(db)` from Unit 38; maps `ConstraintViolation` dataclasses to `ViolationResponse` Pydantic schemas (no ORM models returned); returns `ValidationResponse` with `violations` list and `summary` counts (`total`, `errors`, `warnings`); unscheduled sessions are never passed to the evaluator so they cannot appear as violations; no timetable mutation occurs
+  - Registered constraints router in `backend/api/router.py`
+  - No frontend, solver, or job behavior added
+
+- **Unit 38: Backend Constraint Evaluation Service**
+  - Created `backend/constraints/evaluator.py` — `AssignmentRecord` frozen dataclass (flat representation of a scheduled assignment with room_capacity, student_ids, lecturer_id, day, start_slot, duration); `evaluate_timetable()` pure function that checks all 7 v1 hard constraints and returns `list[ConstraintViolation]`; `load_and_evaluate(db)` service function that loads all assignments and lecturer availability from the DB and calls the evaluator
+  - Constraints evaluated: lecturer conflict (same-day overlapping slot, same lecturer), student conflict (same-day overlapping slot, shared students), room conflict (same-day overlapping slot, same room), room capacity (student_count > room.capacity), lecturer availability (assignment uses a slot the lecturer marked unavailable), duration boundary (session overruns past s7), lunch crossing (session spans AM block s1–s3 into PM block s4–s7)
+  - Sessions with no students produce no student-conflict or capacity violations; sessions without students are never treated as incomplete
+  - Unscheduled sessions are not passed to the evaluator and are never treated as violations
+  - `evaluate_timetable()` does not mutate either argument; output is deterministic (sorted by assignment_id before pairwise and per-assignment checks)
+  - Added 27 new unittest cases in `backend/tests/test_constraints.py` covering all 7 constraint types plus valid-schedule baselines; all 46 tests pass (19 Unit 37 + 27 Unit 38)
+  - No API route, frontend behavior, or solver behavior added
+
+- **Unit 37: Backend Constraint Definitions and Conflict Graph**
+  - Created `backend/constraints/` package (independent of FastAPI, ORM, and solver)
+  - Created `backend/constraints/types.py` — `ConstraintType` enum (7 hard constraint types: lecturer_conflict, student_conflict, room_conflict, room_capacity, lecturer_availability, duration_boundary, lunch_crossing); `ViolationSeverity` enum (error/warning); `ConstraintViolation` dataclass with affected_session_ids, affected_room_id, affected_lecturer_id, affected_student_ids, message
+  - Created `backend/constraints/conflict_graph.py` — `SessionNode` frozen dataclass (session_id, lecturer_id, student_ids as frozenset); `ConflictEdge` frozen dataclass; `build_lecturer_conflict_graph` pure function (one edge per session pair sharing a lecturer); `build_student_conflict_graph` pure function (one edge per session pair sharing ≥1 student; sessions without students contribute no edges; multiple shared students accumulate on a single edge)
+  - Both graph functions produce deterministic output (sorted by session_id pairs)
+  - No API routes, no database queries, no solver behavior
+  - Created `backend/tests/test_constraints.py` — 19 unittest cases covering all constraint type definitions, violation shape, lecturer conflict graph (empty, single, two-same, three-same, different lecturers, determinism), student conflict graph (no-students, two-sharing, accumulated shared, non-shared, three-sharing, mixed, determinism)
+  - All 19 tests pass
+
+- **Unit 36: Frontend Constraint Display Shell**
+  - Created `frontend/src/features/timetable/violations.ts` — `ViolationSeverity`, `ViolationType`, and `ConstraintViolation` frontend types aligned with future backend validation shape; includes `affected_session_ids`, `affected_room_id`, `affected_lecturer_id`, `affected_student_ids`, and `message` fields
+  - Updated `frontend/src/features/timetable/TimetableActionBar.tsx` — accepts `violations?: ConstraintViolation[]` and `solverBlocked?: string`; compact validation status shows CheckCircle + "No violations" in neutral state, or TriangleAlert + error/warning counts when violations exist; solver controls area reserved as empty div; solver-blocked message area renders a warning alert when `solverBlocked` string is provided (never triggered by current code — reserved for Unit 37+)
+  - Created `frontend/src/features/timetable/ViolationAlertArea.tsx` — violation alert area renders null when violations empty; renders error and warning summary alerts (with TriangleAlert icon and sr-only severity text for accessibility) and an expandable violation details panel showing per-violation messages; `aria-live="polite"` on container
+  - Updated `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `isInvalid?: boolean` prop overrides card background to `--state-error-bg` and border to `--state-error`; renders a TriangleAlert icon inline with the unit code when invalid (accessible: icon + sr-only label, not color alone)
+  - Updated `frontend/src/features/timetable/GridCell.tsx` — threads `isInvalid` prop to `ScheduledSessionCard`
+  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — `invalidSessionIds?: Set<string>` prop (defaults to empty Set); passes `isInvalid={invalidSessionIds.has(sessionId)}` to each `GridCell`
+  - Updated `frontend/src/routes/timetable.tsx` — `violations` constant (stable empty array via `useMemo`, ready for future backend wiring); `invalidSessionIds` derived from violations; `TimetableActionBar` receives `violations`; `ViolationAlertArea` rendered before the grid with `violations`; `TimetableGrid` receives `invalidSessionIds`
+  - No backend constraint API calls, no fake violations, no constraint logic, no solver behavior added
   - Build succeeds with zero TypeScript errors
 
 ## In Progress
 
 - None.
 
+## Known Issues (Needs Fixing)
+
+- **Drag movement glitchy**: The `DragOverlay` cursor tracking does not feel smooth during pointer movement. `React.memo`, `useCallback`, and `willChange: transform` were applied but did not resolve it in practice. Needs further investigation (possible causes: dnd-kit collision detection cost across 160 droppables, CSS transition inheritance, layout/stacking context issue).
+- **Newly placed session not immediately interactive via buttons**: After dropping a session optimistically, the move/delete buttons on that card remain unresponsive until the schedule round-trip completes. A per-card `frozenAssignmentIds` approach was implemented but the issue persists. Likely requires a different interaction model for the optimistic-ID window.
+- Unscheduled sessions look a little ugly, unit boxes need to resize independantly.
+
 ## Next Up
 
-- Next unit TBD
+- Unit 40: Frontend constraint API client
 
 ## Open Questions
 

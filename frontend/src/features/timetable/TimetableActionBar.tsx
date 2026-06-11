@@ -1,208 +1,108 @@
-import { AlertTriangle, ChevronDown, ChevronUp, Cpu, Loader2, Save, XCircle } from 'lucide-react'
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { CheckCircle, Loader2, TriangleAlert } from 'lucide-react'
+import type { ConstraintViolation } from './violations'
 
 interface TimetableActionBarProps {
-  isDirty: boolean
-  isSaving: boolean
-  saveError: string | null
-  blockingError?: string | null
-  violationMessages?: string[]
-  warningMessages?: string[]
-  canRunSolver?: boolean
-  onSave: () => void
-  onRunSolver?: () => void
-  isPendingPlacement?: boolean
+  violations?: ConstraintViolation[]
+  validationLoading?: boolean
+  validationError?: string
+  solverBlocked?: string
 }
 
 export function TimetableActionBar({
-  isDirty,
-  isSaving,
-  saveError,
-  blockingError,
-  violationMessages = [],
-  warningMessages = [],
-  canRunSolver = true,
-  onSave,
-  onRunSolver,
-  isPendingPlacement = false,
+  violations = [],
+  validationLoading,
+  validationError,
+  solverBlocked,
 }: TimetableActionBarProps) {
-  const [showDetails, setShowDetails] = useState(false)
-
-  const violationCount = violationMessages.length
-  const warningCount = warningMessages.length
-  const totalIssues = violationCount + warningCount
-  const hasIssues = totalIssues > 0
-
-  function solverBlockedReason(): string | null {
-    if (canRunSolver) return null
-    const parts: string[] = []
-    if (violationCount > 0) {
-      parts.push(`${violationCount} blocking violation${violationCount !== 1 ? 's' : ''}`)
-    }
-    if (warningCount > 0) {
-      parts.push(`${warningCount} scheduling warning${warningCount !== 1 ? 's' : ''}`)
-    }
-    if (parts.length === 0) return null
-    return `${parts.join(' and ')} must be resolved before running the solver`
-  }
-
-  const blockedReason = solverBlockedReason()
+  const errorCount = violations.filter(v => v.severity === 'error').length
+  const warningCount = violations.filter(v => v.severity === 'warning').length
+  const hasViolations = violations.length > 0
 
   return (
-    <div
-      className="rounded-lg border"
-      style={{
-        borderColor: 'var(--border-default)',
-        backgroundColor: 'var(--bg-surface)',
-      }}
-    >
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          {saveError && (
-            <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-              {saveError}
-            </p>
-          )}
-          {!saveError && blockingError && (
-            <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-              Cannot place session: {blockingError}
-            </p>
-          )}
-          {!saveError && !blockingError && isPendingPlacement && (
-            <p className="text-sm" style={{ color: 'var(--accent-primary)' }}>
-              Session selected — click an empty cell to place it, or click the session again to cancel.
-            </p>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && !canRunSolver && blockedReason && (
-            <span
-              className="flex items-center gap-1.5 text-sm"
-              style={{ color: violationCount > 0 ? 'var(--state-error)' : 'var(--state-warning)' }}
-            >
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {blockedReason}
-            </span>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && canRunSolver && isDirty && (
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Unsaved changes
-            </p>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && canRunSolver && !isDirty && (
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              No issues — timetable is ready.
-            </p>
-          )}
-
-          {hasIssues && (
-            <button
-              className="flex items-center gap-1 text-xs underline shrink-0"
-              style={{ color: 'var(--text-muted)' }}
-              onClick={() => setShowDetails((v) => !v)}
-            >
-              {showDetails ? (
-                <ChevronUp className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
-              {showDetails ? 'Hide' : 'View'} details ({totalIssues})
-            </button>
+    <div className="flex flex-col gap-2">
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg border"
+        style={{
+          borderColor: 'var(--border-default)',
+          backgroundColor: 'var(--bg-surface)',
+        }}
+      >
+        {/* Compact validation status */}
+        <div className="flex items-center gap-2" role="status" aria-label="Validation status">
+          {validationLoading ? (
+            <>
+              <Loader2
+                className="h-4 w-4 shrink-0 animate-spin"
+                style={{ color: 'var(--text-muted)' }}
+                aria-hidden="true"
+              />
+              <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Validating…
+              </span>
+            </>
+          ) : validationError ? (
+            <>
+              <TriangleAlert
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--state-warning)' }}
+                aria-hidden="true"
+              />
+              <span className="text-sm" style={{ color: 'var(--state-warning)' }}>
+                Validation unavailable
+              </span>
+            </>
+          ) : hasViolations ? (
+            <>
+              <TriangleAlert
+                className="h-4 w-4 shrink-0"
+                style={{ color: errorCount > 0 ? 'var(--state-error)' : 'var(--state-warning)' }}
+                aria-hidden="true"
+              />
+              <span
+                className="text-sm font-medium"
+                style={{ color: errorCount > 0 ? 'var(--state-error)' : 'var(--state-warning)' }}
+              >
+                {errorCount > 0 && `${errorCount} error${errorCount !== 1 ? 's' : ''}`}
+                {errorCount > 0 && warningCount > 0 && ', '}
+                {warningCount > 0 && `${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
+              </span>
+            </>
+          ) : (
+            <>
+              <CheckCircle
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--state-success)' }}
+                aria-hidden="true"
+              />
+              <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                No violations
+              </span>
+            </>
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="sm"
-            disabled={!canRunSolver}
-            title={blockedReason ?? undefined}
-            onClick={canRunSolver ? onRunSolver : undefined}
-            style={
-              canRunSolver
-                ? {
-                    backgroundColor: 'var(--solver-accent)',
-                    color: 'var(--text-inverse)',
-                  }
-                : undefined
-            }
-          >
-            <Cpu className="h-3.5 w-3.5 mr-1.5" />
-            Run Solver
-          </Button>
-
-          <Button
-            size="sm"
-            disabled={!isDirty || isSaving}
-            onClick={onSave}
-            style={
-              isDirty && !isSaving
-                ? {
-                    backgroundColor: 'var(--accent-primary)',
-                    color: 'var(--text-inverse)',
-                  }
-                : undefined
-            }
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save className="h-3.5 w-3.5 mr-1.5" />
-                Save Timetable
-              </>
-            )}
-          </Button>
-        </div>
+        {/* Solver controls area — reserved for Unit 37+ */}
+        <div className="shrink-0" />
       </div>
 
-      {showDetails && hasIssues && (
+      {/* Solver-blocked message area — reserved for Unit 37+ */}
+      {solverBlocked && (
         <div
-          className="border-t px-4 py-3 flex flex-col gap-3"
+          className="flex items-start gap-3 px-4 py-3 rounded-lg border"
           style={{
-            borderColor: 'var(--border-subtle)',
-            backgroundColor: 'var(--bg-muted)',
+            borderColor: 'var(--state-warning)',
+            backgroundColor: 'var(--state-warning-bg)',
           }}
+          role="alert"
         >
-          {violationCount > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-semibold" style={{ color: 'var(--state-error)' }}>
-                Blocking violations — {violationCount}
-              </p>
-              <ul className="flex flex-col gap-1">
-                {violationMessages.map((msg, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-1.5 text-xs"
-                    style={{ color: 'var(--state-error)' }}
-                  >
-                    <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
-                    {msg}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {warningCount > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-semibold" style={{ color: 'var(--state-warning)' }}>
-                Scheduling warnings — {warningCount}
-              </p>
-              <ul className="flex flex-col gap-1">
-                {warningMessages.map((msg, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-1.5 text-xs"
-                    style={{ color: 'var(--state-warning)' }}
-                  >
-                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
-                    {msg}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <TriangleAlert
+            className="h-4 w-4 shrink-0 mt-0.5"
+            style={{ color: 'var(--state-warning)' }}
+            aria-hidden="true"
+          />
+          <p className="text-sm" style={{ color: 'var(--state-warning)' }}>
+            {solverBlocked}
+          </p>
         </div>
       )}
     </div>
