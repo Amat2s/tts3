@@ -1,6 +1,7 @@
 import type { Day } from '@/features/timetable/slots'
 import type { SlotId, TimetableAssignment } from '@/features/timetable/assignment'
 import type { Room } from '@/lib/api/rooms'
+import { SLOT_INDEX, ALL_SLOTS, rangesOverlap } from './slot-helpers'
 
 export type BlockingIssueType =
   | 'room_double_booking'
@@ -18,18 +19,6 @@ export interface BlockingIssue {
   message: string
 }
 
-const ALL_SLOTS: SlotId[] = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
-
-const SLOT_INDEX: Record<SlotId, number> = {
-  s1: 0,
-  s2: 1,
-  s3: 2,
-  s4: 3,
-  s5: 4,
-  s6: 5,
-  s7: 6,
-}
-
 // s1–s3 are AM (indices 0–2), s4–s7 are PM (indices 3–6)
 const LAST_AM_INDEX = 2
 const FIRST_PM_INDEX = 3
@@ -42,17 +31,6 @@ function crossesLunch(startSlot: SlotId, duration: number): boolean {
   const start = SLOT_INDEX[startSlot]
   const end = start + duration - 1
   return start <= LAST_AM_INDEX && end >= FIRST_PM_INDEX
-}
-
-function rangesOverlap(
-  startA: SlotId,
-  durA: number,
-  startB: SlotId,
-  durB: number
-): boolean {
-  const idxA = SLOT_INDEX[startA]
-  const idxB = SLOT_INDEX[startB]
-  return idxA < idxB + durB && idxB < idxA + durA
 }
 
 export function checkProposedPlacement(

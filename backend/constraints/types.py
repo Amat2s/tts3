@@ -10,7 +10,7 @@ class ConstraintType(str, enum.Enum):
     LECTURER_OVERLAP = "lecturer_overlap"
     STUDENT_OVERLAP = "student_overlap"
     UNIT_SESSION_OVERLAP = "unit_session_overlap"
-    LECTURER_AVAILABILITY = "lecturer_availability"
+    LECTURER_AVAILABILITY = "lecturer_unavailable"
 
 
 class ConstraintSeverity(str, enum.Enum):

@@ -1,4 +1,4 @@
-import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL } from './slots'
+import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
 import { GridCell } from './GridCell'
 import type { TimetableAssignment } from './assignment'
 
@@ -36,6 +36,22 @@ function buildAssignmentMap(
   return map
 }
 
+const SLOT_IDS = TIME_SLOTS.map((s) => s.id)
+
+// Returns every "${day}:${roomId}:${slotId}" key covered by each session,
+// not just the start slot, so intermediate cells are treated as occupied.
+function buildCoveredSet(assignments: TimetableAssignment[]): Set<string> {
+  const set = new Set<string>()
+  for (const a of assignments) {
+    const startIdx = SLOT_IDS.indexOf(a.start_slot)
+    for (let i = 0; i < a.duration; i++) {
+      const slotId = SLOT_IDS[startIdx + i]
+      if (slotId) set.add(`${a.day}:${a.room_id}:${slotId}`)
+    }
+  }
+  return set
+}
+
 function TimeLabel({ label }: { label: string }) {
   return (
     <div
@@ -65,6 +81,7 @@ export function TimetableGrid({
   if (rooms.length === 0) return null
 
   const assignmentMap = buildAssignmentMap(assignments)
+  const coveredSet = buildCoveredSet(assignments)
 
   return (
     <div
@@ -145,6 +162,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
@@ -210,6 +228,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}

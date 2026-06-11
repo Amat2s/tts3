@@ -1,10 +1,12 @@
 import type { Day } from '@/features/timetable/slots'
 import type { SlotId, TimetableAssignment } from '@/features/timetable/assignment'
 import type { Lecturer, AvailabilityDay } from '@/lib/api/lecturers'
+import { SLOT_INDEX, ALL_SLOTS, rangesOverlap } from './slot-helpers'
 
 export type WarningIssueType =
   | 'lecturer_overlap'
   | 'unit_session_overlap'
+  | 'student_overlap'
   | 'lecturer_unavailable'
 
 export interface WarningIssue {
@@ -16,29 +18,6 @@ export interface WarningIssue {
   affected_day?: Day
   affected_slot?: SlotId
   message: string
-}
-
-const SLOT_INDEX: Record<SlotId, number> = {
-  s1: 0,
-  s2: 1,
-  s3: 2,
-  s4: 3,
-  s5: 4,
-  s6: 5,
-  s7: 6,
-}
-
-const ALL_SLOTS: SlotId[] = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
-
-function rangesOverlap(
-  startA: SlotId,
-  durA: number,
-  startB: SlotId,
-  durB: number
-): boolean {
-  const idxA = SLOT_INDEX[startA]
-  const idxB = SLOT_INDEX[startB]
-  return idxA < idxB + durB && idxB < idxA + durA
 }
 
 function occupiedSlotIds(startSlot: SlotId, duration: number): SlotId[] {

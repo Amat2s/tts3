@@ -10,6 +10,7 @@ interface GridCellProps {
   roomId: string
   isDayBoundary?: boolean
   assignment?: TimetableAssignment
+  isOccupied?: boolean
   pendingSessionId?: string | null
   hasWarning?: boolean
   onCellClick?: () => void
@@ -23,6 +24,7 @@ export function GridCell({
   roomId,
   isDayBoundary = false,
   assignment,
+  isOccupied = !!assignment,
   pendingSessionId,
   hasWarning = false,
   onCellClick,
@@ -32,13 +34,13 @@ export function GridCell({
   const [hovered, setHovered] = useState(false)
 
   // Droppable ID format matches buildAssignmentMap key: "${day}:${roomId}:${slotId}"
+  // isOccupied covers all slots spanned by a multi-slot session, not just the start slot.
   const { setNodeRef, isOver } = useDroppable({
     id: `${day}:${roomId}:${slotId}`,
-    // Disable dropping onto cells that already have a session starting there
-    disabled: !!assignment,
+    disabled: isOccupied,
   })
 
-  const isClickDropTarget = !!pendingSessionId && !assignment
+  const isClickDropTarget = !!pendingSessionId && !isOccupied
   const showDropHighlight = isOver || (isClickDropTarget && hovered)
 
   function handleClick() {
