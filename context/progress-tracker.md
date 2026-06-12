@@ -5,6 +5,7 @@ change.
 
 ## Current Phase
 
+- Unit 47 complete — frontend solver API client
 - Unit 46 complete - backend solver start and status API
 - Unit 45 complete — async solver job
 - Unit 44 complete — jobs boundary and Trigger.dev setup
@@ -34,193 +35,9 @@ change.
 
 ## Current Goal
 
-- Next unit TBD (frontend solver API client/polling/UI - surfaces the backend solver start/status API to the admin)
+- Next unit TBD (frontend solver polling/UI — wires the Unit 47 solver API client into the timetable: Run Solver button behavior, TanStack Query status polling, editing-disabled-while-running, and timetable refresh on completion)
 
 ## Completed
-
-- **Unit 46: Backend Solver Start and Status API**
-  - Created `backend/models/solver_run.py` - persisted `solver_runs` model with explicit API statuses (`pending`, `running`, `succeeded`, `failed`), Trigger job id, correlation id, admin requester id, scheduled/unscheduled counts, partial-success flag, failure code/message, and timestamps
-  - Created `backend/alembic/versions/0008_create_solver_runs.py` - adds the `solverrunstatus` enum and `solver_runs` table with status/created indexes
-  - Created `backend/schemas/solver.py` - frontend-friendly `SolverRunStatusResponse` that exposes run id, status, optional job id, timestamps, counts, partial-success metadata, and sanitized failure message only
-  - Created `backend/services/trigger_client.py` - stdlib-only Trigger.dev dispatch client using `TRIGGER_SECRET_KEY`, optional `TRIGGER_API_URL`, and `TRIGGER_SOLVER_TASK_ID` (`solver-job` default); posts a JSON payload packet to `/api/v1/tasks/{taskId}/trigger` and returns the run id; no new backend package added
-  - Created `backend/services/solver_run.py` - start/status service: rejects active `pending`/`running` runs, builds the solver input snapshot from saved DB state for defensive integrity checks, handles no-work/all-scheduled cases as harmless `succeeded` runs, requires rooms when there is unscheduled work, queues only stable references (`solverRunId`, `correlationId`, `adminWorkspaceId`, `snapshotId`) and never frontend draft assignments, marks trigger failures as failed, and returns structured `AppError` responses
-  - Created `backend/api/solver.py` and registered it in `backend/api/router.py` - protected `POST /solver/start` and `GET /solver/status/{solver_run_id}` endpoints using the existing `get_current_admin` auth dependency
-  - Updated `backend/solver/job.py` - records async job lifecycle into `solver_runs`: `running` on start, `succeeded` on completed/partial job result (with `partial_success` metadata), `failed` on failed result; maps the Unit 45 job statuses to the Unit 46 API statuses without exposing raw Trigger.dev internals
-  - Updated `backend/config.py` and `backend/.env.example` - optional Trigger settings (`trigger_api_url`, `trigger_secret_key`, `trigger_solver_task_id`) with safe defaults except the secret key, which is required only when starting a real job
-  - Fixed `backend/log/setup.py` - uses `structlog.stdlib.LoggerFactory()` with `add_logger_name`, matching production logging processors and preventing solver-service logs from breaking after the FastAPI app configures logging
-  - Updated `backend/tests/conftest.py` - SQLite test fixture now uses `StaticPool` so FastAPI's sync endpoint thread and the test thread share the same isolated in-memory database
-  - Created `backend/tests/test_solver_api.py` - 9 route-level tests using a lightweight ASGI caller: start auth, status auth, saved-state-only start payload, Trigger dispatch, active-run rejection, no-work status, defensive integrity failure, trigger failure persistence, status response shape, and structured 404
-  - No frontend solver client/polling/UI, no CP-SAT logic changes, no soft constraints, no deployment wiring, no new Python package
-  - All 144 backend tests pass
-
-- **Unit 45: Async Solver Job**
-  - Created `backend/solver/job.py` — backend-side execution of the async solver job; `SolverJobStatus` enum (`completed`/`partial`/`failed`); frozen `SolverJobPayload` (solver_run_id, correlation_id, optional admin_workspace_id + snapshot_id; `from_dict` parser) — a stable *reference*, never frontend draft state; `SolverJobResult` dataclass (status, solver_run_id, correlation_id, solver_status, sessions_attempted/scheduled/unscheduled, is_partial, timed_out, duration_seconds, started_at, completed_at, message, failure_code, newly_scheduled/remaining_unscheduled ids; `to_dict` for JSON); `run_solver_job(db, payload, *, time_limit_seconds=30.0)` runs the full pipeline `build_solver_input_snapshot` (Unit 41) → `solve_timetable` (Unit 42) → `apply_solver_result` (Unit 43) from **saved** DB state only
-  - Failure safety: every step wrapped; snapshot/solve/apply exceptions roll back defensively and return a `failed` `SolverJobResult` (never raises to the caller); the Unit 43 service already rolls back unapplicable results (`solver_failed`). Saved assignment state is guaranteed unchanged on failure. Failure codes: `snapshot_integrity`, `snapshot_error`, `solver_error`, `solver_failed`, `apply_error`
-  - Structured logging via `structlog`: `solver_job_started` (bound solver_run_id + correlation_id, started_at), `solver_job_completed` (status, solver_status, duration_seconds, sessions attempted/scheduled/unscheduled, is_partial, timed_out), `solver_job_failed` (step, failure_code, detail)
-  - Job contains **no** solver modeling logic — it orchestrates the three backend services; `sessions_attempted = len(snapshot.unscheduled_session_ids)`
-  - Created `backend/solver/job_cli.py` — thin process boundary (`python -m solver.job_cli`) the Node Trigger.dev task invokes; self-bootstraps `sys.path` with the backend dir; routes structlog to **stderr** so stdout carries only the result; reads `SolverJobPayload` JSON (stdin or argv[1]), opens a real `SessionLocal`, runs the job, prints `SolverJobResult` JSON on stdout; **always** emits a structured JSON failure doc on stdout even for a malformed payload (`invalid_payload`) or backend setup/import/connection error (`bridge_setup_error`) so the caller can always parse an outcome; exit 0 on completed/partial, 1 on failed; no business logic
-  - Updated `backend/solver/__init__.py` — re-exports `run_solver_job`, `SolverJobPayload`, `SolverJobResult`, `SolverJobStatus`
-  - Created `jobs/src/trigger/solverJob.ts` — registered `solver-job` Trigger.dev task; typed `SolverJobPayload` (solverRunId, correlationId, optional adminWorkspaceId/snapshotId) + `SolverJobResult`; owns job lifecycle (`solver_job_started`/`solver_job_completed`/`solver_job_failed` logs, timing) and spawns the Python bridge via `child_process` using `python -m solver.job_cli` with `cwd=BACKEND_DIR` + `PYTHONPATH=BACKEND_DIR` (the `-m` form keeps cwd—not `solver/`—on sys.path so stdlib `types` isn't shadowed by `solver/types.py`); validates `BACKEND_DIR`/script exist up front and surfaces Python **stderr** + exit code in the failure result when stdout has no parseable JSON; scans stdout for the last JSON line (robust to log pollution); `BACKEND_DIR` must be an absolute path and `PYTHON_BIN` may be absolute / relative-to-BACKEND_DIR / a PATH command; maps snake_case result doc → camelCase TS result; passes only stable references across the boundary; `maxDuration: 120` (CP-SAT default 30s + headroom); contains no solver/DB logic
-  - Verified end-to-end against the real database: the bridge solved 8 sessions optimally, emitted clean stdout JSON, and persisted the generated assignments (`status: completed`)
-  - Created `backend/tests/test_solver_job.py` — 13 tests: payload parsing (minimal/full/missing-field), empty DB no-op, end-to-end single-session schedule + persistence, locked preservation + new placement, partial result (room too small → forced unscheduled), payload echo, timing metadata, JSON-serializable result, and three failure paths via monkeypatch (solver exception, unapplicable `UNKNOWN` status, snapshot exception) each asserting `failed` status + saved state preserved
-  - Updated `jobs/.env.example` (documented `BACKEND_DIR` / `PYTHON_BIN` bridge vars; backend reads its own `DATABASE_URL`) and `jobs/README.md` (async solver job section, pipeline diagram, boundary properties)
-  - No solver start/status API, no frontend solver client/polling/UI, no production Trigger.dev deployment, no soft constraints, no new packages
-  - All 135 backend tests pass; `jobs/` `npm run typecheck` passes clean
-
-- **Unit 44: Jobs Boundary and Trigger.dev Setup**
-  - Created top-level `jobs/` — a standalone Node/TypeScript Trigger.dev v3 project sitting beside `frontend/` and `backend/` (Trigger.dev is Node-based, so it cannot live inside the Python `backend/` package); this matches the `jobs/` boundary in `architecture-context.md`
-  - `jobs/package.json` — declares `@trigger.dev/sdk ^3.3.17` (resolved + installed 3.3.17) and dev deps `trigger.dev` (CLI), `typescript`, `@types/node`; scripts `login`, `dev`, `deploy`, `typecheck`
-  - `jobs/trigger.config.ts` — `defineConfig` with `runtime: "node"`, `logLevel: "info"`, `maxDuration: 60`, `dirs: ["./src/trigger"]`; `project` is a placeholder ref (`proj_REPLACE_WITH_YOUR_PROJECT_REF`) that must be replaced with the dashboard project ref before `npm run dev` connects
-  - `jobs/src/trigger/testJob.ts` — minimal registered `test-job` task; typed `TestJobPayload` (message, correlationId, timestamp) + `TestJobResult`; emits structured `test_job_started` / `test_job_completed` logs via `logger.info` and returns a completion object; contains **no** solver logic, no timetable queries, no DB access, no result persistence — comments document the orchestration-only boundary
-  - `jobs/tsconfig.json` — strict TypeScript, `noEmit`, ES2022/Bundler resolution; `npm run typecheck` passes clean
-  - `jobs/.env.example` — documents `TRIGGER_ACCESS_TOKEN` (non-interactive auth) and `TRIGGER_SECRET_KEY` (only for backend-triggered tasks, future); notes the project ref lives in `trigger.config.ts` and that backend service URL/token for solver orchestration are intentionally omitted this unit
-  - `jobs/README.md` — boundary rules, env table, local dev commands (`npm install` → `npm run login` → `npm run dev`), how the Trigger.dev dev server differs from running FastAPI, and an explicit "not yet implemented" list (async solver job, start/status API, job-driven persistence, deployment wiring)
-  - `jobs/.gitignore` — ignores `node_modules/`, `.trigger/`, `dist/`, `.env`
-  - Updated `context/code-standards.md` File Organization — reconciled `backend/jobs/` → top-level `jobs/` with rationale
-  - No solver job wired, no solver start/status API, no frontend changes, no backend Python changes
-
-- **Unit 43: Backend Solver Result Application Service**
-  - Created `backend/solver/apply.py` — `apply_solver_result(db, result)` service that applies a `SolverRunResult` to the saved timetable assignment state; lives inside `backend/solver/` with a clean solver-facing boundary and is **not** wired to any request handler or job
-  - Structured internal result object `SolverResultApplication` (status, scheduled_count, unscheduled_count, is_partial, newly_scheduled_session_ids, remaining_unscheduled_session_ids, preserved_locked_count, concise message) for future solver job/API status surfacing; `ApplicationStatus` enum (`applied`, `partial`, `failed`); `SolverResultApplicationError` (code + message) raised after rollback
-  - Locked preservation: the existing rows in `timetable_assignments` are treated as the authoritative locked solver inputs — they are never deleted or mutated; generated placements are inserted alongside them. `preserved_locked_count` reflects the actual saved rows
-  - Persistence: generated assignments for previously unscheduled sessions are inserted in a single transaction (`db.commit()`); no `duration` column on the assignment row (duration derives from the session, per Unit 31)
-  - Failure safety: a result whose status is not `OPTIMAL`/`FEASIBLE` (or a missing/invalid result object) triggers `db.rollback()` and raises `SolverResultApplicationError` (`solver_failed` / `invalid_result`) without mutating saved state; persistence errors roll back and raise `persistence_failed`
-  - Defensive validation (backend safety, runs before commit, rolls back on first violation): duplicate generated session, unknown session id, unknown room id, invalid slot id (must be `s1`-`s7`), invalid day, lunch crossing, off-timetable, room capacity < student count, generated overwriting a locked saved assignment (`would_overwrite_locked`), and room double-booking — generated-vs-locked and generated-vs-generated — all surfaced as `blocking_integrity_violation`
-  - Partial-success metadata: `is_partial = unscheduled_count > 0`; status `partial` when sessions remain unscheduled, `applied` otherwise
-  - Diagnostic logging via `structlog.get_logger` (`solver_result_applied`, `solver_result_apply_rejected`, `solver_result_apply_failed`) bound with solver status and counts
-  - Updated `backend/solver/__init__.py` — re-exports `apply_solver_result`, `ApplicationStatus`, `SolverResultApplication`, `SolverResultApplicationError`
-  - Created `backend/tests/conftest.py` — isolated in-memory SQLite `db` fixture (FK enforcement enabled) so DB-backed services can be tested without Postgres; no new package required
-  - Created `backend/tests/test_apply.py` — 19 tests using real ORM models + real solver DTOs: happy-path persistence, metadata counts, locked preservation, partial result, failed-result no-mutation (infeasible + unknown), invalid result object, all defensive checks (duplicate, unknown session/room, invalid slot, lunch crossing, off-timetable, capacity, overwrite-locked, double-book vs locked + vs each other), transaction rollback leaves no partial state, empty-result no-op
-  - No CP-SAT modeling, snapshot builder, Trigger.dev job, solver API route, or frontend changes added
-  - All 122 backend tests pass
-
-- **Unit 42: Backend Solver CP-SAT Module**
-  - Added `ortools>=9.15.6755` to `backend/requirements.txt` (installed in backend venv; only this unit uses it)
-  - Extended `backend/solver/types.py` with output DTOs — `SolverStatus` enum (`optimal`, `feasible`, `infeasible`, `unknown`); `GeneratedAssignment` frozen dataclass (session_id, day, start_slot, room_id, duration); `SolverRunResult` (status, generated_assignments, locked_assignments preserved from input, unscheduled_session_ids, scheduled_count, unscheduled_count, timed_out, concise message)
-  - Created `backend/solver/model.py` — `solve_timetable(snapshot, time_limit_seconds=30.0)` entry function; accepts only a `SolverInputSnapshot`, never touches the DB/API/ORM/frontend draft
-  - Modeling: one optional BoolVar per feasible (day, start slot, room) candidate per unscheduled session plus a `scheduled` BoolVar with `sum(candidates) == scheduled` (optional placement → partial results; a session with zero candidates is forced unscheduled, never dropped); candidates violating static hard constraints are never created — room capacity, lunch crossing (must fit AM or PM block), off-timetable, lecturer unavailability (hard for solver even though warning-only in frontend), overlap with locked room occupancy, and overlap with a locked conflict partner's time cells
-  - Locked saved assignments are fixed occupied intervals: no variables, excluded at candidate level, returned unchanged; locked-vs-locked warning conflicts (e.g. saved placement during lecturer unavailability) are tolerated and cannot make the model infeasible
-  - Constraints: per-(day, room, slot) `AddAtMostOne` for room no-overlap; lecturer/student/unit-session conflict pairs (merged + deduped from the snapshot's three pair lists) enforced as per-time-cell `sum(occ_a) + sum(occ_b) <= 1` between unscheduled pairs; duration contiguity inherent in candidate construction
-  - Objective: maximize count of scheduled previously-unscheduled sessions; no soft preferences
-  - Determinism: `num_search_workers = 1`, `random_seed = 0`, deterministic model-build order from sorted snapshot collections; explicit timeout via `max_time_in_seconds` with `timed_out` flag (true when search stopped without optimality proof)
-  - Updated `backend/solver/__init__.py` — re-exports `solve_timetable`, `DEFAULT_TIME_LIMIT_SECONDS`, `SolverStatus`, `GeneratedAssignment`, `SolverRunResult`
-  - Created `backend/tests/test_solver.py` — 24 deterministic fixture tests: result shape, empty snapshot, single placement, locked preservation, locked room occupancy blocking, locked conflict partner blocking, saved warning-state tolerance, room capacity (direct + failure), room no-overlap, lecturer no-overlap (partial + spread), student no-overlap, unit/session overlap in isolation, availability forced placement, fully unavailable lecturer, duration-4 PM-only start, duration exceeding available block, lunch-crossing prevention, objective maximization, explicit partial result, determinism (two runs equal), input snapshot not mutated; shared `assert_valid_solution` helper re-checks every hard constraint on solver output
-  - No DB result application, no snapshot builder changes, no Trigger.dev job, no solver API, no frontend changes
-  - All 103 backend tests pass
-
-- **Unit 41: Backend Solver Input Snapshot Builder**
-  - Created `backend/solver/types.py` — `RoomSnapshot`, `SessionSnapshot`, `AvailabilitySnapshot`, `LockedAssignment`, `TimetableConstants`, `SolverInputSnapshot` frozen dataclasses; `ORDERED_DAYS` (Monday–Friday), `ORDERED_SLOTS` (s1–s7), `AM_SLOTS`, `PM_SLOTS`, `AM_PM_BOUNDARY_INDEX` (3), `SESSION_TYPE_ORDER`; `TIMETABLE_CONSTANTS` singleton with all schedule grid constants
-  - Created `backend/solver/snapshot.py` — `SnapshotIntegrityError` for defensive rejections; `build_snapshot_from_data(rooms, sessions, availability, saved_assignments)` pure builder (no DB access); `build_solver_input_snapshot(db)` DB loader using SQLAlchemy selectinload; `_validate_saved_assignments` defensive checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking); `_extract_conflict_pairs` per-category deduplication from Unit 40 conflict graph; all output collections sorted deterministically (rooms by name, sessions by unit_code/type_order/id, availability by lecturer_id, assignments by day/room/slot/session_id, conflict pairs sorted)
-  - Created `backend/solver/__init__.py` — re-exports all public symbols
-  - Created `backend/tests/test_snapshot.py` — 41 fixture-based tests covering: DTO fields, timetable constants (Monday–Friday, s1–s7, AM/PM blocks, lunch gap), snapshot population from all input types, locked assignment extraction, unscheduled session derivation, all three conflict graph types, deterministic ordering for all collections, all 7 defensive integrity checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking including multi-slot overlap), valid edge cases (empty snapshot, no students, AM-only, PM-only)
-  - No CP-SAT model, no solver API, no new packages; builder does not query frontend draft state or create/modify assignments
-  - All 41 tests pass
-
-- **Unit 40: Backend Solver Constraint Mirror**
-  - Created `backend/constraints/types.py` — `ConstraintType` enum (8 values: room_double_booking, room_capacity, lunch_crossing, off_timetable, lecturer_overlap, student_overlap, unit_session_overlap, lecturer_availability); `ConstraintSeverity` enum (blocking, warning); `CONSTRAINT_SEVERITY` dict mapping each type to its severity (mirrors frontend blocking/warning split); `SessionInput`, `RoomInput`, `LecturerInput`, `AssignedSession` frozen dataclasses for ORM-detached solver input; `SolverConstraint` dataclass for violation output
-  - Created `backend/constraints/graph.py` — slot order constants (s1–s7, AM/PM boundary at index 3); `ConflictEdge` and `ConflictGraph` dataclasses; `ConflictGraph.neighbors()` and `conflicts_between()` methods; `derive_lecturer_overlap_conflicts`, `derive_student_overlap_conflicts`, `derive_unit_session_overlap_conflicts` structural derivation functions; `build_conflict_graph` aggregator; assignment-based violation checks: `check_room_double_booking`, `check_room_capacity`, `check_lunch_crossing`, `check_off_timetable`, `check_lecturer_overlap`, `check_student_overlap`, `check_unit_session_overlap`, `check_lecturer_availability`; `compile_assignment_violations` aggregator
-  - Created `backend/constraints/__init__.py` — re-exports all public symbols
-  - Created `backend/tests/__init__.py` and `backend/tests/test_constraints.py` — 38 pytest fixture-based tests covering all constraint types, conflict graph construction, positive and negative cases
-  - Added `pytest>=8.0.0` to `backend/requirements.txt`
-  - No user-facing validation API added; no solver CP-SAT model; module is pure Python with no SQLAlchemy dependencies
-  - All 38 tests pass
-
-- **Unit 39: Frontend Drag-and-Drop Save Integration**
-  - No new code required — all Unit 39 scope was already delivered by Units 33 and 38 combined
-  - Drag/drop changes mark draft dirty: `handleDragEnd` sets `setIsDirty(true)` after every successful placement
-  - Save sends the complete draft: `saveMutation` maps `draft` to `AssignmentItem[]` and calls `saveAssignments`
-  - Save loading state: `isSaving={saveMutation.isPending}` passed to `TimetableActionBar`; spinner shown while pending
-  - Successful save refetches: `onSuccess` calls `queryClient.invalidateQueries({ queryKey: ['assignments'] })`
-  - Dirty-state reset: `useEffect` on `savedAssignments` calls `setIsDirty(false)` and `setSaveError(null)` when the refetch lands
-  - Failed save preserves draft: `onError` only sets `saveError`; draft state is untouched
-  - Backend defensive rejections visible as save errors: `parseAssignmentSaveError` parses 404/409/422 responses into readable messages; `saveError` displayed in `TimetableActionBar`
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 38: Frontend Drag-and-Drop Scheduling Shell**
-  - Installed `@dnd-kit/core` and `@dnd-kit/utilities` (already present in package.json)
-  - `GridCell`: added `useDroppable` with id `${day}:${roomId}:${slotId}`; `disabled: !!assignment` so occupied start-slot cells don't accept drops; `isOver` drives drop-target highlight; highlight logic combines DnD `isOver` and existing click-mode `isClickDropTarget && hovered`
-  - `UnscheduledSessionCard`: added `useDraggable` with `id={session.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; CSS transform intentionally not applied (DragOverlay handles visual movement)
-  - `ScheduledSessionCard`: added `useDraggable` with `id={assignment.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; X (unschedule) button gets `onPointerDown={stopPropagation}` to prevent drag starting from the unschedule button
-  - `timetable.tsx`: `DndContext` wraps the full timetable canvas (action bar + grid + pool); `PointerSensor` with `activationConstraint: { distance: 5 }` prevents accidental drags; `KeyboardSensor` for accessibility; `activeSessionId` state tracks dragged session for overlay; `handleDragStart` sets `activeSessionId`, clears `pendingSessionId` and `blockingError`; `handleDragEnd` parses droppable id (`day:roomId:slotId`), calls `checkProposedPlacement`, rejects with `blockingError` on blocking violations, updates draft on success; `handleDragCancel` clears `activeSessionId`; `DragOverlay` with `dropAnimation={null}` renders `DragPreviewCard` while dragging
-  - `DragPreviewCard`: private component in `timetable.tsx`; renders session info (unit code, type, unit name, duration, lecturer) matching unscheduled card size; uses same design token maps
-  - Warning recalculation is automatic — warning state is derived from draft on every render; no extra wiring needed
-  - Manual click-based scheduling controls remain fully functional alongside drag-and-drop
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 37: Frontend Validation Display and Solver Gate Shell**
-  - `TimetableActionBar`: replaced `warningCount` prop with `violationMessages: string[]` and `warningMessages: string[]`; added `onRunSolver?: () => void` prop
-  - Added **Run Solver** button shell (using `--solver-accent` blue); enabled only when `canRunSolver` is true; HTML `title` attribute carries the full blocked reason for browser tooltip
-  - Solver blocked reason message in status area: "N blocking violations and N scheduling warnings must be resolved before running the solver" — uses error color when violations present, warning color when warnings only
-  - Added expandable **violation detail panel** (toggled via "View details (N)" / "Hide details" chevron button); renders below the main action bar row with `--bg-muted` background; lists blocking violations with `XCircle` icon and warning issues with `AlertTriangle` icon, grouped by severity
-  - `timetable.tsx`: changed from computing just `hasBlockingViolations: boolean` to `blockingViolations: BlockingIssue[]` (full array); passes `.map(v => v.message)` and `warningIssues.map(i => i.message)` to the action bar
-  - Verification checklist: blocking rejection visible ✓; warning cards marked ✓; warning detail messages accessible via "View details" ✓; solver disabled when any issue exists ✓; solver disabled state explains why ✓; no backend validation API added ✓
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 36: Frontend Warning Validation Engine**
-  - Created `frontend/src/lib/validation/warning.ts` — pure warning validation helpers; `WarningIssueType` union (`lecturer_overlap`, `unit_session_overlap`, `lecturer_unavailable`); `WarningIssue` interface (type, severity: `'warning'`, affected_session_ids, optional affected_lecturer_id / affected_student_ids / affected_day / affected_slot, human-readable message)
-  - `checkDraftForWarnings(draft, lecturers?)` — checks all draft assignments for three warning rules: (1) lecturer overlap: two assignments with the same `lecturer_display_name` on the same day with overlapping slots; (2) unit/session overlap: two assignments from the same `unit_id` on the same day with overlapping slots (detects student conflicts via unit enrollment); (3) lecturer unavailable: assignment occupies a slot marked unavailable by the lecturer; returns all warning issues found
-  - `getWarningSessionIds(draft, lecturers?)` — returns `Set<string>` of session IDs with any warning, used for grid visual flagging
-  - `ScheduledSessionCard`: added `hasWarning?: boolean` prop; when true, changes border color to `--state-warning` and shows `AlertTriangle` icon (h-3 w-3) alongside the unschedule button for accessible non-color-only indicator
-  - `GridCell`: added `hasWarning?: boolean` prop; passes through to `ScheduledSessionCard`
-  - `TimetableGrid`: added `warningSessionIds?: Set<string>` prop; computes `hasWarning` per cell using `warningSessionIds.has(assignment.session_id)` and passes to `GridCell`
-  - `TimetableActionBar`: added `warningCount?: number` and `canRunSolver?: boolean` props; shows amber warning summary with `AlertTriangle` icon when warnings exist ("N scheduling warnings — solver blocked until resolved"); updated placeholder text
-  - `timetable.tsx`: added `useQuery(['lecturers'], listLecturers)` for availability data; computes `warningIssues` and `warningSessionIds` inline from draft + lecturers; computes `canRunSolver = !hasBlockingViolations && warningIssues.length === 0`; passes `warningSessionIds` to `TimetableGrid`, `warningCount` and `canRunSolver` to `TimetableActionBar`
-  - Warning placements remain scheduled and saveable; solver gate (`canRunSolver`) is false whenever any blocking or warning issue exists
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 35: Frontend Blocking Validation Engine**
-  - Created `frontend/src/lib/validation/blocking.ts` — pure validation helpers; `BlockingIssueType` union (`room_double_booking`, `room_capacity_too_small`, `session_crossing_lunch`, `session_off_timetable`); `BlockingIssue` interface (type, severity: `'blocking'`, affected_session_ids, optional affected_room_id / affected_day / affected_slot, human-readable message)
-  - `checkProposedPlacement(proposed, existingDraft, rooms)` — checks a single proposed assignment against the current draft and room data before it enters the draft; excludes the pending session's own old position so moves don't self-conflict; returns all blocking issues found
-  - `checkDraftForBlockingViolations(draft, rooms)` — checks all current draft assignments for off-timetable, lunch-crossing, room-capacity, and room-double-booking violations
-  - `getBlockingViolatorIds(draft, rooms)` — returns a `Set<string>` of session IDs that violate any blocking rule; used for automatic unscheduling
-  - `isOffTimetable`: `SLOT_INDEX[startSlot] + duration > 7` (7 total slots); `crossesLunch`: occupied indices span both AM (indices 0–2) and PM (indices 3–6); `rangesOverlap`: standard interval overlap test
-  - `timetable.tsx`: added `blockingError: string | null` state; added `draftRef` (synced via effect) so data-change effects can read the latest draft without dependency array issues; `handleCellClick` now calls `checkProposedPlacement` before placing — sets `blockingError` and returns early on any blocking issue, clears it and places on success; `handleSelectSession` and `handleUnschedule` clear `blockingError`
-  - Auto-unschedule effect runs when `rooms` or `schedulableSessions` query data changes: builds a validation copy of the draft with current session student counts, finds violators via `getBlockingViolatorIds`, removes them from draft, sets `isDirty = true`; no-op when draft is empty
-  - `TimetableActionBar`: added `blockingError?: string | null` prop; shown in error style with "Cannot place session: …" prefix; priority below `saveError`, above pending placement hint
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 34: Frontend Manual Scheduling Controls**
-  - `pendingSessionId: string | null` state in `timetable.tsx` — shared selection for both fresh placement (from pool) and move (from grid)
-  - `handleSelectSession` toggles pending: clicking same session again cancels selection; clicking a different session switches it
-  - `handleCellClick(day, slotId, roomId)` places the pending session — removes any existing draft entry for that session_id first (handles move), builds a new `TimetableAssignment` from the schedulable sessions list, appends to draft, sets `isDirty`, clears pending
-  - `handleUnschedule(sessionId)` removes the session from draft, sets `isDirty`, also clears pending if the removed session was pending
-  - `unscheduledSessions` derived in `timetable.tsx` — `schedulableSessions` filtered to exclude any session_id already present in `draft`; pool receives this filtered list
-  - `ScheduledSessionCard` — added `×` unschedule button (top-right, stopsPropagation); card body click calls `onMoveSelect`; `isPending` shows outline ring and reduced opacity
-  - `GridCell` — `isDropTarget = !!pendingSessionId && !assignment`; drop-target cells show hover highlight and pointer cursor; click fires `onCellClick`; passes `isPending`, `onUnschedule`, `onMoveSelect` to `ScheduledSessionCard`
-  - `TimetableGrid` — added `pendingSessionId`, `onCellClick`, `onUnschedule`, `onMoveSelect` props; each GridCell closure captures its `day`, `slot.id`, `room.id`
-  - `UnscheduledSessionCard` — added `isSelected` (outline ring) and `onClick` props; `cursor-pointer`
-  - `UnitGroup` — passes `pendingSessionId` and `onSelectSession` through to each card
-  - `UnscheduledPool` — passes `pendingSessionId` and `onSelectSession` through to each `UnitGroup`
-  - `TimetableActionBar` — added `isPendingPlacement` prop; shows placement hint in accent color when a session is selected; hint message overrides normal status text (not the save error)
-  - `pendingSessionId` also cleared when `savedAssignments` refetch resets the draft
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 33: Frontend Timetable Draft Assignment State**
-  - Added `useQuery(['assignments'], listAssignments)` in `timetable.tsx` to load saved assignments from the backend
-  - Added `useState<TimetableAssignment[]>` draft initialized from saved assignments via `useEffect`; draft resets clean whenever saved assignments refetch
-  - `isDirty: boolean` and `saveError: string | null` state tracks unsaved changes and save failure independently
-  - `useMutation(saveAssignments)` sends the complete draft as `AssignmentSaveRequest` on save; on success invalidates `['assignments']` (triggering refetch and draft reset); on error preserves draft and surfaces `saveError`
-  - `TimetableGrid` now receives `assignments={draft}` instead of `[]` — scheduled cards render from the draft set
-  - `TimetableActionBar` rewritten with props (`isDirty`, `isSaving`, `saveError`, `onSave`): Save Timetable button (enabled when dirty, spinner while saving); unsaved-changes label visible when dirty; save error shown inline; placeholder text shown when clean and no error
-  - `toTimetableAssignment` helper converts `AssignmentResponse` → `TimetableAssignment` (field-aligned, no casting needed)
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 32: Frontend Assignment API Client**
-  - Created `frontend/src/lib/api/assignments.ts` — `AssignmentResponse` DTO (all display fields matching backend `AssignmentResponse`); `AssignmentItem` (session_id, day, start_slot, room_id — save request per-assignment); `AssignmentSaveRequest` (wraps list of `AssignmentItem`); `listAssignments()` (`GET /assignments`); `saveAssignments(input)` (`POST /assignments`); `clearAssignments()` (`DELETE /assignments`)
-  - `AvailabilityDay` and `AvailabilitySlot` imported from `@/lib/api/lecturers` (canonical source, avoids duplication); `SessionType` imported from `@/lib/api/sessions`
-  - `parseAssignmentSaveError` handles backend defensive rejections (404, 409, 422) as save errors; not normal validation UX
-  - All functions use `apiRequest` from authenticated base client; no draft state, no drag-drop, no validation logic added
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 31: Backend Saved Timetable Assignment Persistence and Protected Save API**
-  - Created `backend/models/assignment.py` — `TimetableAssignment` SQLAlchemy model; `session_id` FK with CASCADE on session delete; `room_id` FK with CASCADE on room delete (satisfies room-deletion unschedule requirement); reuses existing Postgres `availabilityday`/`availabilityslot` enum types via `create_type=False`; unique constraint on `session_id` (one assignment per session); unique constraint on `(day, start_slot, room_id)` for same-start-slot double-booking guard at DB level
-  - Created `backend/alembic/versions/0007_create_assignments.py` — creates `timetable_assignments` table; references existing Postgres enum types without recreation
-  - Created `backend/schemas/assignment.py` — `AssignmentItem` (session_id, day, start_slot, room_id); `AssignmentSaveRequest` (list of AssignmentItem); `AssignmentResponse` (all joined display fields per spec: assignment_id, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id, timestamps)
-  - Created `backend/services/assignment.py` — `list_assignments` (eager-loads session→unit→lecturer/students via selectinload); `save_assignments` (replace-all transaction with full defensive validation); `clear_assignments` (optional clear); defensive checks reject: duplicate session in request, session/room not found, room capacity < student count, session crossing lunch, session running off timetable, room double-booking (multi-slot overlap detection, not just same-start-slot); warning-level conflicts (lecturer/student/availability) are not checked and are allowed through
-  - Created `backend/api/assignments.py` — `GET /assignments` (list), `POST /assignments` (save/replace), `DELETE /assignments` (clear); all routes require `get_current_admin`
-  - Updated `backend/models/__init__.py` — registered `TimetableAssignment`
-  - Updated `backend/api/router.py` — registered assignments router
-  - Room deletion cascade: handled by `ondelete="CASCADE"` FK constraint in migration; no service-layer changes needed; Postgres removes orphaned assignments automatically when a room is deleted
 
 - **Unit 1: Repository, Frontend Bootstrap, and UI Foundation**
   - Scaffolded `frontend/` with Vite + React + TypeScript
@@ -326,28 +143,6 @@ change.
   - No TanStack Query, Zustand, CRUD, mock data, or product API clients added
   - Build succeeds with zero TypeScript errors
 
-- **Unit 9: Backend Room Persistence and Protected API**
-  - Created `backend/models/room.py` — `RoomType` enum (`lecture`, `tutorial`) and `Room` SQLAlchemy model with `id`, `name` (unique), `capacity`, `room_type`, `created_at`, `updated_at`
-  - Created `backend/schemas/room.py` — `RoomCreate`, `RoomUpdate`, and `RoomResponse` Pydantic schemas; validators reject blank names and non-positive capacity values
-  - Created `backend/services/room.py` — `list_rooms`, `get_room`, `create_room`, `update_room`, `delete_room`; raises `AppError` 404 on not-found, 409 on name uniqueness conflict
-  - Created `backend/api/rooms.py` — `GET /rooms`, `POST /rooms`, `PUT /rooms/{room_id}`, `DELETE /rooms/{room_id}`; all routes require `get_current_admin`; returns `RoomResponse` schemas
-  - Updated `backend/api/router.py` — registered rooms router
-  - Created `backend/alembic/versions/0002_create_rooms.py` — creates `rooms` table and `roomtype` Postgres enum; revises `0001`
-  - Updated `backend/models/__init__.py` — imports `Room` so `Base.metadata` includes the table
-  - Updated `backend/alembic/env.py` — imports `models` package so all models are registered for future `--autogenerate`
-  - No frontend API client, no UI integration, no assignment or solver behavior added
-
-- **Unit 8: Frontend Timetable No-Room State and Grid Shell**
-  - Updated `/timetable` route to full workspace layout
-  - Page header with revised description; reserved action/status bar (`TimetableActionBar`)
-  - No-room empty state rendered when `ROOMS` array is empty (default — no room API yet)
-  - Created `frontend/src/features/timetable/slots.ts` — centralized `DAYS`, `TIME_SLOTS`, `AM_SLOTS`, `PM_SLOTS`, `LUNCH_LABEL`; Monday–Friday; AM slots 9:00–11:00, PM slots 13:00–16:00
-  - Created `frontend/src/features/timetable/GridCell.tsx` — blank cell (h-14, w-32), hover treatment via `--grid-cell-hover`, day-boundary border via `--grid-line-strong`, all tokens from `ui-context.md`
-  - Created `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `RoomColumn[]`; renders day headers, room sub-headers, AM rows, lunch divider (`--grid-lunch-bg`), PM rows; returns null when rooms empty
-  - Created `frontend/src/features/timetable/TimetableActionBar.tsx` — reserved shell for future validation and solver controls
-  - No room API, fake rooms, fake sessions, fake assignments, drag-and-drop, or solver behavior added
-  - Build succeeds with zero TypeScript errors
-
 - **Unit 7: Frontend Rooms Page Shell**
   - Replaced placeholder `RoomsPage` with full management-page layout
   - Page header with title, description, and `Create room` primary action
@@ -361,6 +156,28 @@ change.
   - No backend calls, API clients, TanStack Query, or CRUD behavior
   - Build succeeds with zero TypeScript errors
 
+- **Unit 8: Frontend Timetable No-Room State and Grid Shell**
+  - Updated `/timetable` route to full workspace layout
+  - Page header with revised description; reserved action/status bar (`TimetableActionBar`)
+  - No-room empty state rendered when `ROOMS` array is empty (default — no room API yet)
+  - Created `frontend/src/features/timetable/slots.ts` — centralized `DAYS`, `TIME_SLOTS`, `AM_SLOTS`, `PM_SLOTS`, `LUNCH_LABEL`; Monday–Friday; AM slots 9:00–11:00, PM slots 13:00–16:00
+  - Created `frontend/src/features/timetable/GridCell.tsx` — blank cell (h-14, w-32), hover treatment via `--grid-cell-hover`, day-boundary border via `--grid-line-strong`, all tokens from `ui-context.md`
+  - Created `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `RoomColumn[]`; renders day headers, room sub-headers, AM rows, lunch divider (`--grid-lunch-bg`), PM rows; returns null when rooms empty
+  - Created `frontend/src/features/timetable/TimetableActionBar.tsx` — reserved shell for future validation and solver controls
+  - No room API, fake rooms, fake sessions, fake assignments, drag-and-drop, or solver behavior added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 9: Backend Room Persistence and Protected API**
+  - Created `backend/models/room.py` — `RoomType` enum (`lecture`, `tutorial`) and `Room` SQLAlchemy model with `id`, `name` (unique), `capacity`, `room_type`, `created_at`, `updated_at`
+  - Created `backend/schemas/room.py` — `RoomCreate`, `RoomUpdate`, and `RoomResponse` Pydantic schemas; validators reject blank names and non-positive capacity values
+  - Created `backend/services/room.py` — `list_rooms`, `get_room`, `create_room`, `update_room`, `delete_room`; raises `AppError` 404 on not-found, 409 on name uniqueness conflict
+  - Created `backend/api/rooms.py` — `GET /rooms`, `POST /rooms`, `PUT /rooms/{room_id}`, `DELETE /rooms/{room_id}`; all routes require `get_current_admin`; returns `RoomResponse` schemas
+  - Updated `backend/api/router.py` — registered rooms router
+  - Created `backend/alembic/versions/0002_create_rooms.py` — creates `rooms` table and `roomtype` Postgres enum; revises `0001`
+  - Updated `backend/models/__init__.py` — imports `Room` so `Base.metadata` includes the table
+  - Updated `backend/alembic/env.py` — imports `models` package so all models are registered for future `--autogenerate`
+  - No frontend API client, no UI integration, no assignment or solver behavior added
+
 - **Unit 10: Frontend Room API Client**
   - Created `frontend/src/lib/api/rooms.ts` — `Room` DTO type, `RoomCreate` and `RoomUpdate` input types, `RoomType` union, and four API functions: `listRooms`, `createRoom`, `updateRoom`, `deleteRoom`
   - All functions use `apiRequest` from the Unit 6 authenticated base client; auth token is attached consistently through that shared helper
@@ -368,11 +185,31 @@ change.
   - No TanStack Query, no rooms page data wiring, no mock data added
   - Build succeeds with zero errors
 
-- **Units 13/17: Frontend Lecturer and Student Page Shells**
-  - Created `frontend/src/features/lecturers/AvailabilityEditor.tsx` — self-contained availability grid; Mon–Fri columns, AM slots (s1–s4), lunch divider, PM slots (s5–s8); click to toggle unavailable (maroon-soft highlight); legend and instructions; blank initial state
-  - Rewrote `frontend/src/routes/lecturers.tsx` — full management shell: page header with "Add lecturer" action; table with Title/First name/Last name/Actions columns; inline empty state; Create/Edit/Delete/Availability dialogs; `LecturerFormFields` (title, first name, last name); all submit buttons disabled pending API integration; availability dialog uses `AvailabilityEditor` with disabled "Save availability" CTA
-  - Rewrote `frontend/src/routes/students.tsx` — full management shell: page header with "Add student" action; table with Title/First name/Last name/Year level/Actions columns; inline empty state; Create/Edit/Delete dialogs; `StudentFormFields` (title, first name, last name, year level); all submit buttons disabled pending API integration; no lecturer availability controls
-  - No API calls, no mock data, no TanStack Query, no persistence; build succeeds with zero TypeScript errors
+- **Unit 11: Frontend Rooms Page Integration**
+  - Installed `@tanstack/react-query`
+  - Added `QueryClientProvider` wrapping the app root in `src/App.tsx`
+  - Rewrote `src/routes/rooms.tsx` with full backend integration:
+    - `useQuery(['rooms'], listRooms)` — loading, error, and empty states driven by real backend data
+    - `useMutation` for create, edit, delete — each invalidates `['rooms']` on success
+    - Controlled form state (`name`, `capacity`, `room_type`) for create and edit dialogs
+    - Required field validation gates submit buttons; buttons show loading text while mutations run
+    - Per-dialog error messages surface mutation errors to the user
+    - Delete requires confirmation; delete dialog shows room name and error state
+    - Room type values corrected to match backend enum (`lecture`, `tutorial`)
+    - Row-level Edit and Delete action buttons wired to real room data
+    - No mock data, no Zustand, no timetable integration, no optimistic updates
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 12: Frontend Timetable Room Integration**
+  - Replaced static `ROOMS: RoomColumn[]` placeholder in `src/routes/timetable.tsx` with `useQuery(['rooms'], listRooms)` from the room API client
+  - Loading state: centered "Loading rooms…" panel shown while rooms fetch
+  - Error state: backend error message shown in error panel
+  - No-room state: empty state with `CalendarDays` icon and link to `/rooms` for navigation
+  - Grid state: `TimetableGrid` rendered with real `Room[]` records; `Room` satisfies `RoomColumn` structurally (`id` + `name`)
+  - `queryKey: ['rooms']` matches the rooms page cache — creating a room on `/rooms` invalidates and refetches, causing the timetable to render the grid automatically
+  - Removed dev-only auth verify code from Unit 6 (no longer needed)
+  - No new packages, no Zustand, no localStorage, no fake data
+  - Build succeeds with zero TypeScript errors
 
 - **Unit 12/2: Timetable Table UI Adjustments**
   - Updated `slots.ts`: all 8 time slot labels now show start–end times in `H:MM-H:MM` format; added 4th AM slot `s4` (`12:00-12:50`); PM slots renumbered s5–s8 with labels `1:30-2:20` through `4:30-5:20`
@@ -381,6 +218,26 @@ change.
   - All time labels, day headers, room sub-headers, and lunch row use `userSelect: 'none'` and `onContextMenu` prevention; global app text selection and right-click are unaffected
   - `GridCell.tsx`: replaced `shrink-0 w-32` with `flex-1`; cells resize proportionally
   - Build succeeds with zero TypeScript errors
+
+- **Units 13/17: Frontend Lecturer and Student Page Shells**
+  - Created `frontend/src/features/lecturers/AvailabilityEditor.tsx` — self-contained availability grid; Mon–Fri columns, AM slots (s1–s4), lunch divider, PM slots (s5–s8); click to toggle unavailable (maroon-soft highlight); legend and instructions; blank initial state
+  - Rewrote `frontend/src/routes/lecturers.tsx` — full management shell: page header with "Add lecturer" action; table with Title/First name/Last name/Actions columns; inline empty state; Create/Edit/Delete/Availability dialogs; `LecturerFormFields` (title, first name, last name); all submit buttons disabled pending API integration; availability dialog uses `AvailabilityEditor` with disabled "Save availability" CTA
+  - Rewrote `frontend/src/routes/students.tsx` — full management shell: page header with "Add student" action; table with Title/First name/Last name/Year level/Actions columns; inline empty state; Create/Edit/Delete dialogs; `StudentFormFields` (title, first name, last name, year level); all submit buttons disabled pending API integration; no lecturer availability controls
+  - No API calls, no mock data, no TanStack Query, no persistence; build succeeds with zero TypeScript errors
+
+- **Unit 14/18: Backend Lecturer and Student Persistence and Protected API**
+  - Created `backend/models/lecturer.py` — `LecturerTitle` enum (`Dr.`, `Prof.`, `A/Prof.`, `Mr.`, `Ms.`), `AvailabilityDay` enum (Monday–Friday), `AvailabilitySlot` enum (`s1`–`s8`, matching timetable slots), `Lecturer` SQLAlchemy model, `LecturerAvailability` model with unique constraint on `(lecturer_id, day, slot)` and `delete-orphan` cascade
+  - Created `backend/models/student.py` — `StudentTitle` enum (`Mr.`, `Ms.`, `Mx.`), `Student` SQLAlchemy model with `year_level` integer field
+  - Created `backend/schemas/lecturer.py` — `AvailabilityEntry`, `LecturerCreate`, `LecturerUpdate`, `LecturerAvailabilitySet`, `LecturerResponse` (includes `unavailable_slots`); validators enforce non-blank names
+  - Created `backend/schemas/student.py` — `StudentCreate`, `StudentUpdate`, `StudentResponse`; validators enforce non-blank names and year level 1–5
+  - Created `backend/services/lecturer.py` — `list_lecturers`, `get_lecturer`, `create_lecturer`, `update_lecturer`, `delete_lecturer`, `set_availability` (replaces all unavailability records via ORM relationship)
+  - Created `backend/services/student.py` — `list_students`, `get_student`, `create_student`, `update_student`, `delete_student`
+  - Created `backend/api/lecturers.py` — `GET /lecturers`, `POST /lecturers`, `PUT /lecturers/{id}`, `DELETE /lecturers/{id}`, `PUT /lecturers/{id}/availability`; all protected by `get_current_admin`
+  - Created `backend/api/students.py` — `GET /students`, `POST /students`, `PUT /students/{id}`, `DELETE /students/{id}`; all protected by `get_current_admin`
+  - Created `backend/alembic/versions/0003_create_lecturers_and_students.py` — creates `lecturertitle`, `availabilityday`, `availabilityslot`, `studenttitle` Postgres enums; creates `lecturers`, `lecturer_availability`, `students` tables
+  - Updated `backend/models/__init__.py` — registers `Lecturer`, `LecturerAvailability`, `Student`
+  - Updated `backend/api/router.py` — registered lecturer and student routers
+  - No frontend API clients, unit/session relationships, constraint evaluation, or solver behavior added
 
 - **Unit 15/19: Frontend Lecturer and Student API Clients**
   - Created `frontend/src/lib/api/lecturers.ts` — `LecturerTitle`, `AvailabilityDay`, `AvailabilitySlot`, `AvailabilityEntry`, `Lecturer`, `LecturerCreate`, `LecturerUpdate`, `LecturerAvailabilitySet` types; `listLecturers`, `createLecturer`, `updateLecturer`, `deleteLecturer`, `setLecturerAvailability` functions; `parseLecturerError` helper for 409/422
@@ -408,45 +265,27 @@ change.
   - Query keys `['lecturers']` and `['students']` are separate and never cross-invalidate
   - Build succeeds with zero TypeScript errors
 
-- **Unit 14/18: Backend Lecturer and Student Persistence and Protected API**
-  - Created `backend/models/lecturer.py` — `LecturerTitle` enum (`Dr.`, `Prof.`, `A/Prof.`, `Mr.`, `Ms.`), `AvailabilityDay` enum (Monday–Friday), `AvailabilitySlot` enum (`s1`–`s8`, matching timetable slots), `Lecturer` SQLAlchemy model, `LecturerAvailability` model with unique constraint on `(lecturer_id, day, slot)` and `delete-orphan` cascade
-  - Created `backend/models/student.py` — `StudentTitle` enum (`Mr.`, `Ms.`, `Mx.`), `Student` SQLAlchemy model with `year_level` integer field
-  - Created `backend/schemas/lecturer.py` — `AvailabilityEntry`, `LecturerCreate`, `LecturerUpdate`, `LecturerAvailabilitySet`, `LecturerResponse` (includes `unavailable_slots`); validators enforce non-blank names
-  - Created `backend/schemas/student.py` — `StudentCreate`, `StudentUpdate`, `StudentResponse`; validators enforce non-blank names and year level 1–5
-  - Created `backend/services/lecturer.py` — `list_lecturers`, `get_lecturer`, `create_lecturer`, `update_lecturer`, `delete_lecturer`, `set_availability` (replaces all unavailability records via ORM relationship)
-  - Created `backend/services/student.py` — `list_students`, `get_student`, `create_student`, `update_student`, `delete_student`
-  - Created `backend/api/lecturers.py` — `GET /lecturers`, `POST /lecturers`, `PUT /lecturers/{id}`, `DELETE /lecturers/{id}`, `PUT /lecturers/{id}/availability`; all protected by `get_current_admin`
-  - Created `backend/api/students.py` — `GET /students`, `POST /students`, `PUT /students/{id}`, `DELETE /students/{id}`; all protected by `get_current_admin`
-  - Created `backend/alembic/versions/0003_create_lecturers_and_students.py` — creates `lecturertitle`, `availabilityday`, `availabilityslot`, `studenttitle` Postgres enums; creates `lecturers`, `lecturer_availability`, `students` tables
-  - Updated `backend/models/__init__.py` — registers `Lecturer`, `LecturerAvailability`, `Student`
-  - Updated `backend/api/router.py` — registered lecturer and student routers
-  - No frontend API clients, unit/session relationships, constraint evaluation, or solver behavior added
-
-- **Unit 12: Frontend Timetable Room Integration**
-  - Replaced static `ROOMS: RoomColumn[]` placeholder in `src/routes/timetable.tsx` with `useQuery(['rooms'], listRooms)` from the room API client
-  - Loading state: centered "Loading rooms…" panel shown while rooms fetch
-  - Error state: backend error message shown in error panel
-  - No-room state: empty state with `CalendarDays` icon and link to `/rooms` for navigation
-  - Grid state: `TimetableGrid` rendered with real `Room[]` records; `Room` satisfies `RoomColumn` structurally (`id` + `name`)
-  - `queryKey: ['rooms']` matches the rooms page cache — creating a room on `/rooms` invalidates and refetches, causing the timetable to render the grid automatically
-  - Removed dev-only auth verify code from Unit 6 (no longer needed)
-  - No new packages, no Zustand, no localStorage, no fake data
+- **Unit 21: Frontend Unit and Session Management Shell**
+  - Rewrote `frontend/src/routes/units.tsx` — full management shell: page header with "Create unit" action; table with Code/Name/Sessions/Actions columns; inline empty state (BookOpen icon + text)
+  - Create unit `Dialog` — opens via header button; fields for unit code (e.g. HIS101), unit name (e.g. Ancient History), disabled lecturer selector (placeholder), disabled student selector (placeholder); session section with add button, inline session boxes, empty session state; Create CTA disabled until code and name are filled
+  - Edit unit `Dialog` — same form structure as create; Save changes CTA disabled until required fields filled
+  - Delete unit `Dialog` — confirms that the unit and all its sessions will be removed; destructive CTA
+  - `SessionBox` component — compact card with session type `Select` (Lecture/Tutorial/Lab/Workshop) and duration `Select` (1–4 slots); delete button removes the box from local shell state
+  - Session state is local to the form only (add/delete interaction only); no persistence, no backend calls, no TanStack Query wiring
+  - Lecturer and student selectors are disabled with placeholder text; no real data connected
+  - No fake unit, session, lecturer, or student records displayed
+  - Fixed `@base-ui/react` Select `onValueChange` type (`string | null`) with `?? ''` nullish coalescing
   - Build succeeds with zero TypeScript errors
 
-- **Unit 11: Frontend Rooms Page Integration**
-  - Installed `@tanstack/react-query`
-  - Added `QueryClientProvider` wrapping the app root in `src/App.tsx`
-  - Rewrote `src/routes/rooms.tsx` with full backend integration:
-    - `useQuery(['rooms'], listRooms)` — loading, error, and empty states driven by real backend data
-    - `useMutation` for create, edit, delete — each invalidates `['rooms']` on success
-    - Controlled form state (`name`, `capacity`, `room_type`) for create and edit dialogs
-    - Required field validation gates submit buttons; buttons show loading text while mutations run
-    - Per-dialog error messages surface mutation errors to the user
-    - Delete requires confirmation; delete dialog shows room name and error state
-    - Room type values corrected to match backend enum (`lecture`, `tutorial`)
-    - Row-level Edit and Delete action buttons wired to real room data
-    - No mock data, no Zustand, no timetable integration, no optimistic updates
-  - Build succeeds with zero TypeScript errors
+- **Unit 22: Backend Unit Persistence and Protected API**
+  - Created `backend/models/unit.py` — `Unit` SQLAlchemy model (`id`, `code` unique, `name`, `lecturer_id` FK); `unit_students` many-to-many join table (unit→student, both cascade on delete); `lazy="selectin"` on `lecturer` and `students` relationships to avoid N+1 on list
+  - Created `backend/schemas/unit.py` — `LecturerSummary`, `StudentSummary` (lightweight nested types); `UnitCreate` (code, name, lecturer_id, student_ids); `UnitUpdate` (all optional); `UnitResponse` (includes nested lecturer and students); validators enforce non-blank code and name
+  - Created `backend/services/unit.py` — `list_units`, `get_unit`, `create_unit`, `update_unit`, `delete_unit`; validates lecturer exists (422), all student IDs exist (422), unique unit code (409 on conflict); excludes self on code uniqueness check during update
+  - Created `backend/api/units.py` — `GET /units`, `POST /units`, `PUT /units/{unit_id}`, `DELETE /units/{unit_id}`; all routes require `get_current_admin`; returns `UnitResponse` schemas
+  - Created `backend/alembic/versions/0005_create_units.py` — creates `units` table (with FK to `lecturers`, unique constraint on `code`) and `unit_students` join table; revises `0004`
+  - Updated `backend/models/__init__.py` — registers `Unit` and `unit_students`
+  - Updated `backend/api/router.py` — registered units router
+  - No frontend code, no session model, no session routes added
 
 - **Unit 23: Frontend Unit API Client**
   - Created `frontend/src/lib/api/units.ts` — `LecturerSummary`, `StudentSummary` nested types; `Unit` DTO; `UnitCreate`, `UnitUpdate` request types; `listUnits`, `createUnit`, `updateUnit`, `deleteUnit` API functions; `parseUnitError` helper for 409 (duplicate code) and 422 (validation) errors
@@ -469,28 +308,6 @@ change.
   - `isFormValid` requires `code`, `name`, and `lecturer_id`; sessions not required
   - `/lecturers` and `/students` routes not muddled; units page only reads from those query caches
   - No mock data, no Zustand, no session API calls
-  - Build succeeds with zero TypeScript errors
-
-- **Unit 22: Backend Unit Persistence and Protected API**
-  - Created `backend/models/unit.py` — `Unit` SQLAlchemy model (`id`, `code` unique, `name`, `lecturer_id` FK); `unit_students` many-to-many join table (unit→student, both cascade on delete); `lazy="selectin"` on `lecturer` and `students` relationships to avoid N+1 on list
-  - Created `backend/schemas/unit.py` — `LecturerSummary`, `StudentSummary` (lightweight nested types); `UnitCreate` (code, name, lecturer_id, student_ids); `UnitUpdate` (all optional); `UnitResponse` (includes nested lecturer and students); validators enforce non-blank code and name
-  - Created `backend/services/unit.py` — `list_units`, `get_unit`, `create_unit`, `update_unit`, `delete_unit`; validates lecturer exists (422), all student IDs exist (422), unique unit code (409 on conflict); excludes self on code uniqueness check during update
-  - Created `backend/api/units.py` — `GET /units`, `POST /units`, `PUT /units/{unit_id}`, `DELETE /units/{unit_id}`; all routes require `get_current_admin`; returns `UnitResponse` schemas
-  - Created `backend/alembic/versions/0005_create_units.py` — creates `units` table (with FK to `lecturers`, unique constraint on `code`) and `unit_students` join table; revises `0004`
-  - Updated `backend/models/__init__.py` — registers `Unit` and `unit_students`
-  - Updated `backend/api/router.py` — registered units router
-  - No frontend code, no session model, no session routes added
-
-- **Unit 21: Frontend Unit and Session Management Shell**
-  - Rewrote `frontend/src/routes/units.tsx` — full management shell: page header with "Create unit" action; table with Code/Name/Sessions/Actions columns; inline empty state (BookOpen icon + text)
-  - Create unit `Dialog` — opens via header button; fields for unit code (e.g. HIS101), unit name (e.g. Ancient History), disabled lecturer selector (placeholder), disabled student selector (placeholder); session section with add button, inline session boxes, empty session state; Create CTA disabled until code and name are filled
-  - Edit unit `Dialog` — same form structure as create; Save changes CTA disabled until required fields filled
-  - Delete unit `Dialog` — confirms that the unit and all its sessions will be removed; destructive CTA
-  - `SessionBox` component — compact card with session type `Select` (Lecture/Tutorial/Lab/Workshop) and duration `Select` (1–4 slots); delete button removes the box from local shell state
-  - Session state is local to the form only (add/delete interaction only); no persistence, no backend calls, no TanStack Query wiring
-  - Lecturer and student selectors are disabled with placeholder text; no real data connected
-  - No fake unit, session, lecturer, or student records displayed
-  - Fixed `@base-ui/react` Select `onValueChange` type (`string | null`) with `?? ''` nullish coalescing
   - Build succeeds with zero TypeScript errors
 
 - **Unit 25: Backend Session Persistence and Protected API**
@@ -521,13 +338,13 @@ change.
     - No Zustand, no localStorage, no mock sessions
   - Build succeeds with zero TypeScript errors
 
-- **Unit 30: Frontend Scheduled Session Rendering Shell**
-  - Created `frontend/src/features/timetable/assignment.ts` — `SlotId` union (`s1`–`s7`, no `s8`); `TimetableAssignment` frontend rendering model with all fields needed to place and display a session (assignment_id optional, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id); aligns with future Unit 32 backend DTO
-  - Created `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `position: absolute inset-x-0 top-0`, height `calc(N * 3.5rem)` where N = duration; left-border 4px accent (vs 3px on unscheduled cards); shows unit code, abbreviated session type, lecturer name (truncated), student count (duration > 1 only); uses `getUnitColor` + same BG/accent token maps as `UnscheduledSessionCard`; `z-index: 10` to overlay subsequent slot rows; `overflow: hidden`; distinct from unscheduled cards by layout, width behavior, and content
-  - Updated `frontend/src/features/timetable/GridCell.tsx` — added `position: relative` (`className="relative h-14 …"`); accepts `assignment?: TimetableAssignment`; renders `ScheduledSessionCard` when assignment is present; suppresses hover state when a card is rendered
-  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `assignments?: TimetableAssignment[]` (defaults to `[]`); `buildAssignmentMap` indexes assignments by `"${day}:${roomId}:${slotId}"`; each `GridCell` receives `assignment={assignmentMap.get(key)}` — undefined when no assignment starts at that cell; grid renders blank as before when `assignments=[]`
-  - Updated `frontend/src/routes/timetable.tsx` — passes `assignments={[]}` to `TimetableGrid`; no backend calls, no fake data
-  - No drag-and-drop, no assignment API client, no backend calls, no mock assignments in production UI
+- **Unit 28: Frontend Unscheduled Pool Shell**
+  - Created `frontend/src/features/timetable/unitColors.ts` — `getUnitColor(identifier)` deterministic helper; hashes identifier string into one of 6 color variant names (maroon, gold, blue, green, purple, stone); no hex values
+  - Created `frontend/src/features/timetable/UnscheduledSessionCard.tsx` — compact card prepared for `SchedulableSession` DTO; displays session type, unit code, unit name, duration, lecturer display name, student count; left-border accent driven by unit color variant tokens; `minWidth: 180px`, `maxWidth: 240px`; no drag-and-drop
+  - Created `frontend/src/features/timetable/UnitGroup.tsx` — groups session cards under a unit label row (code, name, session count); accepts `UnitColorVariant` and `SchedulableSession[]`
+  - Created `frontend/src/features/timetable/UnscheduledPool.tsx` — pool panel with heading, helper text, empty state (`CalendarPlus` icon, "No schedulable sessions yet", link to `/units`), and unit-bucket rendering when sessions provided; `buildUnitBuckets` groups sessions by `unit_id`; no backend calls
+  - Updated `frontend/src/routes/timetable.tsx` — `UnscheduledPool` imported and rendered below `TimetableGrid` only in the rooms-exist grid state; all other states (loading, error, no-room) unchanged
+  - No drag-and-drop, no TanStack Query wiring for sessions, no mock data, no backend calls
   - Build succeeds with zero TypeScript errors
 
 - **Unit 29: Frontend Unscheduled Pool Integration**
@@ -538,14 +355,209 @@ change.
   - No mock data, no Zustand, no scheduling/assignment/drag-drop behavior added
   - Build succeeds with zero TypeScript errors
 
-- **Unit 28: Frontend Unscheduled Pool Shell**
-  - Created `frontend/src/features/timetable/unitColors.ts` — `getUnitColor(identifier)` deterministic helper; hashes identifier string into one of 6 color variant names (maroon, gold, blue, green, purple, stone); no hex values
-  - Created `frontend/src/features/timetable/UnscheduledSessionCard.tsx` — compact card prepared for `SchedulableSession` DTO; displays session type, unit code, unit name, duration, lecturer display name, student count; left-border accent driven by unit color variant tokens; `minWidth: 180px`, `maxWidth: 240px`; no drag-and-drop
-  - Created `frontend/src/features/timetable/UnitGroup.tsx` — groups session cards under a unit label row (code, name, session count); accepts `UnitColorVariant` and `SchedulableSession[]`
-  - Created `frontend/src/features/timetable/UnscheduledPool.tsx` — pool panel with heading, helper text, empty state (`CalendarPlus` icon, "No schedulable sessions yet", link to `/units`), and unit-bucket rendering when sessions provided; `buildUnitBuckets` groups sessions by `unit_id`; no backend calls
-  - Updated `frontend/src/routes/timetable.tsx` — `UnscheduledPool` imported and rendered below `TimetableGrid` only in the rooms-exist grid state; all other states (loading, error, no-room) unchanged
-  - No drag-and-drop, no TanStack Query wiring for sessions, no mock data, no backend calls
+- **Unit 30: Frontend Scheduled Session Rendering Shell**
+  - Created `frontend/src/features/timetable/assignment.ts` — `SlotId` union (`s1`–`s7`, no `s8`); `TimetableAssignment` frontend rendering model with all fields needed to place and display a session (assignment_id optional, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id); aligns with future Unit 32 backend DTO
+  - Created `frontend/src/features/timetable/ScheduledSessionCard.tsx` — `position: absolute inset-x-0 top-0`, height `calc(N * 3.5rem)` where N = duration; left-border 4px accent (vs 3px on unscheduled cards); shows unit code, abbreviated session type, lecturer name (truncated), student count (duration > 1 only); uses `getUnitColor` + same BG/accent token maps as `UnscheduledSessionCard`; `z-index: 10` to overlay subsequent slot rows; `overflow: hidden`; distinct from unscheduled cards by layout, width behavior, and content
+  - Updated `frontend/src/features/timetable/GridCell.tsx` — added `position: relative` (`className="relative h-14 …"`); accepts `assignment?: TimetableAssignment`; renders `ScheduledSessionCard` when assignment is present; suppresses hover state when a card is rendered
+  - Updated `frontend/src/features/timetable/TimetableGrid.tsx` — accepts `assignments?: TimetableAssignment[]` (defaults to `[]`); `buildAssignmentMap` indexes assignments by `"${day}:${roomId}:${slotId}"`; each `GridCell` receives `assignment={assignmentMap.get(key)}` — undefined when no assignment starts at that cell; grid renders blank as before when `assignments=[]`
+  - Updated `frontend/src/routes/timetable.tsx` — passes `assignments={[]}` to `TimetableGrid`; no backend calls, no fake data
+  - No drag-and-drop, no assignment API client, no backend calls, no mock assignments in production UI
   - Build succeeds with zero TypeScript errors
+
+- **Unit 31: Backend Saved Timetable Assignment Persistence and Protected Save API**
+  - Created `backend/models/assignment.py` — `TimetableAssignment` SQLAlchemy model; `session_id` FK with CASCADE on session delete; `room_id` FK with CASCADE on room delete (satisfies room-deletion unschedule requirement); reuses existing Postgres `availabilityday`/`availabilityslot` enum types via `create_type=False`; unique constraint on `session_id` (one assignment per session); unique constraint on `(day, start_slot, room_id)` for same-start-slot double-booking guard at DB level
+  - Created `backend/alembic/versions/0007_create_assignments.py` — creates `timetable_assignments` table; references existing Postgres enum types without recreation
+  - Created `backend/schemas/assignment.py` — `AssignmentItem` (session_id, day, start_slot, room_id); `AssignmentSaveRequest` (list of AssignmentItem); `AssignmentResponse` (all joined display fields per spec: assignment_id, session_id, unit_id, unit_code, unit_name, session_type, duration, lecturer_display_name, student_count, day, start_slot, room_id, timestamps)
+  - Created `backend/services/assignment.py` — `list_assignments` (eager-loads session→unit→lecturer/students via selectinload); `save_assignments` (replace-all transaction with full defensive validation); `clear_assignments` (optional clear); defensive checks reject: duplicate session in request, session/room not found, room capacity < student count, session crossing lunch, session running off timetable, room double-booking (multi-slot overlap detection, not just same-start-slot); warning-level conflicts (lecturer/student/availability) are not checked and are allowed through
+  - Created `backend/api/assignments.py` — `GET /assignments` (list), `POST /assignments` (save/replace), `DELETE /assignments` (clear); all routes require `get_current_admin`
+  - Updated `backend/models/__init__.py` — registered `TimetableAssignment`
+  - Updated `backend/api/router.py` — registered assignments router
+  - Room deletion cascade: handled by `ondelete="CASCADE"` FK constraint in migration; no service-layer changes needed; Postgres removes orphaned assignments automatically when a room is deleted
+
+- **Unit 32: Frontend Assignment API Client**
+  - Created `frontend/src/lib/api/assignments.ts` — `AssignmentResponse` DTO (all display fields matching backend `AssignmentResponse`); `AssignmentItem` (session_id, day, start_slot, room_id — save request per-assignment); `AssignmentSaveRequest` (wraps list of `AssignmentItem`); `listAssignments()` (`GET /assignments`); `saveAssignments(input)` (`POST /assignments`); `clearAssignments()` (`DELETE /assignments`)
+  - `AvailabilityDay` and `AvailabilitySlot` imported from `@/lib/api/lecturers` (canonical source, avoids duplication); `SessionType` imported from `@/lib/api/sessions`
+  - `parseAssignmentSaveError` handles backend defensive rejections (404, 409, 422) as save errors; not normal validation UX
+  - All functions use `apiRequest` from authenticated base client; no draft state, no drag-drop, no validation logic added
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 33: Frontend Timetable Draft Assignment State**
+  - Added `useQuery(['assignments'], listAssignments)` in `timetable.tsx` to load saved assignments from the backend
+  - Added `useState<TimetableAssignment[]>` draft initialized from saved assignments via `useEffect`; draft resets clean whenever saved assignments refetch
+  - `isDirty: boolean` and `saveError: string | null` state tracks unsaved changes and save failure independently
+  - `useMutation(saveAssignments)` sends the complete draft as `AssignmentSaveRequest` on save; on success invalidates `['assignments']` (triggering refetch and draft reset); on error preserves draft and surfaces `saveError`
+  - `TimetableGrid` now receives `assignments={draft}` instead of `[]` — scheduled cards render from the draft set
+  - `TimetableActionBar` rewritten with props (`isDirty`, `isSaving`, `saveError`, `onSave`): Save Timetable button (enabled when dirty, spinner while saving); unsaved-changes label visible when dirty; save error shown inline; placeholder text shown when clean and no error
+  - `toTimetableAssignment` helper converts `AssignmentResponse` → `TimetableAssignment` (field-aligned, no casting needed)
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 34: Frontend Manual Scheduling Controls**
+  - `pendingSessionId: string | null` state in `timetable.tsx` — shared selection for both fresh placement (from pool) and move (from grid)
+  - `handleSelectSession` toggles pending: clicking same session again cancels selection; clicking a different session switches it
+  - `handleCellClick(day, slotId, roomId)` places the pending session — removes any existing draft entry for that session_id first (handles move), builds a new `TimetableAssignment` from the schedulable sessions list, appends to draft, sets `isDirty`, clears pending
+  - `handleUnschedule(sessionId)` removes the session from draft, sets `isDirty`, also clears pending if the removed session was pending
+  - `unscheduledSessions` derived in `timetable.tsx` — `schedulableSessions` filtered to exclude any session_id already present in `draft`; pool receives this filtered list
+  - `ScheduledSessionCard` — added `×` unschedule button (top-right, stopsPropagation); card body click calls `onMoveSelect`; `isPending` shows outline ring and reduced opacity
+  - `GridCell` — `isDropTarget = !!pendingSessionId && !assignment`; drop-target cells show hover highlight and pointer cursor; click fires `onCellClick`; passes `isPending`, `onUnschedule`, `onMoveSelect` to `ScheduledSessionCard`
+  - `TimetableGrid` — added `pendingSessionId`, `onCellClick`, `onUnschedule`, `onMoveSelect` props; each GridCell closure captures its `day`, `slot.id`, `room.id`
+  - `UnscheduledSessionCard` — added `isSelected` (outline ring) and `onClick` props; `cursor-pointer`
+  - `UnitGroup` — passes `pendingSessionId` and `onSelectSession` through to each card
+  - `UnscheduledPool` — passes `pendingSessionId` and `onSelectSession` through to each `UnitGroup`
+  - `TimetableActionBar` — added `isPendingPlacement` prop; shows placement hint in accent color when a session is selected; hint message overrides normal status text (not the save error)
+  - `pendingSessionId` also cleared when `savedAssignments` refetch resets the draft
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 35: Frontend Blocking Validation Engine**
+  - Created `frontend/src/lib/validation/blocking.ts` — pure validation helpers; `BlockingIssueType` union (`room_double_booking`, `room_capacity_too_small`, `session_crossing_lunch`, `session_off_timetable`); `BlockingIssue` interface (type, severity: `'blocking'`, affected_session_ids, optional affected_room_id / affected_day / affected_slot, human-readable message)
+  - `checkProposedPlacement(proposed, existingDraft, rooms)` — checks a single proposed assignment against the current draft and room data before it enters the draft; excludes the pending session's own old position so moves don't self-conflict; returns all blocking issues found
+  - `checkDraftForBlockingViolations(draft, rooms)` — checks all current draft assignments for off-timetable, lunch-crossing, room-capacity, and room-double-booking violations
+  - `getBlockingViolatorIds(draft, rooms)` — returns a `Set<string>` of session IDs that violate any blocking rule; used for automatic unscheduling
+  - `isOffTimetable`: `SLOT_INDEX[startSlot] + duration > 7` (7 total slots); `crossesLunch`: occupied indices span both AM (indices 0–2) and PM (indices 3–6); `rangesOverlap`: standard interval overlap test
+  - `timetable.tsx`: added `blockingError: string | null` state; added `draftRef` (synced via effect) so data-change effects can read the latest draft without dependency array issues; `handleCellClick` now calls `checkProposedPlacement` before placing — sets `blockingError` and returns early on any blocking issue, clears it and places on success; `handleSelectSession` and `handleUnschedule` clear `blockingError`
+  - Auto-unschedule effect runs when `rooms` or `schedulableSessions` query data changes: builds a validation copy of the draft with current session student counts, finds violators via `getBlockingViolatorIds`, removes them from draft, sets `isDirty = true`; no-op when draft is empty
+  - `TimetableActionBar`: added `blockingError?: string | null` prop; shown in error style with "Cannot place session: …" prefix; priority below `saveError`, above pending placement hint
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 36: Frontend Warning Validation Engine**
+  - Created `frontend/src/lib/validation/warning.ts` — pure warning validation helpers; `WarningIssueType` union (`lecturer_overlap`, `unit_session_overlap`, `lecturer_unavailable`); `WarningIssue` interface (type, severity: `'warning'`, affected_session_ids, optional affected_lecturer_id / affected_student_ids / affected_day / affected_slot, human-readable message)
+  - `checkDraftForWarnings(draft, lecturers?)` — checks all draft assignments for three warning rules: (1) lecturer overlap: two assignments with the same `lecturer_display_name` on the same day with overlapping slots; (2) unit/session overlap: two assignments from the same `unit_id` on the same day with overlapping slots (detects student conflicts via unit enrollment); (3) lecturer unavailable: assignment occupies a slot marked unavailable by the lecturer; returns all warning issues found
+  - `getWarningSessionIds(draft, lecturers?)` — returns `Set<string>` of session IDs with any warning, used for grid visual flagging
+  - `ScheduledSessionCard`: added `hasWarning?: boolean` prop; when true, changes border color to `--state-warning` and shows `AlertTriangle` icon (h-3 w-3) alongside the unschedule button for accessible non-color-only indicator
+  - `GridCell`: added `hasWarning?: boolean` prop; passes through to `ScheduledSessionCard`
+  - `TimetableGrid`: added `warningSessionIds?: Set<string>` prop; computes `hasWarning` per cell using `warningSessionIds.has(assignment.session_id)` and passes to `GridCell`
+  - `TimetableActionBar`: added `warningCount?: number` and `canRunSolver?: boolean` props; shows amber warning summary with `AlertTriangle` icon when warnings exist ("N scheduling warnings — solver blocked until resolved"); updated placeholder text
+  - `timetable.tsx`: added `useQuery(['lecturers'], listLecturers)` for availability data; computes `warningIssues` and `warningSessionIds` inline from draft + lecturers; computes `canRunSolver = !hasBlockingViolations && warningIssues.length === 0`; passes `warningSessionIds` to `TimetableGrid`, `warningCount` and `canRunSolver` to `TimetableActionBar`
+  - Warning placements remain scheduled and saveable; solver gate (`canRunSolver`) is false whenever any blocking or warning issue exists
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 37: Frontend Validation Display and Solver Gate Shell**
+  - `TimetableActionBar`: replaced `warningCount` prop with `violationMessages: string[]` and `warningMessages: string[]`; added `onRunSolver?: () => void` prop
+  - Added **Run Solver** button shell (using `--solver-accent` blue); enabled only when `canRunSolver` is true; HTML `title` attribute carries the full blocked reason for browser tooltip
+  - Solver blocked reason message in status area: "N blocking violations and N scheduling warnings must be resolved before running the solver" — uses error color when violations present, warning color when warnings only
+  - Added expandable **violation detail panel** (toggled via "View details (N)" / "Hide details" chevron button); renders below the main action bar row with `--bg-muted` background; lists blocking violations with `XCircle` icon and warning issues with `AlertTriangle` icon, grouped by severity
+  - `timetable.tsx`: changed from computing just `hasBlockingViolations: boolean` to `blockingViolations: BlockingIssue[]` (full array); passes `.map(v => v.message)` and `warningIssues.map(i => i.message)` to the action bar
+  - Verification checklist: blocking rejection visible ✓; warning cards marked ✓; warning detail messages accessible via "View details" ✓; solver disabled when any issue exists ✓; solver disabled state explains why ✓; no backend validation API added ✓
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 38: Frontend Drag-and-Drop Scheduling Shell**
+  - Installed `@dnd-kit/core` and `@dnd-kit/utilities` (already present in package.json)
+  - `GridCell`: added `useDroppable` with id `${day}:${roomId}:${slotId}`; `disabled: !!assignment` so occupied start-slot cells don't accept drops; `isOver` drives drop-target highlight; highlight logic combines DnD `isOver` and existing click-mode `isClickDropTarget && hovered`
+  - `UnscheduledSessionCard`: added `useDraggable` with `id={session.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; CSS transform intentionally not applied (DragOverlay handles visual movement)
+  - `ScheduledSessionCard`: added `useDraggable` with `id={assignment.session_id}`; spreads `{...listeners}` and `{...attributes}` on card div; `isDragging` reduces opacity to 0.3; X (unschedule) button gets `onPointerDown={stopPropagation}` to prevent drag starting from the unschedule button
+  - `timetable.tsx`: `DndContext` wraps the full timetable canvas (action bar + grid + pool); `PointerSensor` with `activationConstraint: { distance: 5 }` prevents accidental drags; `KeyboardSensor` for accessibility; `activeSessionId` state tracks dragged session for overlay; `handleDragStart` sets `activeSessionId`, clears `pendingSessionId` and `blockingError`; `handleDragEnd` parses droppable id (`day:roomId:slotId`), calls `checkProposedPlacement`, rejects with `blockingError` on blocking violations, updates draft on success; `handleDragCancel` clears `activeSessionId`; `DragOverlay` with `dropAnimation={null}` renders `DragPreviewCard` while dragging
+  - `DragPreviewCard`: private component in `timetable.tsx`; renders session info (unit code, type, unit name, duration, lecturer) matching unscheduled card size; uses same design token maps
+  - Warning recalculation is automatic — warning state is derived from draft on every render; no extra wiring needed
+  - Manual click-based scheduling controls remain fully functional alongside drag-and-drop
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 39: Frontend Drag-and-Drop Save Integration**
+  - No new code required — all Unit 39 scope was already delivered by Units 33 and 38 combined
+  - Drag/drop changes mark draft dirty: `handleDragEnd` sets `setIsDirty(true)` after every successful placement
+  - Save sends the complete draft: `saveMutation` maps `draft` to `AssignmentItem[]` and calls `saveAssignments`
+  - Save loading state: `isSaving={saveMutation.isPending}` passed to `TimetableActionBar`; spinner shown while pending
+  - Successful save refetches: `onSuccess` calls `queryClient.invalidateQueries({ queryKey: ['assignments'] })`
+  - Dirty-state reset: `useEffect` on `savedAssignments` calls `setIsDirty(false)` and `setSaveError(null)` when the refetch lands
+  - Failed save preserves draft: `onError` only sets `saveError`; draft state is untouched
+  - Backend defensive rejections visible as save errors: `parseAssignmentSaveError` parses 404/409/422 responses into readable messages; `saveError` displayed in `TimetableActionBar`
+  - Build succeeds with zero TypeScript errors
+
+- **Unit 40: Backend Solver Constraint Mirror**
+  - Created `backend/constraints/types.py` — `ConstraintType` enum (8 values: room_double_booking, room_capacity, lunch_crossing, off_timetable, lecturer_overlap, student_overlap, unit_session_overlap, lecturer_availability); `ConstraintSeverity` enum (blocking, warning); `CONSTRAINT_SEVERITY` dict mapping each type to its severity (mirrors frontend blocking/warning split); `SessionInput`, `RoomInput`, `LecturerInput`, `AssignedSession` frozen dataclasses for ORM-detached solver input; `SolverConstraint` dataclass for violation output
+  - Created `backend/constraints/graph.py` — slot order constants (s1–s7, AM/PM boundary at index 3); `ConflictEdge` and `ConflictGraph` dataclasses; `ConflictGraph.neighbors()` and `conflicts_between()` methods; `derive_lecturer_overlap_conflicts`, `derive_student_overlap_conflicts`, `derive_unit_session_overlap_conflicts` structural derivation functions; `build_conflict_graph` aggregator; assignment-based violation checks: `check_room_double_booking`, `check_room_capacity`, `check_lunch_crossing`, `check_off_timetable`, `check_lecturer_overlap`, `check_student_overlap`, `check_unit_session_overlap`, `check_lecturer_availability`; `compile_assignment_violations` aggregator
+  - Created `backend/constraints/__init__.py` — re-exports all public symbols
+  - Created `backend/tests/__init__.py` and `backend/tests/test_constraints.py` — 38 pytest fixture-based tests covering all constraint types, conflict graph construction, positive and negative cases
+  - Added `pytest>=8.0.0` to `backend/requirements.txt`
+  - No user-facing validation API added; no solver CP-SAT model; module is pure Python with no SQLAlchemy dependencies
+  - All 38 tests pass
+
+- **Unit 41: Backend Solver Input Snapshot Builder**
+  - Created `backend/solver/types.py` — `RoomSnapshot`, `SessionSnapshot`, `AvailabilitySnapshot`, `LockedAssignment`, `TimetableConstants`, `SolverInputSnapshot` frozen dataclasses; `ORDERED_DAYS` (Monday–Friday), `ORDERED_SLOTS` (s1–s7), `AM_SLOTS`, `PM_SLOTS`, `AM_PM_BOUNDARY_INDEX` (3), `SESSION_TYPE_ORDER`; `TIMETABLE_CONSTANTS` singleton with all schedule grid constants
+  - Created `backend/solver/snapshot.py` — `SnapshotIntegrityError` for defensive rejections; `build_snapshot_from_data(rooms, sessions, availability, saved_assignments)` pure builder (no DB access); `build_solver_input_snapshot(db)` DB loader using SQLAlchemy selectinload; `_validate_saved_assignments` defensive checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking); `_extract_conflict_pairs` per-category deduplication from Unit 40 conflict graph; all output collections sorted deterministically (rooms by name, sessions by unit_code/type_order/id, availability by lecturer_id, assignments by day/room/slot/session_id, conflict pairs sorted)
+  - Created `backend/solver/__init__.py` — re-exports all public symbols
+  - Created `backend/tests/test_snapshot.py` — 41 fixture-based tests covering: DTO fields, timetable constants (Monday–Friday, s1–s7, AM/PM blocks, lunch gap), snapshot population from all input types, locked assignment extraction, unscheduled session derivation, all three conflict graph types, deterministic ordering for all collections, all 7 defensive integrity checks (missing session, missing room, invalid slot, lunch crossing, off timetable, room capacity, room double-booking including multi-slot overlap), valid edge cases (empty snapshot, no students, AM-only, PM-only)
+  - No CP-SAT model, no solver API, no new packages; builder does not query frontend draft state or create/modify assignments
+  - All 41 tests pass
+
+- **Unit 42: Backend Solver CP-SAT Module**
+  - Added `ortools>=9.15.6755` to `backend/requirements.txt` (installed in backend venv; only this unit uses it)
+  - Extended `backend/solver/types.py` with output DTOs — `SolverStatus` enum (`optimal`, `feasible`, `infeasible`, `unknown`); `GeneratedAssignment` frozen dataclass (session_id, day, start_slot, room_id, duration); `SolverRunResult` (status, generated_assignments, locked_assignments preserved from input, unscheduled_session_ids, scheduled_count, unscheduled_count, timed_out, concise message)
+  - Created `backend/solver/model.py` — `solve_timetable(snapshot, time_limit_seconds=30.0)` entry function; accepts only a `SolverInputSnapshot`, never touches the DB/API/ORM/frontend draft
+  - Modeling: one optional BoolVar per feasible (day, start slot, room) candidate per unscheduled session plus a `scheduled` BoolVar with `sum(candidates) == scheduled` (optional placement → partial results; a session with zero candidates is forced unscheduled, never dropped); candidates violating static hard constraints are never created — room capacity, lunch crossing (must fit AM or PM block), off-timetable, lecturer unavailability (hard for solver even though warning-only in frontend), overlap with locked room occupancy, and overlap with a locked conflict partner's time cells
+  - Locked saved assignments are fixed occupied intervals: no variables, excluded at candidate level, returned unchanged; locked-vs-locked warning conflicts (e.g. saved placement during lecturer unavailability) are tolerated and cannot make the model infeasible
+  - Constraints: per-(day, room, slot) `AddAtMostOne` for room no-overlap; lecturer/student/unit-session conflict pairs (merged + deduped from the snapshot's three pair lists) enforced as per-time-cell `sum(occ_a) + sum(occ_b) <= 1` between unscheduled pairs; duration contiguity inherent in candidate construction
+  - Objective: maximize count of scheduled previously-unscheduled sessions; no soft preferences
+  - Determinism: `num_search_workers = 1`, `random_seed = 0`, deterministic model-build order from sorted snapshot collections; explicit timeout via `max_time_in_seconds` with `timed_out` flag (true when search stopped without optimality proof)
+  - Updated `backend/solver/__init__.py` — re-exports `solve_timetable`, `DEFAULT_TIME_LIMIT_SECONDS`, `SolverStatus`, `GeneratedAssignment`, `SolverRunResult`
+  - Created `backend/tests/test_solver.py` — 24 deterministic fixture tests: result shape, empty snapshot, single placement, locked preservation, locked room occupancy blocking, locked conflict partner blocking, saved warning-state tolerance, room capacity (direct + failure), room no-overlap, lecturer no-overlap (partial + spread), student no-overlap, unit/session overlap in isolation, availability forced placement, fully unavailable lecturer, duration-4 PM-only start, duration exceeding available block, lunch-crossing prevention, objective maximization, explicit partial result, determinism (two runs equal), input snapshot not mutated; shared `assert_valid_solution` helper re-checks every hard constraint on solver output
+  - No DB result application, no snapshot builder changes, no Trigger.dev job, no solver API, no frontend changes
+  - All 103 backend tests pass
+
+- **Unit 43: Backend Solver Result Application Service**
+  - Created `backend/solver/apply.py` — `apply_solver_result(db, result)` service that applies a `SolverRunResult` to the saved timetable assignment state; lives inside `backend/solver/` with a clean solver-facing boundary and is **not** wired to any request handler or job
+  - Structured internal result object `SolverResultApplication` (status, scheduled_count, unscheduled_count, is_partial, newly_scheduled_session_ids, remaining_unscheduled_session_ids, preserved_locked_count, concise message) for future solver job/API status surfacing; `ApplicationStatus` enum (`applied`, `partial`, `failed`); `SolverResultApplicationError` (code + message) raised after rollback
+  - Locked preservation: the existing rows in `timetable_assignments` are treated as the authoritative locked solver inputs — they are never deleted or mutated; generated placements are inserted alongside them. `preserved_locked_count` reflects the actual saved rows
+  - Persistence: generated assignments for previously unscheduled sessions are inserted in a single transaction (`db.commit()`); no `duration` column on the assignment row (duration derives from the session, per Unit 31)
+  - Failure safety: a result whose status is not `OPTIMAL`/`FEASIBLE` (or a missing/invalid result object) triggers `db.rollback()` and raises `SolverResultApplicationError` (`solver_failed` / `invalid_result`) without mutating saved state; persistence errors roll back and raise `persistence_failed`
+  - Defensive validation (backend safety, runs before commit, rolls back on first violation): duplicate generated session, unknown session id, unknown room id, invalid slot id (must be `s1`-`s7`), invalid day, lunch crossing, off-timetable, room capacity < student count, generated overwriting a locked saved assignment (`would_overwrite_locked`), and room double-booking — generated-vs-locked and generated-vs-generated — all surfaced as `blocking_integrity_violation`
+  - Partial-success metadata: `is_partial = unscheduled_count > 0`; status `partial` when sessions remain unscheduled, `applied` otherwise
+  - Diagnostic logging via `structlog.get_logger` (`solver_result_applied`, `solver_result_apply_rejected`, `solver_result_apply_failed`) bound with solver status and counts
+  - Updated `backend/solver/__init__.py` — re-exports `apply_solver_result`, `ApplicationStatus`, `SolverResultApplication`, `SolverResultApplicationError`
+  - Created `backend/tests/conftest.py` — isolated in-memory SQLite `db` fixture (FK enforcement enabled) so DB-backed services can be tested without Postgres; no new package required
+  - Created `backend/tests/test_apply.py` — 19 tests using real ORM models + real solver DTOs: happy-path persistence, metadata counts, locked preservation, partial result, failed-result no-mutation (infeasible + unknown), invalid result object, all defensive checks (duplicate, unknown session/room, invalid slot, lunch crossing, off-timetable, capacity, overwrite-locked, double-book vs locked + vs each other), transaction rollback leaves no partial state, empty-result no-op
+  - No CP-SAT modeling, snapshot builder, Trigger.dev job, solver API route, or frontend changes added
+  - All 122 backend tests pass
+
+- **Unit 44: Jobs Boundary and Trigger.dev Setup**
+  - Created top-level `jobs/` — a standalone Node/TypeScript Trigger.dev v3 project sitting beside `frontend/` and `backend/` (Trigger.dev is Node-based, so it cannot live inside the Python `backend/` package); this matches the `jobs/` boundary in `architecture-context.md`
+  - `jobs/package.json` — declares `@trigger.dev/sdk ^3.3.17` (resolved + installed 3.3.17) and dev deps `trigger.dev` (CLI), `typescript`, `@types/node`; scripts `login`, `dev`, `deploy`, `typecheck`
+  - `jobs/trigger.config.ts` — `defineConfig` with `runtime: "node"`, `logLevel: "info"`, `maxDuration: 60`, `dirs: ["./src/trigger"]`; `project` is a placeholder ref (`proj_REPLACE_WITH_YOUR_PROJECT_REF`) that must be replaced with the dashboard project ref before `npm run dev` connects
+  - `jobs/src/trigger/testJob.ts` — minimal registered `test-job` task; typed `TestJobPayload` (message, correlationId, timestamp) + `TestJobResult`; emits structured `test_job_started` / `test_job_completed` logs via `logger.info` and returns a completion object; contains **no** solver logic, no timetable queries, no DB access, no result persistence — comments document the orchestration-only boundary
+  - `jobs/tsconfig.json` — strict TypeScript, `noEmit`, ES2022/Bundler resolution; `npm run typecheck` passes clean
+  - `jobs/.env.example` — documents `TRIGGER_ACCESS_TOKEN` (non-interactive auth) and `TRIGGER_SECRET_KEY` (only for backend-triggered tasks, future); notes the project ref lives in `trigger.config.ts` and that backend service URL/token for solver orchestration are intentionally omitted this unit
+  - `jobs/README.md` — boundary rules, env table, local dev commands (`npm install` → `npm run login` → `npm run dev`), how the Trigger.dev dev server differs from running FastAPI, and an explicit "not yet implemented" list (async solver job, start/status API, job-driven persistence, deployment wiring)
+  - `jobs/.gitignore` — ignores `node_modules/`, `.trigger/`, `dist/`, `.env`
+  - Updated `context/code-standards.md` File Organization — reconciled `backend/jobs/` → top-level `jobs/` with rationale
+  - No solver job wired, no solver start/status API, no frontend changes, no backend Python changes
+
+- **Unit 45: Async Solver Job**
+  - Created `backend/solver/job.py` — backend-side execution of the async solver job; `SolverJobStatus` enum (`completed`/`partial`/`failed`); frozen `SolverJobPayload` (solver_run_id, correlation_id, optional admin_workspace_id + snapshot_id; `from_dict` parser) — a stable *reference*, never frontend draft state; `SolverJobResult` dataclass (status, solver_run_id, correlation_id, solver_status, sessions_attempted/scheduled/unscheduled, is_partial, timed_out, duration_seconds, started_at, completed_at, message, failure_code, newly_scheduled/remaining_unscheduled ids; `to_dict` for JSON); `run_solver_job(db, payload, *, time_limit_seconds=30.0)` runs the full pipeline `build_solver_input_snapshot` (Unit 41) → `solve_timetable` (Unit 42) → `apply_solver_result` (Unit 43) from **saved** DB state only
+  - Failure safety: every step wrapped; snapshot/solve/apply exceptions roll back defensively and return a `failed` `SolverJobResult` (never raises to the caller); the Unit 43 service already rolls back unapplicable results (`solver_failed`). Saved assignment state is guaranteed unchanged on failure. Failure codes: `snapshot_integrity`, `snapshot_error`, `solver_error`, `solver_failed`, `apply_error`
+  - Structured logging via `structlog`: `solver_job_started` (bound solver_run_id + correlation_id, started_at), `solver_job_completed` (status, solver_status, duration_seconds, sessions attempted/scheduled/unscheduled, is_partial, timed_out), `solver_job_failed` (step, failure_code, detail)
+  - Job contains **no** solver modeling logic — it orchestrates the three backend services; `sessions_attempted = len(snapshot.unscheduled_session_ids)`
+  - Created `backend/solver/job_cli.py` — thin process boundary (`python -m solver.job_cli`) the Node Trigger.dev task invokes; self-bootstraps `sys.path` with the backend dir; routes structlog to **stderr** so stdout carries only the result; reads `SolverJobPayload` JSON (stdin or argv[1]), opens a real `SessionLocal`, runs the job, prints `SolverJobResult` JSON on stdout; **always** emits a structured JSON failure doc on stdout even for a malformed payload (`invalid_payload`) or backend setup/import/connection error (`bridge_setup_error`) so the caller can always parse an outcome; exit 0 on completed/partial, 1 on failed; no business logic
+  - Updated `backend/solver/__init__.py` — re-exports `run_solver_job`, `SolverJobPayload`, `SolverJobResult`, `SolverJobStatus`
+  - Created `jobs/src/trigger/solverJob.ts` — registered `solver-job` Trigger.dev task; typed `SolverJobPayload` (solverRunId, correlationId, optional adminWorkspaceId/snapshotId) + `SolverJobResult`; owns job lifecycle (`solver_job_started`/`solver_job_completed`/`solver_job_failed` logs, timing) and spawns the Python bridge via `child_process` using `python -m solver.job_cli` with `cwd=BACKEND_DIR` + `PYTHONPATH=BACKEND_DIR` (the `-m` form keeps cwd—not `solver/`—on sys.path so stdlib `types` isn't shadowed by `solver/types.py`); validates `BACKEND_DIR`/script exist up front and surfaces Python **stderr** + exit code in the failure result when stdout has no parseable JSON; scans stdout for the last JSON line (robust to log pollution); `BACKEND_DIR` must be an absolute path and `PYTHON_BIN` may be absolute / relative-to-BACKEND_DIR / a PATH command; maps snake_case result doc → camelCase TS result; passes only stable references across the boundary; `maxDuration: 120` (CP-SAT default 30s + headroom); contains no solver/DB logic
+  - Verified end-to-end against the real database: the bridge solved 8 sessions optimally, emitted clean stdout JSON, and persisted the generated assignments (`status: completed`)
+  - Created `backend/tests/test_solver_job.py` — 13 tests: payload parsing (minimal/full/missing-field), empty DB no-op, end-to-end single-session schedule + persistence, locked preservation + new placement, partial result (room too small → forced unscheduled), payload echo, timing metadata, JSON-serializable result, and three failure paths via monkeypatch (solver exception, unapplicable `UNKNOWN` status, snapshot exception) each asserting `failed` status + saved state preserved
+  - Updated `jobs/.env.example` (documented `BACKEND_DIR` / `PYTHON_BIN` bridge vars; backend reads its own `DATABASE_URL`) and `jobs/README.md` (async solver job section, pipeline diagram, boundary properties)
+  - No solver start/status API, no frontend solver client/polling/UI, no production Trigger.dev deployment, no soft constraints, no new packages
+  - All 135 backend tests pass; `jobs/` `npm run typecheck` passes clean
+
+- **Unit 46: Backend Solver Start and Status API**
+  - Created `backend/models/solver_run.py` - persisted `solver_runs` model with explicit API statuses (`pending`, `running`, `succeeded`, `failed`), Trigger job id, correlation id, admin requester id, scheduled/unscheduled counts, partial-success flag, failure code/message, and timestamps
+  - Created `backend/alembic/versions/0008_create_solver_runs.py` - adds the `solverrunstatus` enum and `solver_runs` table with status/created indexes
+  - Created `backend/schemas/solver.py` - frontend-friendly `SolverRunStatusResponse` that exposes run id, status, optional job id, timestamps, counts, partial-success metadata, and sanitized failure message only
+  - Created `backend/services/trigger_client.py` - stdlib-only Trigger.dev dispatch client using `TRIGGER_SECRET_KEY`, optional `TRIGGER_API_URL`, and `TRIGGER_SOLVER_TASK_ID` (`solver-job` default); posts a JSON payload packet to `/api/v1/tasks/{taskId}/trigger` and returns the run id; no new backend package added
+  - Created `backend/services/solver_run.py` - start/status service: rejects active `pending`/`running` runs, builds the solver input snapshot from saved DB state for defensive integrity checks, handles no-work/all-scheduled cases as harmless `succeeded` runs, requires rooms when there is unscheduled work, queues only stable references (`solverRunId`, `correlationId`, `adminWorkspaceId`, `snapshotId`) and never frontend draft assignments, marks trigger failures as failed, and returns structured `AppError` responses
+  - Created `backend/api/solver.py` and registered it in `backend/api/router.py` - protected `POST /solver/start` and `GET /solver/status/{solver_run_id}` endpoints using the existing `get_current_admin` auth dependency
+  - Updated `backend/solver/job.py` - records async job lifecycle into `solver_runs`: `running` on start, `succeeded` on completed/partial job result (with `partial_success` metadata), `failed` on failed result; maps the Unit 45 job statuses to the Unit 46 API statuses without exposing raw Trigger.dev internals
+  - Updated `backend/config.py` and `backend/.env.example` - optional Trigger settings (`trigger_api_url`, `trigger_secret_key`, `trigger_solver_task_id`) with safe defaults except the secret key, which is required only when starting a real job
+  - Fixed `backend/log/setup.py` - uses `structlog.stdlib.LoggerFactory()` with `add_logger_name`, matching production logging processors and preventing solver-service logs from breaking after the FastAPI app configures logging
+  - Updated `backend/tests/conftest.py` - SQLite test fixture now uses `StaticPool` so FastAPI's sync endpoint thread and the test thread share the same isolated in-memory database
+  - Created `backend/tests/test_solver_api.py` - 9 route-level tests using a lightweight ASGI caller: start auth, status auth, saved-state-only start payload, Trigger dispatch, active-run rejection, no-work status, defensive integrity failure, trigger failure persistence, status response shape, and structured 404
+  - No frontend solver client/polling/UI, no CP-SAT logic changes, no soft constraints, no deployment wiring, no new Python package
+  - All 144 backend tests pass
+
+- **Unit 47: Frontend Solver API Client**
+  - Created `frontend/src/lib/api/solver.ts` — frontend API client layer for the protected backend solver endpoints (Unit 46); API-client layer only, no solver UI, no polling, no Zustand solver state
+  - `SolverRunStatus` union (`pending` | `running` | `succeeded` | `failed`) mirrors the backend `SolverRunStatus` enum; `SolverRunId` alias type for run identifiers
+  - `SolverRunStatusResponse` DTO matches the backend `SolverRunStatusResponse` JSON shape exactly: `solver_run_id`, `status`, `job_id` (nullable), `created_at`, `updated_at`, `scheduled_count` (nullable), `unscheduled_count` (nullable), `partial_success`, `failure_message` (nullable) — backend snake_case field names used consistently with existing API-client conventions
+  - `startSolverRun()` — `POST /solver/start` with **no request body**; the backend solves the *saved* timetable state, so no frontend draft assignment payload is ever transmitted; the shared Unit 6 `apiRequest` base client attaches the Supabase auth token
+  - `getSolverRunStatus(runId)` — `GET /solver/status/{runId}` (run id `encodeURIComponent`-escaped); also routed through the authenticated base client
+  - `parseSolverError` + `readSolverError` — solver-specific structured-error parsing; reads the backend `{ error: { code, message } }` envelope (stored on `ApiRequestError.detail` by the base client) and maps the five backend codes (`solver_run_active`, `solver_integrity_failed`, `solver_no_rooms`, `solver_job_trigger_failed`, `solver_run_not_found`) onto specific user-facing messages covering solver-already-running, saved-state-not-usable / defensive-check-failed, job-trigger-failed, and run-not-found; unknown errors are re-thrown unchanged (nothing swallowed silently)
+  - `SolverErrorCode` union documents the backend error-code contract for later integration; all types and functions exported build-safe for the future solver UI/polling unit
+  - No new package required; no TanStack Query polling, no Run Solver button behavior, no editing-disabled state, no timetable refresh, no assignment-save changes, no backend changes, no mock solver data
+  - Frontend build (`npm run build`) succeeds with zero TypeScript errors
 
 ## In Progress
 
@@ -553,7 +565,7 @@ change.
 
 ## Next Up
 
-- Frontend solver API client/polling/UI unit TBD
+- Frontend solver polling/UI unit TBD (consumes the Unit 47 `solver.ts` client)
 
 ## Open Questions
 
