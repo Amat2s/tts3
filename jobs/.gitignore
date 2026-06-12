@@ -1,0 +1,6 @@
+node_modules/
+.trigger/
+dist/
+.env
+.env.local
+*.log

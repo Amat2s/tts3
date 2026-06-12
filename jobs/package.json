@@ -1,0 +1,21 @@
+{
+  "name": "tts3-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Trigger.dev background jobs boundary for the timetable scheduling system. Jobs orchestrate backend work; they contain no solver business logic.",
+  "scripts": {
+    "login": "trigger.dev login",
+    "dev": "trigger.dev dev",
+    "deploy": "trigger.dev deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "4.4.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "trigger.dev": "^3.3.17",
+    "typescript": "^5.5.0"
+  }
+}

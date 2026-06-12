@@ -5,6 +5,10 @@ change.
 
 ## Current Phase
 
+- Unit 46 complete - backend solver start and status API
+- Unit 45 complete — async solver job
+- Unit 44 complete — jobs boundary and Trigger.dev setup
+- Unit 43 complete — backend solver result application service
 - Unit 42 complete — backend solver CP-SAT module
 - Unit 41 complete — backend solver input snapshot builder
 - Unit 40 complete — backend solver constraint mirror
@@ -30,9 +34,65 @@ change.
 
 ## Current Goal
 
-- Next unit TBD (solver result application / async job execution — consumes SolverRunResult)
+- Next unit TBD (frontend solver API client/polling/UI - surfaces the backend solver start/status API to the admin)
 
 ## Completed
+
+- **Unit 46: Backend Solver Start and Status API**
+  - Created `backend/models/solver_run.py` - persisted `solver_runs` model with explicit API statuses (`pending`, `running`, `succeeded`, `failed`), Trigger job id, correlation id, admin requester id, scheduled/unscheduled counts, partial-success flag, failure code/message, and timestamps
+  - Created `backend/alembic/versions/0008_create_solver_runs.py` - adds the `solverrunstatus` enum and `solver_runs` table with status/created indexes
+  - Created `backend/schemas/solver.py` - frontend-friendly `SolverRunStatusResponse` that exposes run id, status, optional job id, timestamps, counts, partial-success metadata, and sanitized failure message only
+  - Created `backend/services/trigger_client.py` - stdlib-only Trigger.dev dispatch client using `TRIGGER_SECRET_KEY`, optional `TRIGGER_API_URL`, and `TRIGGER_SOLVER_TASK_ID` (`solver-job` default); posts a JSON payload packet to `/api/v1/tasks/{taskId}/trigger` and returns the run id; no new backend package added
+  - Created `backend/services/solver_run.py` - start/status service: rejects active `pending`/`running` runs, builds the solver input snapshot from saved DB state for defensive integrity checks, handles no-work/all-scheduled cases as harmless `succeeded` runs, requires rooms when there is unscheduled work, queues only stable references (`solverRunId`, `correlationId`, `adminWorkspaceId`, `snapshotId`) and never frontend draft assignments, marks trigger failures as failed, and returns structured `AppError` responses
+  - Created `backend/api/solver.py` and registered it in `backend/api/router.py` - protected `POST /solver/start` and `GET /solver/status/{solver_run_id}` endpoints using the existing `get_current_admin` auth dependency
+  - Updated `backend/solver/job.py` - records async job lifecycle into `solver_runs`: `running` on start, `succeeded` on completed/partial job result (with `partial_success` metadata), `failed` on failed result; maps the Unit 45 job statuses to the Unit 46 API statuses without exposing raw Trigger.dev internals
+  - Updated `backend/config.py` and `backend/.env.example` - optional Trigger settings (`trigger_api_url`, `trigger_secret_key`, `trigger_solver_task_id`) with safe defaults except the secret key, which is required only when starting a real job
+  - Fixed `backend/log/setup.py` - uses `structlog.stdlib.LoggerFactory()` with `add_logger_name`, matching production logging processors and preventing solver-service logs from breaking after the FastAPI app configures logging
+  - Updated `backend/tests/conftest.py` - SQLite test fixture now uses `StaticPool` so FastAPI's sync endpoint thread and the test thread share the same isolated in-memory database
+  - Created `backend/tests/test_solver_api.py` - 9 route-level tests using a lightweight ASGI caller: start auth, status auth, saved-state-only start payload, Trigger dispatch, active-run rejection, no-work status, defensive integrity failure, trigger failure persistence, status response shape, and structured 404
+  - No frontend solver client/polling/UI, no CP-SAT logic changes, no soft constraints, no deployment wiring, no new Python package
+  - All 144 backend tests pass
+
+- **Unit 45: Async Solver Job**
+  - Created `backend/solver/job.py` — backend-side execution of the async solver job; `SolverJobStatus` enum (`completed`/`partial`/`failed`); frozen `SolverJobPayload` (solver_run_id, correlation_id, optional admin_workspace_id + snapshot_id; `from_dict` parser) — a stable *reference*, never frontend draft state; `SolverJobResult` dataclass (status, solver_run_id, correlation_id, solver_status, sessions_attempted/scheduled/unscheduled, is_partial, timed_out, duration_seconds, started_at, completed_at, message, failure_code, newly_scheduled/remaining_unscheduled ids; `to_dict` for JSON); `run_solver_job(db, payload, *, time_limit_seconds=30.0)` runs the full pipeline `build_solver_input_snapshot` (Unit 41) → `solve_timetable` (Unit 42) → `apply_solver_result` (Unit 43) from **saved** DB state only
+  - Failure safety: every step wrapped; snapshot/solve/apply exceptions roll back defensively and return a `failed` `SolverJobResult` (never raises to the caller); the Unit 43 service already rolls back unapplicable results (`solver_failed`). Saved assignment state is guaranteed unchanged on failure. Failure codes: `snapshot_integrity`, `snapshot_error`, `solver_error`, `solver_failed`, `apply_error`
+  - Structured logging via `structlog`: `solver_job_started` (bound solver_run_id + correlation_id, started_at), `solver_job_completed` (status, solver_status, duration_seconds, sessions attempted/scheduled/unscheduled, is_partial, timed_out), `solver_job_failed` (step, failure_code, detail)
+  - Job contains **no** solver modeling logic — it orchestrates the three backend services; `sessions_attempted = len(snapshot.unscheduled_session_ids)`
+  - Created `backend/solver/job_cli.py` — thin process boundary (`python -m solver.job_cli`) the Node Trigger.dev task invokes; self-bootstraps `sys.path` with the backend dir; routes structlog to **stderr** so stdout carries only the result; reads `SolverJobPayload` JSON (stdin or argv[1]), opens a real `SessionLocal`, runs the job, prints `SolverJobResult` JSON on stdout; **always** emits a structured JSON failure doc on stdout even for a malformed payload (`invalid_payload`) or backend setup/import/connection error (`bridge_setup_error`) so the caller can always parse an outcome; exit 0 on completed/partial, 1 on failed; no business logic
+  - Updated `backend/solver/__init__.py` — re-exports `run_solver_job`, `SolverJobPayload`, `SolverJobResult`, `SolverJobStatus`
+  - Created `jobs/src/trigger/solverJob.ts` — registered `solver-job` Trigger.dev task; typed `SolverJobPayload` (solverRunId, correlationId, optional adminWorkspaceId/snapshotId) + `SolverJobResult`; owns job lifecycle (`solver_job_started`/`solver_job_completed`/`solver_job_failed` logs, timing) and spawns the Python bridge via `child_process` using `python -m solver.job_cli` with `cwd=BACKEND_DIR` + `PYTHONPATH=BACKEND_DIR` (the `-m` form keeps cwd—not `solver/`—on sys.path so stdlib `types` isn't shadowed by `solver/types.py`); validates `BACKEND_DIR`/script exist up front and surfaces Python **stderr** + exit code in the failure result when stdout has no parseable JSON; scans stdout for the last JSON line (robust to log pollution); `BACKEND_DIR` must be an absolute path and `PYTHON_BIN` may be absolute / relative-to-BACKEND_DIR / a PATH command; maps snake_case result doc → camelCase TS result; passes only stable references across the boundary; `maxDuration: 120` (CP-SAT default 30s + headroom); contains no solver/DB logic
+  - Verified end-to-end against the real database: the bridge solved 8 sessions optimally, emitted clean stdout JSON, and persisted the generated assignments (`status: completed`)
+  - Created `backend/tests/test_solver_job.py` — 13 tests: payload parsing (minimal/full/missing-field), empty DB no-op, end-to-end single-session schedule + persistence, locked preservation + new placement, partial result (room too small → forced unscheduled), payload echo, timing metadata, JSON-serializable result, and three failure paths via monkeypatch (solver exception, unapplicable `UNKNOWN` status, snapshot exception) each asserting `failed` status + saved state preserved
+  - Updated `jobs/.env.example` (documented `BACKEND_DIR` / `PYTHON_BIN` bridge vars; backend reads its own `DATABASE_URL`) and `jobs/README.md` (async solver job section, pipeline diagram, boundary properties)
+  - No solver start/status API, no frontend solver client/polling/UI, no production Trigger.dev deployment, no soft constraints, no new packages
+  - All 135 backend tests pass; `jobs/` `npm run typecheck` passes clean
+
+- **Unit 44: Jobs Boundary and Trigger.dev Setup**
+  - Created top-level `jobs/` — a standalone Node/TypeScript Trigger.dev v3 project sitting beside `frontend/` and `backend/` (Trigger.dev is Node-based, so it cannot live inside the Python `backend/` package); this matches the `jobs/` boundary in `architecture-context.md`
+  - `jobs/package.json` — declares `@trigger.dev/sdk ^3.3.17` (resolved + installed 3.3.17) and dev deps `trigger.dev` (CLI), `typescript`, `@types/node`; scripts `login`, `dev`, `deploy`, `typecheck`
+  - `jobs/trigger.config.ts` — `defineConfig` with `runtime: "node"`, `logLevel: "info"`, `maxDuration: 60`, `dirs: ["./src/trigger"]`; `project` is a placeholder ref (`proj_REPLACE_WITH_YOUR_PROJECT_REF`) that must be replaced with the dashboard project ref before `npm run dev` connects
+  - `jobs/src/trigger/testJob.ts` — minimal registered `test-job` task; typed `TestJobPayload` (message, correlationId, timestamp) + `TestJobResult`; emits structured `test_job_started` / `test_job_completed` logs via `logger.info` and returns a completion object; contains **no** solver logic, no timetable queries, no DB access, no result persistence — comments document the orchestration-only boundary
+  - `jobs/tsconfig.json` — strict TypeScript, `noEmit`, ES2022/Bundler resolution; `npm run typecheck` passes clean
+  - `jobs/.env.example` — documents `TRIGGER_ACCESS_TOKEN` (non-interactive auth) and `TRIGGER_SECRET_KEY` (only for backend-triggered tasks, future); notes the project ref lives in `trigger.config.ts` and that backend service URL/token for solver orchestration are intentionally omitted this unit
+  - `jobs/README.md` — boundary rules, env table, local dev commands (`npm install` → `npm run login` → `npm run dev`), how the Trigger.dev dev server differs from running FastAPI, and an explicit "not yet implemented" list (async solver job, start/status API, job-driven persistence, deployment wiring)
+  - `jobs/.gitignore` — ignores `node_modules/`, `.trigger/`, `dist/`, `.env`
+  - Updated `context/code-standards.md` File Organization — reconciled `backend/jobs/` → top-level `jobs/` with rationale
+  - No solver job wired, no solver start/status API, no frontend changes, no backend Python changes
+
+- **Unit 43: Backend Solver Result Application Service**
+  - Created `backend/solver/apply.py` — `apply_solver_result(db, result)` service that applies a `SolverRunResult` to the saved timetable assignment state; lives inside `backend/solver/` with a clean solver-facing boundary and is **not** wired to any request handler or job
+  - Structured internal result object `SolverResultApplication` (status, scheduled_count, unscheduled_count, is_partial, newly_scheduled_session_ids, remaining_unscheduled_session_ids, preserved_locked_count, concise message) for future solver job/API status surfacing; `ApplicationStatus` enum (`applied`, `partial`, `failed`); `SolverResultApplicationError` (code + message) raised after rollback
+  - Locked preservation: the existing rows in `timetable_assignments` are treated as the authoritative locked solver inputs — they are never deleted or mutated; generated placements are inserted alongside them. `preserved_locked_count` reflects the actual saved rows
+  - Persistence: generated assignments for previously unscheduled sessions are inserted in a single transaction (`db.commit()`); no `duration` column on the assignment row (duration derives from the session, per Unit 31)
+  - Failure safety: a result whose status is not `OPTIMAL`/`FEASIBLE` (or a missing/invalid result object) triggers `db.rollback()` and raises `SolverResultApplicationError` (`solver_failed` / `invalid_result`) without mutating saved state; persistence errors roll back and raise `persistence_failed`
+  - Defensive validation (backend safety, runs before commit, rolls back on first violation): duplicate generated session, unknown session id, unknown room id, invalid slot id (must be `s1`-`s7`), invalid day, lunch crossing, off-timetable, room capacity < student count, generated overwriting a locked saved assignment (`would_overwrite_locked`), and room double-booking — generated-vs-locked and generated-vs-generated — all surfaced as `blocking_integrity_violation`
+  - Partial-success metadata: `is_partial = unscheduled_count > 0`; status `partial` when sessions remain unscheduled, `applied` otherwise
+  - Diagnostic logging via `structlog.get_logger` (`solver_result_applied`, `solver_result_apply_rejected`, `solver_result_apply_failed`) bound with solver status and counts
+  - Updated `backend/solver/__init__.py` — re-exports `apply_solver_result`, `ApplicationStatus`, `SolverResultApplication`, `SolverResultApplicationError`
+  - Created `backend/tests/conftest.py` — isolated in-memory SQLite `db` fixture (FK enforcement enabled) so DB-backed services can be tested without Postgres; no new package required
+  - Created `backend/tests/test_apply.py` — 19 tests using real ORM models + real solver DTOs: happy-path persistence, metadata counts, locked preservation, partial result, failed-result no-mutation (infeasible + unknown), invalid result object, all defensive checks (duplicate, unknown session/room, invalid slot, lunch crossing, off-timetable, capacity, overwrite-locked, double-book vs locked + vs each other), transaction rollback leaves no partial state, empty-result no-op
+  - No CP-SAT modeling, snapshot builder, Trigger.dev job, solver API route, or frontend changes added
+  - All 122 backend tests pass
 
 - **Unit 42: Backend Solver CP-SAT Module**
   - Added `ortools>=9.15.6755` to `backend/requirements.txt` (installed in backend venv; only this unit uses it)
@@ -493,7 +553,7 @@ change.
 
 ## Next Up
 
-- Next unit TBD
+- Frontend solver API client/polling/UI unit TBD
 
 ## Open Questions
 

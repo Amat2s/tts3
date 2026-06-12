@@ -360,7 +360,7 @@ type SessionScheduleState =
 - `backend/services/` — application services for domain operations.
 - `backend/constraints/` — hard constraint definitions, conflict graph generation, and validation logic.
 - `backend/solver/` — OR-Tools model compilation and solver execution functions.
-- `backend/jobs/` — Trigger.dev job definitions and background orchestration.
+- `jobs/` — Trigger.dev job definitions and background orchestration. This is a standalone top-level Node/TypeScript project (Trigger.dev is Node-based) and therefore lives beside `backend/` rather than inside the Python `backend/` package, matching the `jobs/` boundary in `architecture-context.md`.
 - `backend/db/` — database session setup, migrations integration, and persistence utilities.
 - `backend/auth/` — authentication helpers and current-user dependencies.
 - `backend/logging/` — structlog configuration and logging helpers.

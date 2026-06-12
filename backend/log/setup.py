@@ -4,6 +4,7 @@ import structlog
 
 
 def configure_logging() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
@@ -13,6 +14,6 @@ def configure_logging() -> None:
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )

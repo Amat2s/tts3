@@ -335,13 +335,18 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
         duration = session_duration_map.get(a.session_id)
         if duration is None and a.session is not None:
             duration = a.session.duration
+        if duration is None:
+            raise ValueError(
+                f"Cannot determine duration for assignment {a.id}: "
+                f"session_id={a.session_id!r} not found among loaded sessions"
+            )
         saved_assignments.append(
             LockedAssignment(
                 session_id=a.session_id,
                 day=a.day.value,
                 start_slot=a.start_slot.value,
                 room_id=a.room_id,
-                duration=duration or 0,
+                duration=duration,
             )
         )
 
