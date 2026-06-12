@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -12,6 +13,11 @@ from services.trigger_client import TriggerClientError, trigger_solver_job
 from solver.snapshot import SnapshotIntegrityError, build_solver_input_snapshot
 
 ACTIVE_STATUSES = (SolverRunStatus.PENDING, SolverRunStatus.RUNNING)
+
+# An active run older than this is considered orphaned (the job died without
+# reporting back — the task itself is capped at 120s) and is expired so it can
+# never block solver starts permanently.
+STALE_RUN_CUTOFF = timedelta(minutes=10)
 
 
 def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusResponse:
@@ -129,13 +135,30 @@ def finish_solver_run_from_job_result(db: DBSession, result) -> None:
 
 
 def _reject_active_run(db: DBSession) -> None:
-    active = (
-        db.query(SolverRun)
-        .filter(SolverRun.status.in_(ACTIVE_STATUSES))
-        .order_by(SolverRun.created_at.desc())
-        .first()
+    active_runs = (
+        db.query(SolverRun).filter(SolverRun.status.in_(ACTIVE_STATUSES)).all()
     )
-    if active is not None:
+    now = datetime.now(timezone.utc)
+    expired_any = False
+    still_active = False
+    for run in active_runs:
+        created_at = (
+            run.created_at
+            if run.created_at.tzinfo is not None
+            else run.created_at.replace(tzinfo=timezone.utc)
+        )
+        if now - created_at >= STALE_RUN_CUTOFF:
+            run.status = SolverRunStatus.FAILED
+            run.failure_code = "stale_run"
+            run.failure_message = (
+                "Solver run never reported a result and was marked failed."
+            )
+            expired_any = True
+        else:
+            still_active = True
+    if expired_any:
+        db.commit()
+    if still_active:
         raise AppError(
             "solver_run_active",
             "A solver run is already active. Wait for it to finish before starting another.",

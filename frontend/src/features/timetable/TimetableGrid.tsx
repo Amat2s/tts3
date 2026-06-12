@@ -12,6 +12,7 @@ interface TimetableGridProps {
   assignments?: TimetableAssignment[]
   pendingSessionId?: string | null
   warningSessionIds?: Set<string>
+  editingDisabled?: boolean
   onCellClick?: (day: string, slotId: string, roomId: string) => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
@@ -74,6 +75,7 @@ export function TimetableGrid({
   assignments = [],
   pendingSessionId,
   warningSessionIds,
+  editingDisabled = false,
   onCellClick,
   onUnschedule,
   onMoveSelect,
@@ -164,6 +166,7 @@ export function TimetableGrid({
                   assignment={a}
                   isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
+                  editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
@@ -230,6 +233,7 @@ export function TimetableGrid({
                   assignment={a}
                   isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
+                  editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}

@@ -177,7 +177,32 @@ export const solverJob = task({
   id: "solver-job",
   // The backend CP-SAT solver defaults to a 30s time limit; keep headroom.
   maxDuration: 120,
-  run: async (payload: SolverJobPayload): Promise<SolverJobResult> => {
+  run: async (rawPayload: SolverJobPayload | string): Promise<SolverJobResult> => {
+    // Defensive: a payload triggered with a pre-serialized JSON string arrives
+    // here as a string, which would make every field below undefined. Parse it
+    // back into an object so both encodings work.
+    let payload: SolverJobPayload;
+    if (typeof rawPayload === "string") {
+      try {
+        payload = JSON.parse(rawPayload) as SolverJobPayload;
+      } catch {
+        return failedResult(
+          { solverRunId: "", correlationId: "" },
+          "invalid_payload",
+          "Solver job payload was a string that could not be parsed as JSON.",
+        );
+      }
+    } else {
+      payload = rawPayload;
+    }
+    if (!payload?.solverRunId || !payload?.correlationId) {
+      return failedResult(
+        { solverRunId: payload?.solverRunId ?? "", correlationId: payload?.correlationId ?? "" },
+        "invalid_payload",
+        "Solver job payload is missing solverRunId/correlationId.",
+      );
+    }
+
     logger.info("solver_job_started", {
       solverRunId: payload.solverRunId,
       correlationId: payload.correlationId,

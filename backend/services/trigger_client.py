@@ -25,10 +25,12 @@ def trigger_solver_job(payload: dict) -> TriggerRunHandle:
 
     task_id = quote(settings.trigger_solver_task_id, safe="")
     url = f"{settings.trigger_api_url.rstrip('/')}/api/v1/tasks/{task_id}/trigger"
+    # The payload must be a JSON object, not a pre-serialized string — the API
+    # delivers a string payload to the task verbatim, leaving every field
+    # undefined when the task reads it as an object.
     body = {
-        "payload": json.dumps(payload),
+        "payload": payload,
         "options": {
-            "payloadType": "application/json",
             "idempotencyKey": str(payload["solverRunId"]),
         },
     }

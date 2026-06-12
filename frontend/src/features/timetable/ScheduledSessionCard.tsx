@@ -37,6 +37,7 @@ interface ScheduledSessionCardProps {
   colorVariant: UnitColorVariant
   isPending?: boolean
   hasWarning?: boolean
+  editingDisabled?: boolean
   onUnschedule?: () => void
   onMoveSelect?: () => void
 }
@@ -46,12 +47,14 @@ export function ScheduledSessionCard({
   colorVariant,
   isPending = false,
   hasWarning = false,
+  editingDisabled = false,
   onUnschedule,
   onMoveSelect,
 }: ScheduledSessionCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: assignment.session_id,
     data: { sessionId: assignment.session_id },
+    disabled: editingDisabled,
   })
 
   const accent = ACCENT_MAP[colorVariant]
@@ -67,7 +70,7 @@ export function ScheduledSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 cursor-pointer select-none"
+      className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
       style={{
         height: `calc(${assignment.duration} * ${CELL_HEIGHT_REM}rem)`,
         backgroundColor: bg,
@@ -76,8 +79,9 @@ export function ScheduledSessionCard({
         outline: isPending ? `2px solid ${accent}` : undefined,
         outlineOffset: isPending ? '1px' : undefined,
         opacity: isPending ? 0.8 : isDragging ? 0.3 : 1,
+        cursor: editingDisabled ? 'default' : 'pointer',
       }}
-      onClick={onMoveSelect}
+      onClick={editingDisabled ? undefined : onMoveSelect}
     >
       <div className="flex items-start justify-between gap-0.5 min-w-0">
         <div className="flex items-baseline gap-1 min-w-0 overflow-hidden">
@@ -102,15 +106,17 @@ export function ScheduledSessionCard({
               aria-label="Scheduling warning"
             />
           )}
-          <button
-            className="flex items-center justify-center h-4 w-4 rounded-sm transition-colors"
-            style={{ color: 'var(--text-muted)' }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={handleUnschedule}
-            title="Unschedule"
-          >
-            <X className="h-3 w-3" />
-          </button>
+          {!editingDisabled && (
+            <button
+              className="flex items-center justify-center h-4 w-4 rounded-sm transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={handleUnschedule}
+              title="Unschedule"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
       </div>
       <span

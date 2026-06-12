@@ -14,9 +14,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { SolverStatusPanel } from '@/features/timetable/SolverStatusPanel'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
+import { useSolverRun } from '@/features/timetable/useSolverRun'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
 import { getUnitColor } from '@/features/timetable/unitColors'
 import type { UnitColorVariant } from '@/features/timetable/unitColors'
@@ -220,6 +222,20 @@ export default function TimetablePage() {
     },
   })
 
+  // Async solver run lifecycle. The solver runs against the *saved* timetable
+  // state; on success we refetch saved assignments + the schedulable pool, which
+  // resets the draft from the latest saved data (savedAssignments effect above).
+  // A failed run leaves saved state untouched, so nothing is refetched.
+  const solver = useSolverRun({
+    onSucceeded: () => {
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+    },
+  })
+
+  // Editing and saving are locked while a run is starting or active.
+  const editingDisabled = solver.isStarting || solver.isActive
+
   // Sessions not currently placed in the draft.
   const scheduledIds = new Set(draft.map((a) => a.session_id))
   const unscheduledSessions = schedulableSessions?.filter(
@@ -231,7 +247,38 @@ export default function TimetablePage() {
     warningIssues.flatMap((i) => i.affected_session_ids)
   )
   const blockingViolations = rooms ? checkDraftForBlockingViolations(draft, rooms) : []
-  const canRunSolver = blockingViolations.length === 0 && warningIssues.length === 0
+
+  // Solver start gating. The solver button is enabled only when there is nothing
+  // blocking a run; the reason is surfaced to the admin when it is disabled.
+  const hasRooms = !!rooms && rooms.length > 0
+  const requiredDataReady =
+    rooms !== undefined &&
+    schedulableSessions !== undefined &&
+    savedAssignments !== undefined
+
+  const solverDisabledReason: string | null = (() => {
+    if (editingDisabled) return 'A solver run is in progress.'
+    if (!hasRooms) return 'Add at least one room before running the solver.'
+    if (!requiredDataReady) return 'Timetable data is still loading.'
+    if (blockingViolations.length > 0 || warningIssues.length > 0) {
+      const parts: string[] = []
+      if (blockingViolations.length > 0) {
+        parts.push(
+          `${blockingViolations.length} blocking violation${blockingViolations.length !== 1 ? 's' : ''}`
+        )
+      }
+      if (warningIssues.length > 0) {
+        parts.push(
+          `${warningIssues.length} scheduling warning${warningIssues.length !== 1 ? 's' : ''}`
+        )
+      }
+      return `${parts.join(' and ')} must be resolved before running the solver`
+    }
+    // Solver runs from saved state, so unsaved draft changes must be saved first.
+    if (isDirty) return 'Save your timetable changes before running the solver.'
+    return null
+  })()
+  const canRunSolver = solverDisabledReason === null
 
   // The session being actively dragged (for DragOverlay preview).
   const activeSession = activeSessionId
@@ -239,11 +286,13 @@ export default function TimetablePage() {
     : null
 
   function handleSelectSession(sessionId: string) {
+    if (editingDisabled) return
     setBlockingError(null)
     setPendingSessionId((prev) => (prev === sessionId ? null : sessionId))
   }
 
   function handleCellClick(day: string, slotId: string, roomId: string) {
+    if (editingDisabled) return
     if (!pendingSessionId) return
     const session = schedulableSessions?.find(
       (s) => s.session_id === pendingSessionId
@@ -278,6 +327,7 @@ export default function TimetablePage() {
   }
 
   function handleUnschedule(sessionId: string) {
+    if (editingDisabled) return
     setBlockingError(null)
     setDraft((prev) => prev.filter((a) => a.session_id !== sessionId))
     setIsDirty(true)
@@ -285,11 +335,18 @@ export default function TimetablePage() {
   }
 
   function handleSave() {
+    if (editingDisabled) return
     setSaveError(null)
     saveMutation.mutate()
   }
 
+  function handleRunSolver() {
+    if (!canRunSolver) return
+    solver.start()
+  }
+
   function handleDragStart(event: DragStartEvent) {
+    if (editingDisabled) return
     const sessionId = event.active.id as string
     setActiveSessionId(sessionId)
     // Cancel any pending click-based selection when drag starts.
@@ -422,6 +479,7 @@ export default function TimetablePage() {
           assignments={draft}
           pendingSessionId={pendingSessionId}
           warningSessionIds={warningSessionIds}
+          editingDisabled={editingDisabled}
           onCellClick={handleCellClick}
           onUnschedule={handleUnschedule}
           onMoveSelect={handleSelectSession}
@@ -432,6 +490,7 @@ export default function TimetablePage() {
           isError={sessionsIsError}
           error={sessionsError as Error | null}
           pendingSessionId={pendingSessionId}
+          editingDisabled={editingDisabled}
           onSelectSession={handleSelectSession}
         />
       </div>
@@ -459,8 +518,17 @@ export default function TimetablePage() {
             violationMessages={blockingViolations.map((v) => v.message)}
             warningMessages={warningIssues.map((i) => i.message)}
             canRunSolver={canRunSolver}
+            solverDisabledReason={solverDisabledReason}
+            editingDisabled={editingDisabled}
             onSave={handleSave}
+            onRunSolver={handleRunSolver}
             isPendingPlacement={!!pendingSessionId}
+          />
+          <SolverStatusPanel
+            runStatus={solver.runStatus}
+            isStarting={solver.isStarting}
+            startError={solver.startError}
+            onDismiss={solver.dismiss}
           />
           {renderCanvas()}
         </div>

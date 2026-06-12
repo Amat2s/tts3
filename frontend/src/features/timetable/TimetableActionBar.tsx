@@ -9,7 +9,11 @@ interface TimetableActionBarProps {
   blockingError?: string | null
   violationMessages?: string[]
   warningMessages?: string[]
-  canRunSolver?: boolean
+  canRunSolver: boolean
+  /** Full reason the solver cannot run, or null when it can. */
+  solverDisabledReason: string | null
+  /** True while a solver run is starting or active — editing/save are locked. */
+  editingDisabled?: boolean
   onSave: () => void
   onRunSolver?: () => void
   isPendingPlacement?: boolean
@@ -22,7 +26,9 @@ export function TimetableActionBar({
   blockingError,
   violationMessages = [],
   warningMessages = [],
-  canRunSolver = true,
+  canRunSolver,
+  solverDisabledReason,
+  editingDisabled = false,
   onSave,
   onRunSolver,
   isPendingPlacement = false,
@@ -34,20 +40,14 @@ export function TimetableActionBar({
   const totalIssues = violationCount + warningCount
   const hasIssues = totalIssues > 0
 
-  function solverBlockedReason(): string | null {
-    if (canRunSolver) return null
-    const parts: string[] = []
-    if (violationCount > 0) {
-      parts.push(`${violationCount} blocking violation${violationCount !== 1 ? 's' : ''}`)
-    }
-    if (warningCount > 0) {
-      parts.push(`${warningCount} scheduling warning${warningCount !== 1 ? 's' : ''}`)
-    }
-    if (parts.length === 0) return null
-    return `${parts.join(' and ')} must be resolved before running the solver`
-  }
-
-  const blockedReason = solverBlockedReason()
+  // Color the disabled reason by the most severe blocker present.
+  const reasonColor =
+    violationCount > 0
+      ? 'var(--state-error)'
+      : warningCount > 0
+        ? 'var(--state-warning)'
+        : 'var(--text-muted)'
+  const reasonHasValidationIssue = violationCount > 0 || warningCount > 0
 
   return (
     <div
@@ -59,36 +59,41 @@ export function TimetableActionBar({
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          {saveError && (
+          {saveError ? (
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {saveError}
             </p>
-          )}
-          {!saveError && blockingError && (
+          ) : blockingError ? (
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               Cannot place session: {blockingError}
             </p>
-          )}
-          {!saveError && !blockingError && isPendingPlacement && (
+          ) : editingDisabled ? (
+            <span
+              className="flex items-center gap-1.5 text-sm"
+              style={{ color: 'var(--solver-accent)' }}
+            >
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              Editing is disabled while the solver runs.
+            </span>
+          ) : isPendingPlacement ? (
             <p className="text-sm" style={{ color: 'var(--accent-primary)' }}>
               Session selected — click an empty cell to place it, or click the session again to cancel.
             </p>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && !canRunSolver && blockedReason && (
+          ) : !canRunSolver && solverDisabledReason ? (
             <span
               className="flex items-center gap-1.5 text-sm"
-              style={{ color: violationCount > 0 ? 'var(--state-error)' : 'var(--state-warning)' }}
+              style={{ color: reasonColor }}
             >
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {blockedReason}
+              {reasonHasValidationIssue && (
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              )}
+              {solverDisabledReason}
             </span>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && canRunSolver && isDirty && (
+          ) : isDirty ? (
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Unsaved changes
             </p>
-          )}
-          {!saveError && !blockingError && !isPendingPlacement && canRunSolver && !isDirty && (
+          ) : (
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               No issues — timetable is ready.
             </p>
@@ -114,7 +119,7 @@ export function TimetableActionBar({
           <Button
             size="sm"
             disabled={!canRunSolver}
-            title={blockedReason ?? undefined}
+            title={solverDisabledReason ?? undefined}
             onClick={canRunSolver ? onRunSolver : undefined}
             style={
               canRunSolver
@@ -125,16 +130,25 @@ export function TimetableActionBar({
                 : undefined
             }
           >
-            <Cpu className="h-3.5 w-3.5 mr-1.5" />
-            Run Solver
+            {editingDisabled ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Solving…
+              </>
+            ) : (
+              <>
+                <Cpu className="h-3.5 w-3.5 mr-1.5" />
+                Run Solver
+              </>
+            )}
           </Button>
 
           <Button
             size="sm"
-            disabled={!isDirty || isSaving}
+            disabled={!isDirty || isSaving || editingDisabled}
             onClick={onSave}
             style={
-              isDirty && !isSaving
+              isDirty && !isSaving && !editingDisabled
                 ? {
                     backgroundColor: 'var(--accent-primary)',
                     color: 'var(--text-inverse)',

@@ -32,6 +32,7 @@ interface UnscheduledSessionCardProps {
   session: SchedulableSession
   colorVariant: UnitColorVariant
   isSelected?: boolean
+  editingDisabled?: boolean
   onClick?: () => void
 }
 
@@ -39,11 +40,13 @@ export function UnscheduledSessionCard({
   session,
   colorVariant,
   isSelected = false,
+  editingDisabled = false,
   onClick,
 }: UnscheduledSessionCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: session.session_id,
     data: { sessionId: session.session_id },
+    disabled: editingDisabled,
   })
 
   return (
@@ -51,7 +54,7 @@ export function UnscheduledSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className="rounded-md border px-3 py-2 flex flex-col gap-1 cursor-pointer select-none"
+      className="rounded-md border px-3 py-2 flex flex-col gap-1 select-none"
       style={{
         backgroundColor: BG_MAP[colorVariant],
         borderColor: BORDER_MAP[colorVariant],
@@ -60,9 +63,10 @@ export function UnscheduledSessionCard({
         maxWidth: '240px',
         outline: isSelected ? `2px solid ${BORDER_MAP[colorVariant]}` : undefined,
         outlineOffset: isSelected ? '1px' : undefined,
-        opacity: isDragging ? 0.3 : 1,
+        opacity: isDragging ? 0.3 : editingDisabled ? 0.6 : 1,
+        cursor: editingDisabled ? 'default' : 'pointer',
       }}
-      onClick={onClick}
+      onClick={editingDisabled ? undefined : onClick}
     >
       <div className="flex items-center justify-between gap-2">
         <span

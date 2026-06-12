@@ -5,6 +5,7 @@ change.
 
 ## Current Phase
 
+- Unit 48 complete — frontend async solver integration
 - Unit 47 complete — frontend solver API client
 - Unit 46 complete - backend solver start and status API
 - Unit 45 complete — async solver job
@@ -35,7 +36,7 @@ change.
 
 ## Current Goal
 
-- Next unit TBD (frontend solver polling/UI — wires the Unit 47 solver API client into the timetable: Run Solver button behavior, TanStack Query status polling, editing-disabled-while-running, and timetable refresh on completion)
+- Next unit TBD. The async solver flow is now wired end-to-end in the timetable page (Unit 48): Run Solver start, status polling, gating, editing-disabled-while-running, completion refresh, and success/partial/failure UI. Candidate follow-ups: WebSocket live solver progress (architecture-context lists Realtime), production Trigger.dev deployment wiring, or frontend solver-run integration tests.
 
 ## Completed
 
@@ -559,13 +560,31 @@ change.
   - No new package required; no TanStack Query polling, no Run Solver button behavior, no editing-disabled state, no timetable refresh, no assignment-save changes, no backend changes, no mock solver data
   - Frontend build (`npm run build`) succeeds with zero TypeScript errors
 
+- **Unit 48: Frontend Async Solver Integration**
+  - Created `frontend/src/features/timetable/useSolverRun.ts` — solver run lifecycle hook owning the full async flow against **saved** timetable state (never sends draft); `useMutation(startSolverRun)` seeds the status cache with the start response (so the initial state shows before the first poll) and tracks `activeRunId`; `useQuery(['solver-status', activeRunId])` enabled only when a run is tracked, with a function-form `refetchInterval` that polls every 2000ms while `pending`/`running` and returns `false` on `succeeded`/`failed` (TanStack Query tears the interval down on unmount); a terminal-transition `useEffect` (guarded by `handledRunRef`) fires `onSucceeded`/`onFailed` exactly once per run via callback refs; exposes `runStatus`, `isActive`, `isStarting`, `startError`, `start`, `dismiss`
+  - Created `frontend/src/features/timetable/SolverStatusPanel.tsx` — running / success / partial-success / failure / start-error banner using the solver tokens (`--solver-running-bg`, `--solver-success-bg`, `--solver-partial-bg`, `--solver-failure-bg`); shows real `scheduled_count`/`unscheduled_count` from the backend run status; partial result reached when `partial_success` or `unscheduled_count > 0`; non-running states are dismissible (`onDismiss`); not color-only (icons: Loader2/CheckCircle2/AlertTriangle/XCircle), `role="status"` `aria-live="polite"`
+  - `timetable.tsx` — added `useSolverRun({ onSucceeded })`; `onSucceeded` invalidates `['assignments']` and `['schedulable-sessions']`, which (via the existing saved-assignments effect) refetches saved state and resets the draft from the latest saved data; a failed run refetches nothing so saved state stays stable; `editingDisabled = solver.isStarting || solver.isActive`
+  - Solver start gating consolidated into a single `solverDisabledReason` (and `canRunSolver = reason === null`) covering, in priority order: run in progress → no rooms → required data still loading (`rooms`/`schedulableSessions`/`savedAssignments` undefined) → blocking/warning validation counts → unsaved draft changes (`isDirty`, since the solver runs from saved state). All editing handlers (`handleSelectSession`, `handleCellClick`, `handleUnschedule`, `handleSave`, `handleDragStart`) early-return when `editingDisabled`; added `handleRunSolver` guarded by `canRunSolver`
+  - `TimetableActionBar` — `canRunSolver`/`solverDisabledReason` now required; added `editingDisabled` and wired `onRunSolver`; Run Solver button shows a `Loader2` + "Solving…" running indicator and is disabled (with the reason as its `title`) whenever a run is active; Save button additionally disabled while `editingDisabled`; status line shows "Editing is disabled while the solver runs." during a run, otherwise the disabled reason (error/warning/muted colored by severity); the "View details" violation/warning panel is unchanged
+  - Editing lockout threaded through the grid/pool: `editingDisabled` passed to `TimetableGrid` → `GridCell` (droppable `disabled`, click-placement off) → `ScheduledSessionCard` (draggable `disabled`, move-select off, unschedule button hidden), and `UnscheduledPool` → `UnitGroup` → `UnscheduledSessionCard` (draggable `disabled`, click off, dimmed)
+  - Polling runs only while active, stops on terminal status, and cleans up on unmount; partial-success warning shows real counts; failed runs keep timetable/draft stable and surface an actionable message; sessions the solver cannot place stay in the unscheduled pool (derived from draft, which excludes only solver-placed sessions); no backend validation API added
+  - Frontend build (`npm run build`) succeeds with zero TypeScript errors; no new lint errors introduced (the 5 pre-existing lint problems — protected `components/ui/*` fast-refresh warnings and the Unit 33 saved-assignments set-state-in-effect — are unchanged)
+
+- **Solver run pipeline fixes (post-Unit 48 debugging, 2026-06-12)**
+  - Diagnosed the 502 from `POST /solver/start`: the backend's own `solver_job_trigger_failed` `AppError` (status 502), raised because `TRIGGER_SECRET_KEY` was only set in `jobs/.env` — the backend reads `backend/.env`, so `trigger_solver_job` failed with "secret key is not configured" on every start. Added `TRIGGER_SECRET_KEY` / `TRIGGER_API_URL` / `TRIGGER_SOLVER_TASK_ID` to `backend/.env` (and they remain documented in `backend/.env.example`)
+  - Fixed payload double-encoding in `backend/services/trigger_client.py`: the trigger request sent `payload` as a pre-serialized JSON **string** (`json.dumps(payload)` + `options.payloadType`); Trigger.dev delivered it to the task verbatim as a string, so `payload.solverRunId` was `undefined`, the bridge payload lost all fields (`JSON.stringify` drops `undefined`), and `job_cli` failed with `invalid_payload` — leaving the `solver_runs` row stuck in `pending`. The client now sends `payload` as a plain JSON object
+  - Hardened `jobs/src/trigger/solverJob.ts`: the task now parses a string payload defensively and returns a structured `invalid_payload` failure when `solverRunId`/`correlationId` are missing, instead of silently bridging an empty payload
+  - Hardened `backend/services/solver_run.py`: `_reject_active_run` now expires active runs older than `STALE_RUN_CUTOFF` (10 min) as `failed` / `stale_run` instead of blocking all future solver starts forever when a job dies without reporting back (the task itself is capped at 120s)
+  - Verified end-to-end against the live stack (uvicorn + `trigger.dev dev` + Supabase): `start_solver_run` → Trigger.dev run → Python bridge → CP-SAT → `apply_solver_result` → status write-back; run reached `succeeded` with 12/12 sessions scheduled and assignments persisted
+  - Operational note: dev-environment solver runs execute only while `npx trigger.dev dev` is running in `jobs/`; if it is down, runs queue at Trigger.dev and the run stays `pending` until it reconnects (or is expired by the stale-run guard)
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
-- Frontend solver polling/UI unit TBD (consumes the Unit 47 `solver.ts` client)
+- TBD. The Unit 47 client and Unit 48 integration are complete. Possible directions: WebSocket live solver progress, production Trigger.dev deployment wiring, or frontend solver-run tests.
 
 ## Open Questions
 

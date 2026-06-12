@@ -13,6 +13,7 @@ interface GridCellProps {
   isOccupied?: boolean
   pendingSessionId?: string | null
   hasWarning?: boolean
+  editingDisabled?: boolean
   onCellClick?: () => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
@@ -27,6 +28,7 @@ export function GridCell({
   isOccupied = !!assignment,
   pendingSessionId,
   hasWarning = false,
+  editingDisabled = false,
   onCellClick,
   onUnschedule,
   onMoveSelect,
@@ -35,12 +37,13 @@ export function GridCell({
 
   // Droppable ID format matches buildAssignmentMap key: "${day}:${roomId}:${slotId}"
   // isOccupied covers all slots spanned by a multi-slot session, not just the start slot.
+  // Drops are also disabled while a solver run is in progress.
   const { setNodeRef, isOver } = useDroppable({
     id: `${day}:${roomId}:${slotId}`,
-    disabled: isOccupied,
+    disabled: isOccupied || editingDisabled,
   })
 
-  const isClickDropTarget = !!pendingSessionId && !isOccupied
+  const isClickDropTarget = !!pendingSessionId && !isOccupied && !editingDisabled
   const showDropHighlight = isOver || (isClickDropTarget && hovered)
 
   function handleClick() {
@@ -76,6 +79,7 @@ export function GridCell({
           colorVariant={getUnitColor(assignment.unit_id)}
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}
+          editingDisabled={editingDisabled}
           onUnschedule={() => onUnschedule?.(assignment.session_id)}
           onMoveSelect={() => onMoveSelect?.(assignment.session_id)}
         />

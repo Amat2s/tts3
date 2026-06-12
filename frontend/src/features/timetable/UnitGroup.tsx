@@ -9,6 +9,7 @@ interface UnitGroupProps {
   sessions: SchedulableSession[]
   colorVariant: UnitColorVariant
   pendingSessionId?: string | null
+  editingDisabled?: boolean
   onSelectSession?: (sessionId: string) => void
 }
 
@@ -18,6 +19,7 @@ export function UnitGroup({
   sessions,
   colorVariant,
   pendingSessionId,
+  editingDisabled = false,
   onSelectSession,
 }: UnitGroupProps) {
   return (
@@ -43,6 +45,7 @@ export function UnitGroup({
             session={session}
             colorVariant={colorVariant}
             isSelected={pendingSessionId === session.session_id}
+            editingDisabled={editingDisabled}
             onClick={() => onSelectSession?.(session.session_id)}
           />
         ))}
