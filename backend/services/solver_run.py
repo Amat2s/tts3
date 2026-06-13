@@ -124,6 +124,43 @@ def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusRes
     return _to_status_response(run)
 
 
+def execute_solver_run(
+    db: DBSession,
+    *,
+    solver_run_id: str,
+    correlation_id: str,
+    admin_workspace_id: str | None = None,
+    snapshot_id: str | None = None,
+) -> dict:
+    """Run the full solver pipeline synchronously for the deployed job worker.
+
+    The production Trigger.dev worker (a Node container) cannot run the Python
+    solver itself, so it calls this from the internal execute endpoint. All
+    business logic and result application stays in the backend: this delegates
+    to :func:`run_solver_job`, which marks the run RUNNING, applies the result
+    safely (saved assignments are left unchanged on failure), records the final
+    status, and never raises. The structured result dict is returned verbatim so
+    the worker can log and surface the outcome — identical to the local CLI
+    bridge contract.
+    """
+    # Imported lazily to avoid a circular import: solver.job imports this module.
+    from solver.job import SolverJobPayload, run_solver_job
+
+    payload = SolverJobPayload(
+        solver_run_id=solver_run_id,
+        correlation_id=correlation_id,
+        admin_workspace_id=admin_workspace_id,
+        snapshot_id=snapshot_id,
+    )
+    logger.info(
+        "solver_execute_invoked",
+        solver_run_id=solver_run_id,
+        correlation_id=correlation_id,
+    )
+    result = run_solver_job(db, payload)
+    return result.to_dict()
+
+
 def get_solver_run_status(
     db: DBSession, solver_run_id: str
 ) -> SolverRunStatusResponse:

@@ -173,6 +173,217 @@ function toResult(doc: Record<string, unknown>): SolverJobResult {
   };
 }
 
+/**
+ * Production execution path (Unit 56).
+ *
+ * The deployed Trigger.dev worker is a Node container with no Python, no
+ * backend code, and no database access, so it cannot run the solver itself.
+ * When `SOLVER_EXECUTE_URL` is set it calls the deployed backend's internal
+ * execute endpoint over HTTP; the backend runs the full solver pipeline and
+ * applies the result safely (saved assignments unchanged on failure) and
+ * returns the same structured result document the local bridge produces.
+ *
+ * The call is authorized server-to-server with `SOLVER_EXECUTE_TOKEN`
+ * (the backend's `SOLVER_INTERNAL_TOKEN`); this is NOT a Supabase admin JWT.
+ */
+async function runViaBackendHttp(
+  payload: SolverJobPayload,
+  executeUrl: string,
+): Promise<SolverJobResult> {
+  const token = process.env.SOLVER_EXECUTE_TOKEN?.trim();
+  // Only stable references cross the boundary — never draft assignments.
+  const body = JSON.stringify({
+    solver_run_id: payload.solverRunId,
+    correlation_id: payload.correlationId,
+    admin_workspace_id: payload.adminWorkspaceId ?? null,
+    snapshot_id: payload.snapshotId ?? null,
+  });
+
+  // The backend CP-SAT solver defaults to a 30s limit; allow generous headroom
+  // under the task's 120s ceiling so a slow solve isn't cut off as a timeout.
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 110_000);
+
+  let response: Response;
+  try {
+    response = await fetch(executeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "backend_unreachable",
+      executeUrl,
+      message,
+    });
+    return failedResult(
+      payload,
+      "backend_unreachable",
+      `Could not reach backend solver execute endpoint (${executeUrl}): ${message}`,
+    );
+  } finally {
+    clearTimeout(abortTimer);
+  }
+
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => "")).slice(0, 500);
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "backend_error",
+      status: response.status,
+    });
+    return failedResult(
+      payload,
+      "backend_error",
+      `Backend solver execution returned ${response.status}: ${detail || "(no body)"}`,
+    );
+  }
+
+  let doc: unknown;
+  try {
+    doc = await response.json();
+  } catch {
+    doc = null;
+  }
+  if (!doc || typeof doc !== "object") {
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "backend_output_error",
+    });
+    return failedResult(
+      payload,
+      "backend_output_error",
+      "Backend solver execution returned no parseable result document.",
+    );
+  }
+  return toResult(doc as Record<string, unknown>);
+}
+
+/**
+ * Local development execution path. Spawns the backend Python bridge on the
+ * same machine (`python -m solver.job_cli`). This requires `jobs/` and
+ * `backend/` to share a filesystem, so it is only used when no
+ * `SOLVER_EXECUTE_URL` is configured.
+ */
+async function runViaLocalBridge(
+  payload: SolverJobPayload,
+): Promise<SolverJobResult> {
+  const config = resolveBridge();
+
+  // Fail fast with an actionable message if the bridge isn't reachable.
+  if (!existsSync(config.backendDir)) {
+    const message = `BACKEND_DIR does not exist: ${config.backendDir}. Set BACKEND_DIR in jobs/.env to an absolute path to the repo's backend/ directory, or set SOLVER_EXECUTE_URL to use the HTTP bridge.`;
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "backend_dir_missing",
+      backendDir: config.backendDir,
+    });
+    return failedResult(payload, "backend_dir_missing", message);
+  }
+  if (!existsSync(config.scriptPath)) {
+    const message = `Solver bridge script not found: ${config.scriptPath}. Check BACKEND_DIR points at the backend/ directory.`;
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "bridge_script_missing",
+      scriptPath: config.scriptPath,
+    });
+    return failedResult(payload, "bridge_script_missing", message);
+  }
+
+  logger.debug("solver_job_bridge", {
+    pythonBin: config.pythonBin,
+    backendDir: config.backendDir,
+    scriptPath: config.scriptPath,
+  });
+
+  // Only stable references cross the boundary — never draft assignments.
+  const bridgePayload = JSON.stringify({
+    solver_run_id: payload.solverRunId,
+    correlation_id: payload.correlationId,
+    admin_workspace_id: payload.adminWorkspaceId ?? null,
+    snapshot_id: payload.snapshotId ?? null,
+  });
+
+  let outcome: BridgeOutcome;
+  try {
+    outcome = await runBridge(config, bridgePayload);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "bridge_spawn_error",
+      pythonBin: config.pythonBin,
+      message,
+    });
+    return failedResult(
+      payload,
+      "bridge_spawn_error",
+      `Failed to start solver bridge (PYTHON_BIN=${config.pythonBin}): ${message}`,
+    );
+  }
+
+  const doc = parseResultLine(outcome.stdout);
+  if (!doc) {
+    // No parseable JSON on stdout — surface the Python stderr so the failure
+    // is diagnosable from the run result itself.
+    const stderrTail = outcome.stderr.trim().slice(-1500);
+    logger.error("solver_job_failed", {
+      solverRunId: payload.solverRunId,
+      correlationId: payload.correlationId,
+      failureCode: "bridge_output_error",
+      exitCode: outcome.exitCode,
+      stderr: outcome.stderr.slice(-2000),
+    });
+    return failedResult(
+      payload,
+      "bridge_output_error",
+      `Solver bridge produced no parseable result (exit ${outcome.exitCode}). stderr: ${stderrTail || "(empty)"}`,
+    );
+  }
+
+  return toResult(doc);
+}
+
+/** Emit the final lifecycle log line for a completed/failed run. */
+function logFinalResult(result: SolverJobResult): void {
+  if (result.status === "failed") {
+    logger.error("solver_job_failed", {
+      solverRunId: result.solverRunId,
+      correlationId: result.correlationId,
+      solverStatus: result.solverStatus,
+      failureCode: result.failureCode,
+      durationSeconds: result.durationSeconds,
+      message: result.message,
+    });
+  } else {
+    logger.info("solver_job_completed", {
+      solverRunId: result.solverRunId,
+      correlationId: result.correlationId,
+      status: result.status,
+      solverStatus: result.solverStatus,
+      durationSeconds: result.durationSeconds,
+      sessionsAttempted: result.sessionsAttempted,
+      sessionsScheduled: result.sessionsScheduled,
+      sessionsUnscheduled: result.sessionsUnscheduled,
+      isPartial: result.isPartial,
+      timedOut: result.timedOut,
+    });
+  }
+}
+
 export const solverJob = task({
   id: "solver-job",
   // The backend CP-SAT solver defaults to a 30s time limit; keep headroom.
@@ -203,115 +414,24 @@ export const solverJob = task({
       );
     }
 
+    // Prefer the HTTP bridge when a backend execute URL is configured (this is
+    // the production path — the deployed worker has no Python). Fall back to
+    // the local Python spawn bridge for development.
+    const executeUrl = process.env.SOLVER_EXECUTE_URL?.trim();
+
     logger.info("solver_job_started", {
       solverRunId: payload.solverRunId,
       correlationId: payload.correlationId,
       adminWorkspaceId: payload.adminWorkspaceId ?? null,
       snapshotId: payload.snapshotId ?? null,
+      mode: executeUrl ? "backend_http" : "local_bridge",
     });
 
-    const config = resolveBridge();
+    const result = executeUrl
+      ? await runViaBackendHttp(payload, executeUrl)
+      : await runViaLocalBridge(payload);
 
-    // Fail fast with an actionable message if the bridge isn't reachable.
-    if (!existsSync(config.backendDir)) {
-      const message = `BACKEND_DIR does not exist: ${config.backendDir}. Set BACKEND_DIR in jobs/.env to an absolute path to the repo's backend/ directory.`;
-      logger.error("solver_job_failed", {
-        solverRunId: payload.solverRunId,
-        correlationId: payload.correlationId,
-        failureCode: "backend_dir_missing",
-        backendDir: config.backendDir,
-      });
-      return failedResult(payload, "backend_dir_missing", message);
-    }
-    if (!existsSync(config.scriptPath)) {
-      const message = `Solver bridge script not found: ${config.scriptPath}. Check BACKEND_DIR points at the backend/ directory.`;
-      logger.error("solver_job_failed", {
-        solverRunId: payload.solverRunId,
-        correlationId: payload.correlationId,
-        failureCode: "bridge_script_missing",
-        scriptPath: config.scriptPath,
-      });
-      return failedResult(payload, "bridge_script_missing", message);
-    }
-
-    logger.debug("solver_job_bridge", {
-      pythonBin: config.pythonBin,
-      backendDir: config.backendDir,
-      scriptPath: config.scriptPath,
-    });
-
-    // Only stable references cross the boundary — never draft assignments.
-    const bridgePayload = JSON.stringify({
-      solver_run_id: payload.solverRunId,
-      correlation_id: payload.correlationId,
-      admin_workspace_id: payload.adminWorkspaceId ?? null,
-      snapshot_id: payload.snapshotId ?? null,
-    });
-
-    let outcome: BridgeOutcome;
-    try {
-      outcome = await runBridge(config, bridgePayload);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("solver_job_failed", {
-        solverRunId: payload.solverRunId,
-        correlationId: payload.correlationId,
-        failureCode: "bridge_spawn_error",
-        pythonBin: config.pythonBin,
-        message,
-      });
-      return failedResult(
-        payload,
-        "bridge_spawn_error",
-        `Failed to start solver bridge (PYTHON_BIN=${config.pythonBin}): ${message}`,
-      );
-    }
-
-    const doc = parseResultLine(outcome.stdout);
-    if (!doc) {
-      // No parseable JSON on stdout — surface the Python stderr so the failure
-      // is diagnosable from the run result itself.
-      const stderrTail = outcome.stderr.trim().slice(-1500);
-      logger.error("solver_job_failed", {
-        solverRunId: payload.solverRunId,
-        correlationId: payload.correlationId,
-        failureCode: "bridge_output_error",
-        exitCode: outcome.exitCode,
-        stderr: outcome.stderr.slice(-2000),
-      });
-      return failedResult(
-        payload,
-        "bridge_output_error",
-        `Solver bridge produced no parseable result (exit ${outcome.exitCode}). stderr: ${stderrTail || "(empty)"}`,
-      );
-    }
-
-    const result = toResult(doc);
-
-    if (result.status === "failed") {
-      logger.error("solver_job_failed", {
-        solverRunId: result.solverRunId,
-        correlationId: result.correlationId,
-        solverStatus: result.solverStatus,
-        failureCode: result.failureCode,
-        durationSeconds: result.durationSeconds,
-        message: result.message,
-      });
-    } else {
-      logger.info("solver_job_completed", {
-        solverRunId: result.solverRunId,
-        correlationId: result.correlationId,
-        status: result.status,
-        solverStatus: result.solverStatus,
-        durationSeconds: result.durationSeconds,
-        sessionsAttempted: result.sessionsAttempted,
-        sessionsScheduled: result.sessionsScheduled,
-        sessionsUnscheduled: result.sessionsUnscheduled,
-        isPartial: result.isPartial,
-        timedOut: result.timedOut,
-      });
-    }
-
+    logFinalResult(result);
     return result;
   },
 });
