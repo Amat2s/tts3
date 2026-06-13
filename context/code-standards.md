@@ -334,7 +334,9 @@ type SessionScheduleState =
   - partial solver result
 - API routes should be tested for validation, authentication, and mutation behavior.
 - Frontend tests should cover key timetable state transitions where practical.
-- Drag/drop behavior should be tested at the highest value level available; avoid brittle low-level pointer tests unless necessary.
+- The frontend test runner is Vitest with React Testing Library (jsdom). Run the frontend suite with `npm test` from `frontend/`. Test files live beside the code they cover as `*.test.ts`/`*.test.tsx`; shared fixtures live in `frontend/src/test/` (outside production feature state).
+- Prefer testing pure validation helpers and visible UI outcomes over implementation details. Use fixtures shaped like the real API DTOs.
+- Drag/drop behavior should be tested at the highest value level available; avoid brittle low-level pointer tests unless necessary. The equivalent click-based scheduling path is the reliable way to assert drag/drop outcomes.
 - Regression tests should be added for every solver bug fixed.
 - Do not rely only on manual testing for constraint behavior.
 
@@ -363,6 +365,7 @@ type SessionScheduleState =
 - `jobs/` — Trigger.dev job definitions and background orchestration. This is a standalone top-level Node/TypeScript project (Trigger.dev is Node-based) and therefore lives beside `backend/` rather than inside the Python `backend/` package, matching the `jobs/` boundary in `architecture-context.md`.
 - `backend/db/` — database session setup, migrations integration, and persistence utilities.
 - `backend/auth/` — authentication helpers and current-user dependencies.
-- `backend/logging/` — structlog configuration and logging helpers.
+- `backend/log/` — structlog configuration and logging helpers (named `log/`, not `logging/`, to avoid shadowing the Python stdlib `logging` module).
+- `backend/observability/` — Sentry exception capture, request/correlation ID middleware, and safe log payload conventions. Layers on top of the `backend/log/` structlog foundation rather than replacing it.
 - `shared/` — cross-application domain contracts if shared generation or schema export is used.
 - `docs/` — project documentation such as `architecture.md`, `project-overview.md`, and `code-standards.md`.

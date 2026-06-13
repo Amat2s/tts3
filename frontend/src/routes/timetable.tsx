@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { ErrorState } from '@/components/error/ErrorState'
 import { SolverStatusPanel } from '@/features/timetable/SolverStatusPanel'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
@@ -39,6 +40,7 @@ import {
   getBlockingViolatorIds,
 } from '@/lib/validation/blocking'
 import { checkDraftForWarnings } from '@/lib/validation/warning'
+import { getErrorMessage } from '@/lib/errors'
 
 function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
   return {
@@ -146,7 +148,12 @@ export default function TimetablePage() {
     queryFn: listSchedulableSessions,
   })
 
-  const { data: savedAssignments } = useQuery({
+  const {
+    data: savedAssignments,
+    isError: assignmentsIsError,
+    error: assignmentsError,
+    refetch: refetchAssignments,
+  } = useQuery({
     queryKey: ['assignments'],
     queryFn: listAssignments,
   })
@@ -217,8 +224,13 @@ export default function TimetablePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
     },
-    onError: (err: Error) => {
-      setSaveError(err.message ?? 'Failed to save timetable. Please try again.')
+    onError: (err: unknown) => {
+      setSaveError(
+        getErrorMessage(
+          err,
+          'Your timetable changes were not saved. Please try again.'
+        )
+      )
     },
   })
 
@@ -528,8 +540,19 @@ export default function TimetablePage() {
             runStatus={solver.runStatus}
             isStarting={solver.isStarting}
             startError={solver.startError}
+            statusError={solver.statusError}
             onDismiss={solver.dismiss}
           />
+          {assignmentsIsError && (
+            <ErrorState
+              title="Saved timetable could not be loaded"
+              message={getErrorMessage(
+                assignmentsError,
+                'The saved timetable data could not be loaded. Any unsaved changes are based on an empty timetable until this is resolved.'
+              )}
+              onRetry={() => refetchAssignments()}
+            />
+          )}
           {renderCanvas()}
         </div>
         <DragOverlay dropAnimation={null}>

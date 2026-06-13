@@ -25,6 +25,7 @@
 | Scheduling Engine    | OR-Tools (CP-SAT) | Constraint-based timetable solver                         |
 | Realtime             | WebSockets        | Live solver progress + UI updates                         |
 | Background Jobs      | Trigger.dev       | Async solver execution                                    |
+| Observability        | structlog + Sentry | Structured backend logs, correlation IDs, and unexpected-exception capture |
 | Deployment (backend) | Railway           | FastAPI hosting                                           |
 
 ## System Boundaries

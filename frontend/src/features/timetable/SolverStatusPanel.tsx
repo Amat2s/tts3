@@ -13,6 +13,8 @@ interface SolverStatusPanelProps {
   runStatus: SolverRunStatusResponse | null
   isStarting: boolean
   startError: string | null
+  /** Set when polling an active run's status fails; retries automatically. */
+  statusError?: string | null
   onDismiss: () => void
 }
 
@@ -74,6 +76,7 @@ export function SolverStatusPanel({
   runStatus,
   isStarting,
   startError,
+  statusError,
   onDismiss,
 }: SolverStatusPanelProps) {
   // Start request in flight — treat as a running state.
@@ -99,6 +102,20 @@ export function SolverStatusPanel({
         title="Could not start the solver"
         detail={startError}
         onDismiss={onDismiss}
+      />
+    )
+  }
+
+  // Polling an active run failed (transient). The run is still in progress on
+  // the backend; we keep editing locked and retry automatically.
+  if (statusError) {
+    return (
+      <Banner
+        background="var(--solver-partial-bg)"
+        textColor="var(--state-warning)"
+        icon={<AlertTriangle className="h-4 w-4" />}
+        title="Solver status could not be refreshed"
+        detail={`${statusError} The solver is still running — editing stays disabled until it finishes.`}
       />
     )
   }

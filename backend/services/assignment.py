@@ -1,3 +1,4 @@
+import structlog
 from sqlalchemy.orm import Session as DBSession, selectinload
 
 from api.errors import AppError
@@ -7,11 +8,24 @@ from models.session import Session
 from models.unit import Unit
 from schemas.assignment import AssignmentItem, AssignmentResponse, AssignmentSaveRequest
 
+logger = structlog.get_logger(__name__)
+
 # Ordered slot IDs matching the frontend timetable (s1–s7, no lunch slot).
 ORDERED_SLOTS: list[str] = ["s1", "s2", "s3", "s4", "s5", "s6", "s7"]
 
 # AM block: s1, s2, s3 (indices 0–2). PM block: s4–s7 (indices 3–6).
 _AM_SLOT_COUNT = 3
+
+
+def _reject_save(code: str, message: str, *, status_code: int = 422, **fields: object) -> None:
+    """Log a defensive save rejection then raise the structured API error.
+
+    Observability only: this records *that* a blocked-placement invariant was
+    violated using IDs and counts (never student payloads), and re-raises the
+    same ``AppError`` the caller already returned. It does not change behavior.
+    """
+    logger.warning("assignment_save_rejected", code=code, **fields)
+    raise AppError(code, message, status_code=status_code)
 
 
 def _slot_index(slot: str) -> int:
@@ -77,19 +91,22 @@ def save_assignments(
 ) -> list[AssignmentResponse]:
     items = data.assignments
 
+    logger.info("assignment_save_requested", assignment_count=len(items))
+
     if not items:
         db.query(TimetableAssignment).delete()
         db.commit()
+        logger.info("assignment_save_succeeded", saved_count=0)
         return []
 
     # Deduplicate input: reject duplicate session_ids in the request.
     seen_session_ids: set[str] = set()
     for item in items:
         if item.session_id in seen_session_ids:
-            raise AppError(
+            _reject_save(
                 "duplicate_session_in_request",
                 f"Session {item.session_id} appears more than once in the assignment list.",
-                status_code=422,
+                session_id=item.session_id,
             )
         seen_session_ids.add(item.session_id)
 
@@ -115,16 +132,17 @@ def save_assignments(
     # Verify all referenced sessions and rooms exist.
     for item in items:
         if item.session_id not in sessions_map:
-            raise AppError(
+            _reject_save(
                 "session_not_found",
                 f"Session {item.session_id} not found.",
-                status_code=422,
+                session_id=item.session_id,
             )
         if item.room_id not in rooms_map:
-            raise AppError(
+            _reject_save(
                 "room_not_found",
                 f"Room {item.room_id} not found.",
-                status_code=422,
+                session_id=item.session_id,
+                room_id=item.room_id,
             )
 
     # Per-item defensive checks.
@@ -137,33 +155,40 @@ def save_assignments(
         start_slot = item.start_slot.value
 
         if room.capacity < student_count:
-            raise AppError(
+            _reject_save(
                 "room_capacity_too_small",
                 (
                     f"Room '{room.name}' capacity ({room.capacity}) is smaller than "
                     f"the session's student count ({student_count})."
                 ),
-                status_code=422,
+                session_id=item.session_id,
+                room_id=item.room_id,
+                room_capacity=room.capacity,
+                student_count=student_count,
             )
 
         if _crosses_lunch(start_slot, duration):
-            raise AppError(
+            _reject_save(
                 "session_crosses_lunch",
                 (
                     f"Session starting at {start_slot} with duration {duration} "
                     "would cross the lunch break."
                 ),
-                status_code=422,
+                session_id=item.session_id,
+                start_slot=start_slot,
+                duration=duration,
             )
 
         if _off_timetable(start_slot, duration):
-            raise AppError(
+            _reject_save(
                 "session_off_timetable",
                 (
                     f"Session starting at {start_slot} with duration {duration} "
                     "extends past the end of the timetable."
                 ),
-                status_code=422,
+                session_id=item.session_id,
+                start_slot=start_slot,
+                duration=duration,
             )
 
     # Cross-item: room double-booking (checks multi-slot overlaps, not just same start slot).
@@ -177,13 +202,17 @@ def save_assignments(
             key = (item.day.value, item.room_id, slot)
             if key in occupied:
                 room = rooms_map[item.room_id]
-                raise AppError(
+                _reject_save(
                     "room_double_booking",
                     (
                         f"Room '{room.name}' is already occupied on "
                         f"{item.day.value} at slot {slot}."
                     ),
-                    status_code=422,
+                    session_id=item.session_id,
+                    conflicting_session_id=occupied[key],
+                    room_id=item.room_id,
+                    day=item.day.value,
+                    slot=slot,
                 )
             occupied[key] = item.session_id
 
@@ -205,6 +234,8 @@ def save_assignments(
     for record in new_records:
         db.refresh(record)
 
+    logger.info("assignment_save_succeeded", saved_count=len(new_records))
+
     # Re-query with full eager loading so responses include all joined display data.
     saved_ids = [r.id for r in new_records]
     saved = _assignment_query(db).filter(TimetableAssignment.id.in_(saved_ids)).all()
@@ -214,3 +245,4 @@ def save_assignments(
 def clear_assignments(db: DBSession) -> None:
     db.query(TimetableAssignment).delete()
     db.commit()
+    logger.info("assignments_cleared")

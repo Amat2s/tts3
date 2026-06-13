@@ -7,6 +7,7 @@ import {
   type SolverRunStatus,
   type SolverRunStatusResponse,
 } from '@/lib/api/solver'
+import { getErrorMessage } from '@/lib/errors'
 
 /**
  * Async solver run lifecycle hook (Unit 48).
@@ -46,6 +47,12 @@ export interface SolverRunController {
   isStarting: boolean
   /** User-facing error from a failed start request, or null. */
   startError: string | null
+  /**
+   * User-facing error when polling the status of an active run fails (e.g. a
+   * transient network failure). Null when the latest poll succeeded or no run
+   * is tracked. Polling keeps retrying on its interval while this is set.
+   */
+  statusError: string | null
   /** Start a new solver run against the saved timetable state. */
   start: () => void
   /** Clear the tracked run and any start error (dismiss terminal UI). */
@@ -85,6 +92,16 @@ export function useSolverRun(
   })
 
   const runStatus = statusQuery.data ?? null
+
+  // Surface a polling failure only while a run is tracked. TanStack Query keeps
+  // retrying on the refetch interval, so this clears automatically on recovery.
+  const statusError =
+    activeRunId !== null && statusQuery.isError
+      ? getErrorMessage(
+          statusQuery.error,
+          'Solver status could not be refreshed. Retrying…'
+        )
+      : null
 
   const startMutation = useMutation({
     mutationFn: startSolverRun,
@@ -135,6 +152,7 @@ export function useSolverRun(
     isActive: runStatus !== null && isActiveStatus(runStatus.status),
     isStarting: startMutation.isPending,
     startError,
+    statusError,
     start,
     dismiss,
   }

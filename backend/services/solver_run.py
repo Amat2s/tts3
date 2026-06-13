@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import structlog
 from sqlalchemy.orm import Session as DBSession
 
 from api.errors import AppError
@@ -11,6 +12,8 @@ from models.solver_run import SolverRun, SolverRunStatus
 from schemas.solver import SolverRunStatusResponse
 from services.trigger_client import TriggerClientError, trigger_solver_job
 from solver.snapshot import SnapshotIntegrityError, build_solver_input_snapshot
+
+logger = structlog.get_logger(__name__)
 
 ACTIVE_STATUSES = (SolverRunStatus.PENDING, SolverRunStatus.RUNNING)
 
@@ -21,11 +24,18 @@ STALE_RUN_CUTOFF = timedelta(minutes=10)
 
 
 def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusResponse:
+    logger.info("solver_start_requested", admin_user_id=admin_user_id)
     _reject_active_run(db)
 
     try:
         snapshot = build_solver_input_snapshot(db)
     except SnapshotIntegrityError as exc:
+        logger.warning(
+            "solver_start_rejected",
+            reason="saved_state_not_solver_ready",
+            code="solver_integrity_failed",
+            detail=exc.message,
+        )
         raise AppError(
             "solver_integrity_failed",
             f"Saved timetable state failed solver integrity checks: {exc.message}",
@@ -40,9 +50,15 @@ def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusRes
             scheduled_count=0,
             unscheduled_count=0,
         )
+        logger.info("solver_start_no_work", solver_run_id=run.id, reason="no_sessions")
         return _to_status_response(run)
 
     if db.query(Room).count() == 0:
+        logger.warning(
+            "solver_start_rejected",
+            reason="saved_state_not_solver_ready",
+            code="solver_no_rooms",
+        )
         raise AppError(
             "solver_no_rooms",
             "At least one room must exist before starting the solver.",
@@ -56,6 +72,9 @@ def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusRes
             admin_user_id=admin_user_id,
             scheduled_count=0,
             unscheduled_count=0,
+        )
+        logger.info(
+            "solver_start_no_work", solver_run_id=run.id, reason="all_scheduled"
         )
         return _to_status_response(run)
 
@@ -80,6 +99,12 @@ def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusRes
         run.failure_message = "Solver job could not be queued."
         db.commit()
         db.refresh(run)
+        logger.warning(
+            "solver_start_trigger_failed",
+            solver_run_id=run.id,
+            correlation_id=run.correlation_id,
+            detail=exc.message,
+        )
         raise AppError(
             "solver_job_trigger_failed",
             f"Solver job could not be queued: {exc.message}",
@@ -89,6 +114,13 @@ def start_solver_run(db: DBSession, *, admin_user_id: str) -> SolverRunStatusRes
     run.trigger_job_id = handle.id
     db.commit()
     db.refresh(run)
+    logger.info(
+        "solver_run_queued",
+        solver_run_id=run.id,
+        correlation_id=run.correlation_id,
+        job_id=run.trigger_job_id,
+        sessions_attempted=len(snapshot.unscheduled_session_ids),
+    )
     return _to_status_response(run)
 
 
@@ -97,11 +129,20 @@ def get_solver_run_status(
 ) -> SolverRunStatusResponse:
     run = db.get(SolverRun, solver_run_id)
     if run is None:
+        logger.info(
+            "solver_status_lookup", solver_run_id=solver_run_id, found=False
+        )
         raise AppError(
             "solver_run_not_found",
             f"Solver run {solver_run_id} not found.",
             status_code=404,
         )
+    logger.info(
+        "solver_status_lookup",
+        solver_run_id=solver_run_id,
+        found=True,
+        status=run.status.value,
+    )
     return _to_status_response(run)
 
 
@@ -153,12 +194,16 @@ def _reject_active_run(db: DBSession) -> None:
             run.failure_message = (
                 "Solver run never reported a result and was marked failed."
             )
+            logger.warning("solver_run_expired_stale", solver_run_id=run.id)
             expired_any = True
         else:
             still_active = True
     if expired_any:
         db.commit()
     if still_active:
+        logger.warning(
+            "solver_start_rejected", reason="run_already_active", code="solver_run_active"
+        )
         raise AppError(
             "solver_run_active",
             "A solver run is already active. Wait for it to finish before starting another.",
