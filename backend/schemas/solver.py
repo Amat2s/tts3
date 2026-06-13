@@ -18,3 +18,17 @@ class SolverRunStatusResponse(BaseModel):
     partial_success: bool = False
     failure_message: str | None = None
 
+
+class SolverExecuteRequest(BaseModel):
+    """Body the Trigger.dev solver worker sends to the internal execute endpoint.
+
+    Mirrors the stable payload reference the worker already builds for the
+    local bridge (snake_case). It carries references only — never frontend
+    draft assignment state.
+    """
+
+    solver_run_id: str
+    correlation_id: str
+    admin_workspace_id: str | None = None
+    snapshot_id: str | None = None
+

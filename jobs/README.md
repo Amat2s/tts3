@@ -57,9 +57,20 @@ Key properties:
   attempted/scheduled/unscheduled, partial flag, duration) suitable for the
   later solver status API.
 
-The backend bridge (`solver.job_cli`) is configured via `BACKEND_DIR` and
-`PYTHON_BIN` (see `.env.example`). It needs the backend environment
-(`backend/.env` with `DATABASE_URL`) available, since it reads saved data.
+The job has two execution paths (see `.env.example`):
+
+- **Production — HTTP bridge (Unit 56):** when `SOLVER_EXECUTE_URL` is set, the
+  task POSTs the run reference to the deployed backend's
+  `POST /solver/internal/execute` endpoint (authorized with
+  `SOLVER_EXECUTE_TOKEN`). The backend runs the pipeline and applies the result;
+  the worker needs no Python. This is the only path that works in a deployed
+  Trigger.dev worker (a Node container with no Python). See
+  [docs/trigger-dev-deployment.md](../docs/trigger-dev-deployment.md).
+- **Local development — Python spawn bridge (Unit 45):** when
+  `SOLVER_EXECUTE_URL` is not set, the task invokes `python -m solver.job_cli`
+  on the same machine, configured via `BACKEND_DIR` and `PYTHON_BIN`. It needs
+  the backend environment (`backend/.env` with `DATABASE_URL`) available, since
+  it reads saved data.
 
 Trigger the solver job from the dashboard "Test" tab with a payload such as:
 
@@ -76,7 +87,10 @@ Trigger the solver job from the dashboard "Test" tab with a payload such as:
 | ----------------------- | --------------------------------------------- |
 | `project` ref (config)  | Always — set in `trigger.config.ts`           |
 | `TRIGGER_ACCESS_TOKEN`  | Non-interactive auth (CI/deploy); optional for local if you `login` |
-| `TRIGGER_SECRET_KEY`    | Only when a backend service triggers tasks via the SDK (future) |
+| `TRIGGER_SECRET_KEY`    | When a backend service triggers tasks via the API (the backend's key, not set here) |
+| `SOLVER_EXECUTE_URL`    | Production: deployed backend internal execute endpoint URL (enables the HTTP bridge) |
+| `SOLVER_EXECUTE_TOKEN`  | Production: shared secret = backend `SOLVER_INTERNAL_TOKEN`     |
+| `BACKEND_DIR` / `PYTHON_BIN` | Local dev only — Python spawn bridge (ignored when `SOLVER_EXECUTE_URL` is set) |
 
 Copy `.env.example` to `.env` and fill in as needed.
 
@@ -115,8 +129,9 @@ structured logs visible in the dashboard run view.
 - They are separate processes. Nothing in the FastAPI app depends on the
   jobs dev server being up in this unit.
 
-## Not yet implemented (future units)
+## Production deployment
 
-- Solver start/status API and frontend solver client/polling/UI integration.
-- Production Trigger.dev deployment wiring (the `solver-job` bridge currently
-  shells out to a local backend interpreter for dev verification).
+Deploy the worker with `npm run deploy` (`trigger.dev deploy`). The production
+environment, secrets (`SOLVER_EXECUTE_URL`, `SOLVER_EXECUTE_TOKEN`), the smoke
+test, and failure-safety verification are documented in
+[docs/trigger-dev-deployment.md](../docs/trigger-dev-deployment.md).

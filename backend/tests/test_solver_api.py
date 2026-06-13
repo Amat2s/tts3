@@ -352,3 +352,75 @@ def test_status_404_is_structured(client):
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "solver_run_not_found"
+
+
+# --- Internal solver execution endpoint (Unit 56) ---
+
+from fastapi.security import HTTPAuthorizationCredentials  # noqa: E402
+
+import solver.job as solver_job_module  # noqa: E402
+from api.errors import AppError  # noqa: E402
+from auth.deps import require_internal_token  # noqa: E402
+from config import settings  # noqa: E402
+
+
+def _creds(token: str) -> HTTPAuthorizationCredentials:
+    return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+
+def test_internal_token_fails_closed_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "solver_internal_token", None)
+    with pytest.raises(AppError) as exc:
+        require_internal_token(_creds("anything"))
+    assert exc.value.status_code == 503
+    assert exc.value.code == "internal_token_unconfigured"
+
+
+def test_internal_token_rejects_missing_credentials(monkeypatch):
+    monkeypatch.setattr(settings, "solver_internal_token", "secret")
+    with pytest.raises(AppError) as exc:
+        require_internal_token(None)
+    assert exc.value.status_code == 401
+    assert exc.value.code == "invalid_internal_token"
+
+
+def test_internal_token_rejects_wrong_token(monkeypatch):
+    monkeypatch.setattr(settings, "solver_internal_token", "secret")
+    with pytest.raises(AppError) as exc:
+        require_internal_token(_creds("nope"))
+    assert exc.value.status_code == 401
+    assert exc.value.code == "invalid_internal_token"
+
+
+def test_internal_token_accepts_correct_token(monkeypatch):
+    monkeypatch.setattr(settings, "solver_internal_token", "secret")
+    assert require_internal_token(_creds("secret")) is None
+
+
+def test_execute_solver_run_delegates_to_runner_with_reference_only(db, monkeypatch):
+    captured = {}
+
+    class FakeResult:
+        def to_dict(self):
+            return {"status": "completed", "solver_run_id": "run-x"}
+
+    def fake_run(session, payload):
+        captured["session"] = session
+        captured["payload"] = payload
+        return FakeResult()
+
+    monkeypatch.setattr(solver_job_module, "run_solver_job", fake_run)
+
+    result = solver_run_service.execute_solver_run(
+        db,
+        solver_run_id="run-x",
+        correlation_id="corr-x",
+        admin_workspace_id="admin-1",
+    )
+
+    assert result == {"status": "completed", "solver_run_id": "run-x"}
+    assert captured["session"] is db
+    assert captured["payload"].solver_run_id == "run-x"
+    assert captured["payload"].correlation_id == "corr-x"
+    assert captured["payload"].admin_workspace_id == "admin-1"
+    assert captured["payload"].snapshot_id is None

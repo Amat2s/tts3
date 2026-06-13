@@ -104,4 +104,4 @@ After deploying, verify:
 
 _To be filled in after the first production deploy:_
 
-- Production: `TODO`
+- Production: `https://tts3-5xv0gdi40-amat2s.vercel.app`
