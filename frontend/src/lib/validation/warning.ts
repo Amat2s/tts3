@@ -3,9 +3,11 @@ import type { SlotId, TimetableAssignment } from '@/features/timetable/assignmen
 import type { Lecturer, AvailabilityDay } from '@/lib/api/lecturers'
 import { SLOT_INDEX, ALL_SLOTS, rangesOverlap } from './slot-helpers'
 
+// Unit 67: `unit_session_overlap` was removed as an independent warning type.
+// Shared allocated students now determine session-overlap conflicts, so two
+// sessions of the same unit only conflict when their allocation sets intersect.
 export type WarningIssueType =
   | 'lecturer_overlap'
-  | 'unit_session_overlap'
   | 'student_overlap'
   | 'lecturer_unavailable'
 
@@ -25,16 +27,29 @@ function occupiedSlotIds(startSlot: SlotId, duration: number): SlotId[] {
   return ALL_SLOTS.slice(startIdx, startIdx + duration)
 }
 
+// Intersection of two allocated-student sets, without revealing which hidden
+// allocation group the students belong to.
+function sharedStudentIds(
+  a: TimetableAssignment,
+  b: TimetableAssignment
+): string[] {
+  const ids = a.allocated_student_ids
+  const other = b.allocated_student_ids
+  if (ids.length === 0 || other.length === 0) return []
+  const otherSet = new Set(other)
+  return ids.filter((id) => otherSet.has(id))
+}
+
 export function checkDraftForWarnings(
   draft: TimetableAssignment[],
   lecturers?: Lecturer[]
 ): WarningIssue[] {
   const issues: WarningIssue[] = []
 
-  const lecturerByDisplayName = new Map<string, Lecturer>()
+  const lecturerById = new Map<string, Lecturer>()
   if (lecturers) {
     for (const l of lecturers) {
-      lecturerByDisplayName.set(`${l.title} ${l.first_name} ${l.last_name}`, l)
+      lecturerById.set(l.id, l)
     }
   }
 
@@ -47,31 +62,44 @@ export function checkDraftForWarnings(
       if (a.day !== b.day) continue
       if (!rangesOverlap(a.start_slot, a.duration, b.start_slot, b.duration)) continue
 
-      if (a.lecturer_display_name && a.lecturer_display_name === b.lecturer_display_name) {
+      // Lecturer overlap is keyed on the session-level lecturer id, not the
+      // display name — two sessions belonging to units with the same teaching
+      // team must NOT conflict unless the same lecturer actually teaches both.
+      if (a.lecturer_id && b.lecturer_id && a.lecturer_id === b.lecturer_id) {
         issues.push({
           type: 'lecturer_overlap',
           severity: 'warning',
           affected_session_ids: [a.session_id, b.session_id],
+          affected_lecturer_id: a.lecturer_id,
           affected_day: a.day,
           message: `${a.lecturer_display_name} is teaching two sessions at the same time on ${a.day}.`,
         })
       }
 
-      if (a.unit_id === b.unit_id) {
+      // Student overlap is the intersection of the two sessions' allocated
+      // students. This subsumes the old unit/session overlap: a lecture and a
+      // tutorial of the same unit conflict only through shared students, and two
+      // tutorials of the same unit can overlap when their groups are disjoint.
+      const shared = sharedStudentIds(a, b)
+      if (shared.length > 0) {
         issues.push({
-          type: 'unit_session_overlap',
+          type: 'student_overlap',
           severity: 'warning',
           affected_session_ids: [a.session_id, b.session_id],
+          affected_student_ids: shared,
           affected_day: a.day,
-          message: `Two sessions for ${a.unit_code} overlap on ${a.day} — enrolled students have a conflict.`,
+          message: `${a.unit_code} and ${b.unit_code} share ${
+            shared.length === 1 ? 'a student' : 'students'
+          } scheduled at the same time on ${a.day}.`,
         })
       }
     }
   }
 
-  // Lecturer availability checks
+  // Lecturer availability checks — find the lecturer by session-level id.
   for (const a of draft) {
-    const lecturer = lecturerByDisplayName.get(a.lecturer_display_name)
+    if (!a.lecturer_id) continue
+    const lecturer = lecturerById.get(a.lecturer_id)
     if (!lecturer) continue
 
     const occupied = occupiedSlotIds(a.start_slot, a.duration)
@@ -85,6 +113,7 @@ export function checkDraftForWarnings(
           type: 'lecturer_unavailable',
           severity: 'warning',
           affected_session_ids: [a.session_id],
+          affected_lecturer_id: a.lecturer_id,
           affected_day: a.day,
           affected_slot: slot,
           message: `${a.lecturer_display_name} is marked unavailable on ${a.day} (slot ${slot}).`,

@@ -96,6 +96,7 @@ export function makeAssignment(
     duration: 1,
     lecturer_display_name: 'Dr. Ada Lovelace',
     student_count: 10,
+    allocated_student_ids: [],
     day: 'Monday',
     start_slot: 's1',
     room_id: 'room-1',

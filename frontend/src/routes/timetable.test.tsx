@@ -224,10 +224,11 @@ describe('TimetablePage — solver gating', () => {
       makeRoom({ id: 'room-1', capacity: 30 }),
       makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
     ])
-    // Two saved sessions taught by the same lecturer at the same time → warning.
+    // Two saved sessions sharing an allocated student at the same time → warning.
+    // (The saved assignment DTO carries allocated_student_ids, not lecturer_id.)
     mockListAssignments.mockResolvedValue([
-      makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', lecturer_display_name: 'Dr. Ada Lovelace' }),
-      makeAssignmentResponse({ assignment_id: 'asg-2', session_id: 'sess-2', unit_id: 'unit-2', unit_code: 'MAT200', room_id: 'room-2', day: 'Monday', start_slot: 's1', lecturer_display_name: 'Dr. Ada Lovelace' }),
+      makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', allocated_student_ids: ['stu-1', 'stu-2'] }),
+      makeAssignmentResponse({ assignment_id: 'asg-2', session_id: 'sess-2', unit_id: 'unit-2', unit_code: 'MAT200', room_id: 'room-2', day: 'Monday', start_slot: 's1', allocated_student_ids: ['stu-2'] }),
     ])
     mockListLecturers.mockResolvedValue([makeLecturer()])
 
