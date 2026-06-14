@@ -9,10 +9,10 @@ from db.session import Base
 
 
 class SessionType(str, enum.Enum):
+    # Unit 60: reduced to only lecture and tutorial. Existing lab/workshop rows
+    # are migrated to tutorial (see migration 0011).
     LECTURE = "lecture"
     TUTORIAL = "tutorial"
-    LAB = "lab"
-    WORKSHOP = "workshop"
 
 
 class Session(Base):
@@ -52,3 +52,11 @@ class Session(Base):
 
     unit: Mapped["Unit"] = relationship("Unit", back_populates="sessions")
     lecturer: Mapped["Lecturer | None"] = relationship("Lecturer", lazy="selectin")
+    # Unit 60: hidden system-owned student allocations for this session. Deleting
+    # a session cascades to its allocation rows (DB-level cascade + ORM cascade).
+    allocations: Mapped[list["SessionStudentAllocation"]] = relationship(
+        "SessionStudentAllocation",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

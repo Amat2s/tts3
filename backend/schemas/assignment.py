@@ -28,7 +28,11 @@ class AssignmentResponse(BaseModel):
     session_type: SessionType
     duration: int
     lecturer_display_name: str
+    # Unit 60: derived from the hidden session-student allocation rows.
     student_count: int
+    # Internal validation payload only; the UI must not display tutorial
+    # allocation membership.
+    allocated_student_ids: list[str] = []
     day: AvailabilityDay
     start_slot: AvailabilitySlot
     room_id: str

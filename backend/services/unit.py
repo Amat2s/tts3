@@ -6,6 +6,7 @@ from models.session import Session as TimetableSession
 from models.student import Student
 from models.unit import Unit
 from schemas.unit import UnitCreate, UnitUpdate
+from services.session_allocation import rebalance_unit_session_allocations
 from services.year_level import parse_unit_year_level
 
 
@@ -90,6 +91,10 @@ def create_unit(db: Session, data: UnitCreate) -> Unit:
         students=students,
     )
     db.add(unit)
+    # Flush so the unit and its enrolment rows are queryable, then build the
+    # hidden session-student allocations in the same transaction.
+    db.flush()
+    rebalance_unit_session_allocations(db, unit.id)
     db.commit()
     db.refresh(unit)
     return unit
@@ -138,8 +143,15 @@ def update_unit(db: Session, unit_id: str, data: UnitUpdate) -> Unit:
                 )
         unit.lecturers = new_team
 
-    if data.student_ids is not None:
+    enrolment_changed = data.student_ids is not None
+    if enrolment_changed:
         unit.students = _require_students(db, data.student_ids)
+
+    # Enrolment changes alter who attends each lecture/tutorial, so refresh the
+    # hidden allocations atomically with the update.
+    if enrolment_changed:
+        db.flush()
+        rebalance_unit_session_allocations(db, unit.id)
 
     db.commit()
     db.refresh(unit)

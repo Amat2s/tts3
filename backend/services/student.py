@@ -4,6 +4,7 @@ from api.errors import AppError
 from models.student import Student
 from models.unit import Unit
 from schemas.student import StudentCreate, StudentUpdate
+from services.session_allocation import rebalance_unit_session_allocations
 
 
 def list_students(db: Session) -> list[Student]:
@@ -31,6 +32,11 @@ def create_student(db: Session, data: StudentCreate) -> Student:
         units=matching_units,
     )
     db.add(student)
+    # Refresh allocations for every unit the student was auto-enrolled into so
+    # the new student joins each lecture and one tutorial group, atomically.
+    db.flush()
+    for unit in matching_units:
+        rebalance_unit_session_allocations(db, unit.id)
     db.commit()
     db.refresh(student)
     return student
@@ -50,5 +56,12 @@ def update_student(db: Session, student_id: str, data: StudentUpdate) -> Student
 
 def delete_student(db: Session, student_id: str) -> None:
     student = get_student(db, student_id)
+    # Capture affected units before deletion. The student's allocation rows are
+    # removed by cascade; remaining tutorial groups are then rebalanced so the
+    # removed student's slot is redistributed.
+    affected_unit_ids = [unit.id for unit in student.units]
     db.delete(student)
+    db.flush()
+    for unit_id in affected_unit_ids:
+        rebalance_unit_session_allocations(db, unit_id)
     db.commit()

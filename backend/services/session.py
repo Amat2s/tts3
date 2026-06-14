@@ -4,6 +4,11 @@ from api.errors import AppError
 from models.session import Session
 from models.unit import Unit
 from schemas.session import SchedulableSessionResponse, SessionCreate, SessionUpdate
+from services.session_allocation import (
+    allocated_student_ids,
+    allocation_counts,
+    rebalance_unit_session_allocations,
+)
 
 
 def _require_unit(db: DBSession, unit_id: str) -> Unit:
@@ -69,6 +74,10 @@ def create_session(db: DBSession, unit_id: str, data: SessionCreate) -> Session:
         lecturer_id=lecturer_id,
     )
     db.add(session)
+    # Refresh hidden allocations: a new lecture gets every enrolled student; a
+    # new tutorial triggers an even rebalance across tutorial sessions.
+    db.flush()
+    rebalance_unit_session_allocations(db, unit_id)
     db.commit()
     db.refresh(session)
     return session
@@ -76,6 +85,9 @@ def create_session(db: DBSession, unit_id: str, data: SessionCreate) -> Session:
 
 def update_session(db: DBSession, session_id: str, data: SessionUpdate) -> Session:
     session = _require_session(db, session_id)
+    type_changed = (
+        data.session_type is not None and data.session_type != session.session_type
+    )
     if data.session_type is not None:
         session.session_type = data.session_type
     if data.duration is not None:
@@ -89,6 +101,11 @@ def update_session(db: DBSession, session_id: str, data: SessionUpdate) -> Sessi
                 status_code=422,
             )
         session.lecturer_id = data.lecturer_id
+    # Switching lecture<->tutorial changes which allocation rule applies, so
+    # refresh the unit's allocations atomically.
+    if type_changed:
+        db.flush()
+        rebalance_unit_session_allocations(db, session.unit_id)
     db.commit()
     db.refresh(session)
     return session
@@ -96,7 +113,12 @@ def update_session(db: DBSession, session_id: str, data: SessionUpdate) -> Sessi
 
 def delete_session(db: DBSession, session_id: str) -> None:
     session = _require_session(db, session_id)
+    unit_id = session.unit_id
     db.delete(session)
+    # The deleted session's allocation rows cascade away; rebalance so a removed
+    # tutorial's students are redistributed across the remaining tutorials.
+    db.flush()
+    rebalance_unit_session_allocations(db, unit_id)
     db.commit()
 
 
@@ -109,6 +131,12 @@ def list_schedulable_sessions(db: DBSession) -> list[SchedulableSessionResponse]
         .filter(Session.lecturer_id.isnot(None))
         .all()
     )
+    # Unit 60: per-session student membership comes from the hidden allocation
+    # rows, not from assuming every unit student attends every session.
+    session_ids = [s.id for s in sessions]
+    counts = allocation_counts(db, session_ids)
+    allocated = allocated_student_ids(db, session_ids)
+
     results = []
     for s in sessions:
         unit = s.unit
@@ -126,7 +154,8 @@ def list_schedulable_sessions(db: DBSession) -> list[SchedulableSessionResponse]
                 duration=s.duration,
                 lecturer_id=lecturer.id,
                 lecturer_display_name=f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}",
-                student_count=len(unit.students),
+                student_count=counts.get(s.id, 0),
+                allocated_student_ids=allocated.get(s.id, []),
             )
         )
     return results
