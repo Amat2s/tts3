@@ -48,7 +48,13 @@ def _off_timetable(start_slot: str, duration: int) -> bool:
 def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
     session = assignment.session
     unit = session.unit
-    lecturer = unit.lecturer
+    # Unit 59: lecturer display comes from the session-level lecturer.
+    lecturer = session.lecturer
+    lecturer_display_name = (
+        f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}"
+        if lecturer is not None
+        else "Unassigned"
+    )
     return AssignmentResponse(
         assignment_id=assignment.id,
         session_id=session.id,
@@ -57,9 +63,7 @@ def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
         unit_name=unit.name,
         session_type=session.session_type,
         duration=session.duration,
-        lecturer_display_name=(
-            f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}"
-        ),
+        lecturer_display_name=lecturer_display_name,
         student_count=len(unit.students),
         day=assignment.day,
         start_slot=assignment.start_slot,
@@ -71,9 +75,7 @@ def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
 
 def _assignment_query(db: DBSession):
     return db.query(TimetableAssignment).options(
-        selectinload(TimetableAssignment.session)
-        .selectinload(Session.unit)
-        .selectinload(Unit.lecturer),
+        selectinload(TimetableAssignment.session).selectinload(Session.lecturer),
         selectinload(TimetableAssignment.session)
         .selectinload(Session.unit)
         .selectinload(Unit.students),
@@ -118,7 +120,6 @@ def save_assignments(
         s.id: s
         for s in db.query(Session)
         .options(
-            selectinload(Session.unit).selectinload(Unit.lecturer),
             selectinload(Session.unit).selectinload(Unit.students),
         )
         .filter(Session.id.in_(session_ids))

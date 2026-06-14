@@ -146,20 +146,25 @@ def make_unit(db, unit_id="unit1", lecturer_id="lec1", student_ids=()) -> Unit:
         id=unit_id,
         code="HIS101",
         name="History 101",
-        lecturer_id=lecturer_id,
+        year_level=1,
     )
+    db.add(unit)
+    db.flush()
+    lecturer = db.get(Lecturer, lecturer_id)
+    if lecturer is not None:
+        unit.lecturers.append(lecturer)
     for student_id in student_ids:
         unit.students.append(make_student(db, student_id))
-    db.add(unit)
     return unit
 
 
-def make_session(db, session_id="sess1", unit_id="unit1", duration=1) -> Session:
+def make_session(db, session_id="sess1", unit_id="unit1", duration=1, lecturer_id="lec1") -> Session:
     session = Session(
         id=session_id,
         unit_id=unit_id,
         session_type=SessionType.LECTURE,
         duration=duration,
+        lecturer_id=lecturer_id,
     )
     db.add(session)
     return session

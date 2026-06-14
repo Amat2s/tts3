@@ -8,6 +8,12 @@ from db.deps import get_db
 from schemas.unit import UnitCreate, UnitResponse, UnitUpdate
 import services.unit as unit_service
 
+# Query-invalidation note for later frontend units: unit mutations (and student
+# mutations, which auto-enrol into matching-year units) affect the cached query
+# keys ['units'], ['students'], ['schedulable-sessions'], and indirectly
+# ['assignments'] through validation refresh. Actual frontend invalidation is
+# wired up in later units.
+
 router = APIRouter(prefix="/units", tags=["units"])
 
 

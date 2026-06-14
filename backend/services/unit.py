@@ -2,20 +2,33 @@ from sqlalchemy.orm import Session
 
 from api.errors import AppError
 from models.lecturer import Lecturer
+from models.session import Session as TimetableSession
 from models.student import Student
 from models.unit import Unit
 from schemas.unit import UnitCreate, UnitUpdate
+from services.year_level import parse_unit_year_level
 
 
-def _require_lecturer(db: Session, lecturer_id: str) -> Lecturer:
-    lecturer = db.query(Lecturer).filter(Lecturer.id == lecturer_id).first()
-    if lecturer is None:
-        raise AppError(
-            "lecturer_not_found",
-            f"Lecturer '{lecturer_id}' not found.",
-            status_code=422,
-        )
-    return lecturer
+def _require_lecturers(db: Session, lecturer_ids: list[str]) -> list[Lecturer]:
+    """Validate every lecturer id exists, returning the deduplicated team.
+
+    Order of first appearance is preserved so the persisted team is stable.
+    """
+    lecturers: list[Lecturer] = []
+    seen: set[str] = set()
+    for lid in lecturer_ids:
+        if lid in seen:
+            continue
+        seen.add(lid)
+        lecturer = db.query(Lecturer).filter(Lecturer.id == lid).first()
+        if lecturer is None:
+            raise AppError(
+                "lecturer_not_found",
+                f"Lecturer '{lid}' not found.",
+                status_code=422,
+            )
+        lecturers.append(lecturer)
+    return lecturers
 
 
 def _require_students(db: Session, student_ids: list[str]) -> list[Student]:
@@ -57,13 +70,23 @@ def get_unit(db: Session, unit_id: str) -> Unit:
 
 def create_unit(db: Session, data: UnitCreate) -> Unit:
     _check_code_unique(db, data.code)
-    _require_lecturer(db, data.lecturer_id)
-    students = _require_students(db, data.student_ids)
+    lecturers = _require_lecturers(db, data.lecturer_ids)
+    year_level = parse_unit_year_level(data.code)
+
+    if data.student_ids is None:
+        # No explicit list supplied: default to all students in the derived year.
+        students = (
+            db.query(Student).filter(Student.year_level == year_level).all()
+        )
+    else:
+        # Explicit list (including empty) is respected exactly.
+        students = _require_students(db, data.student_ids)
 
     unit = Unit(
         code=data.code,
         name=data.name,
-        lecturer_id=data.lecturer_id,
+        year_level=year_level,
+        lecturers=lecturers,
         students=students,
     )
     db.add(unit)
@@ -78,13 +101,42 @@ def update_unit(db: Session, unit_id: str, data: UnitUpdate) -> Unit:
     if data.code is not None:
         _check_code_unique(db, data.code, exclude_id=unit_id)
         unit.code = data.code
+        # Recompute the derived year level when the code changes. This does NOT
+        # touch the student list — enrolment is only changed via student_ids.
+        unit.year_level = parse_unit_year_level(data.code)
 
     if data.name is not None:
         unit.name = data.name
 
-    if data.lecturer_id is not None:
-        _require_lecturer(db, data.lecturer_id)
-        unit.lecturer_id = data.lecturer_id
+    if data.lecturer_ids is not None:
+        new_team = _require_lecturers(db, data.lecturer_ids)
+        new_team_ids = {lec.id for lec in new_team}
+        # Reject removing a lecturer who is still assigned to one or more
+        # sessions of this unit. The fix is an explicit session reassignment
+        # first; we never silently unset session lecturers.
+        removed_ids = {lec.id for lec in unit.lecturers} - new_team_ids
+        if removed_ids:
+            orphaned = (
+                db.query(TimetableSession)
+                .filter(
+                    TimetableSession.unit_id == unit_id,
+                    TimetableSession.lecturer_id.in_(removed_ids),
+                )
+                .all()
+            )
+            if orphaned:
+                orphaned_ids = ", ".join(sorted(s.id for s in orphaned))
+                raise AppError(
+                    "lecturer_still_assigned",
+                    (
+                        "Cannot remove a lecturer who is still assigned to "
+                        f"{len(orphaned)} session(s) of this unit "
+                        f"({orphaned_ids}). Reassign those sessions to another "
+                        "teaching-team lecturer first."
+                    ),
+                    status_code=422,
+                )
+        unit.lecturers = new_team
 
     if data.student_ids is not None:
         unit.students = _require_students(db, data.student_ids)

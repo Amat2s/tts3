@@ -33,6 +33,13 @@ class Session(Base):
         nullable=False,
     )
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Unit 59: the actual lecturer teaching this session. Must belong to the
+    # parent unit's teaching team (enforced at the service layer). Nullable so a
+    # session may exist without an assigned lecturer; such a session is not
+    # schedulable until a lecturer is assigned.
+    lecturer_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("lecturers.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -44,3 +51,4 @@ class Session(Base):
     )
 
     unit: Mapped["Unit"] = relationship("Unit", back_populates="sessions")
+    lecturer: Mapped["Lecturer | None"] = relationship("Lecturer", lazy="selectin")
