@@ -7,8 +7,6 @@ import { UnitGroup } from './UnitGroup'
 const SESSION_TYPE_ORDER: Record<string, number> = {
   lecture: 0,
   tutorial: 1,
-  lab: 2,
-  workshop: 3,
 }
 
 interface UnitBucket {

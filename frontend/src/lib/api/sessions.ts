@@ -1,12 +1,19 @@
 import { apiRequest, ApiRequestError } from '@/lib/api/client'
+import type { LecturerSummary } from '@/lib/api/units'
+import type { YearLevel } from '@/lib/api/students'
 
-export type SessionType = 'lecture' | 'tutorial' | 'lab' | 'workshop'
+// Post-v1 (Unit 60): session types are reduced to lecture and tutorial only.
+export type SessionType = 'lecture' | 'tutorial'
 
 export interface Session {
   id: string
   unit_id: string
   session_type: SessionType
   duration: number
+  // Unit 59: per-session lecturer. Nullable — a session without a lecturer is
+  // simply not schedulable.
+  lecturer_id: string | null
+  lecturer: LecturerSummary | null
   created_at: string
   updated_at: string
 }
@@ -14,11 +21,16 @@ export interface Session {
 export interface SessionCreate {
   session_type: SessionType
   duration: number
+  // When omitted and the unit has exactly one team lecturer, the server
+  // assigns that lecturer automatically.
+  lecturer_id?: string | null
 }
 
 export interface SessionUpdate {
   session_type?: SessionType
   duration?: number
+  // When supplied, the new lecturer must belong to the unit's teaching team.
+  lecturer_id?: string | null
 }
 
 export interface SchedulableSession {
@@ -30,7 +42,15 @@ export interface SchedulableSession {
   duration: number
   lecturer_id: string
   lecturer_display_name: string
+  // Unit 60: derived from the hidden session-student allocation rows.
   student_count: number
+  // Internal validation payload only — the UI must NOT display tutorial
+  // allocation membership; these ids exist so later units can validate
+  // student-level placement conflicts.
+  allocated_student_ids: string[]
+  // Optional until the backend schedulable DTO surfaces it (consumed by the
+  // later validation unit). Derived from the parent unit's year level.
+  unit_year_level?: YearLevel
 }
 
 function parseSessionError(err: unknown): never {

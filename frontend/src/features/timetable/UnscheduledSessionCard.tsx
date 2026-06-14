@@ -24,8 +24,6 @@ const BORDER_MAP: Record<UnitColorVariant, string> = {
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lecture',
   tutorial: 'Tutorial',
-  lab: 'Lab',
-  workshop: 'Workshop',
 }
 
 interface UnscheduledSessionCardProps {

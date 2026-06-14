@@ -15,7 +15,13 @@ export interface TimetableAssignment {
   session_type: SessionType
   duration: number
   lecturer_display_name: string
+  // Optional: present when sourced from a schedulable session; saved
+  // assignment rows do not carry it. Rendering does not depend on it yet
+  // (Unit 67 wires session-level validation).
+  lecturer_id?: string
   student_count: number
+  // Optional internal validation payload for later units. Never displayed.
+  allocated_student_ids?: string[]
   day: Day
   start_slot: SlotId
   room_id: string
