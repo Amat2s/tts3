@@ -246,13 +246,18 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
 
     `db` is a SQLAlchemy Session. All ORM objects are consumed here; the
     returned SolverInputSnapshot is fully detached from the database.
+
+    Unit 68: session-level lecturer_id is authoritative. Per-session student
+    membership comes from session_student_allocations (not unit.students), so
+    lectures and tutorials each carry only their allocated students.
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
     from models.room import Room
     from models.lecturer import Lecturer
-    from models.unit import Unit
+    from models.session import Session
+    from models.session_allocation import SessionStudentAllocation
     from models.assignment import TimetableAssignment
 
     # --- rooms ---
@@ -286,42 +291,49 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
         for lec in lecturers_orm
     ]
 
-    # --- units → sessions (with derived context) ---
-    # Unit 59: the schedulable lecturer is the session-level lecturer, not the
-    # unit. Sessions without an assigned lecturer are not schedulable and are
-    # skipped here, mirroring services.session.list_schedulable_sessions. The
-    # CP-SAT model and pure snapshot builder are unchanged — only this loader
-    # sources lecturer_id per session.
-    units_orm = (
+    # --- sessions: load with unit context, filter to schedulable only ---
+    # Sessions without a session-level lecturer_id are not schedulable and are
+    # excluded, mirroring services.session.list_schedulable_sessions.
+    sessions_orm = (
         db.execute(
-            select(Unit).options(
-                selectinload(Unit.students),
-                selectinload(Unit.sessions),
-            )
+            select(Session).options(selectinload(Session.unit))
         )
         .scalars()
         .all()
     )
+    schedulable = [s for s in sessions_orm if s.lecturer_id is not None]
+    schedulable_ids = [s.id for s in schedulable]
+
+    # Load per-session allocation data in one query. Allocation rows are the
+    # authoritative student membership for each session (lecture = all enrolled,
+    # tutorial = allocated group). unit.students is intentionally not used.
+    alloc_by_session: dict[str, set[str]] = {sid: set() for sid in schedulable_ids}
+    if schedulable_ids:
+        alloc_rows = db.execute(
+            select(
+                SessionStudentAllocation.session_id,
+                SessionStudentAllocation.student_id,
+            ).where(SessionStudentAllocation.session_id.in_(schedulable_ids))
+        ).all()
+        for session_id, student_id in alloc_rows:
+            alloc_by_session[session_id].add(student_id)
 
     sessions: list[SessionSnapshot] = []
-    for unit in units_orm:
-        student_ids = frozenset(s.id for s in unit.students)
-        for sess in unit.sessions:
-            if sess.lecturer_id is None:
-                continue
-            sessions.append(
-                SessionSnapshot(
-                    session_id=sess.id,
-                    unit_id=unit.id,
-                    unit_code=unit.code,
-                    unit_name=unit.name,
-                    session_type=sess.session_type.value,
-                    duration=sess.duration,
-                    lecturer_id=sess.lecturer_id,
-                    student_ids=student_ids,
-                    student_count=len(student_ids),
-                )
+    for sess in schedulable:
+        student_ids = frozenset(alloc_by_session[sess.id])
+        sessions.append(
+            SessionSnapshot(
+                session_id=sess.id,
+                unit_id=sess.unit_id,
+                unit_code=sess.unit.code,
+                unit_name=sess.unit.name,
+                session_type=sess.session_type.value,
+                duration=sess.duration,
+                lecturer_id=sess.lecturer_id,
+                student_ids=student_ids,
+                student_count=len(student_ids),
             )
+        )
 
     # --- saved assignments ---
     session_duration_map = {s.session_id: s.duration for s in sessions}

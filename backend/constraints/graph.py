@@ -126,11 +126,16 @@ def derive_unit_session_overlap_conflicts(sessions: list[SessionInput]) -> list[
 
 
 def build_conflict_graph(sessions: list[SessionInput]) -> ConflictGraph:
-    """Build the full structural conflict graph from session metadata."""
+    """Build the structural conflict graph from session metadata.
+
+    Post-v1 (Unit 68): unit/session overlap edges are not generated.
+    Per-session allocation data drives student overlap, which subsumes the
+    v1 unit-membership heuristic. derive_unit_session_overlap_conflicts is
+    preserved for diagnostic use but is not called here.
+    """
     edges: list[ConflictEdge] = []
     edges.extend(derive_lecturer_overlap_conflicts(sessions))
     edges.extend(derive_student_overlap_conflicts(sessions))
-    edges.extend(derive_unit_session_overlap_conflicts(sessions))
     return ConflictGraph(edges=edges)
 
 

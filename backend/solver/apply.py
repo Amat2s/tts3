@@ -29,7 +29,7 @@ from models.assignment import TimetableAssignment
 from models.lecturer import AvailabilityDay, AvailabilitySlot
 from models.room import Room
 from models.session import Session
-from models.unit import Unit
+from models.session_allocation import SessionStudentAllocation
 from solver.types import (
     AM_PM_BOUNDARY_INDEX,
     ORDERED_DAYS,
@@ -182,13 +182,23 @@ def _validate_generated(
     sessions_map: dict[str, Session] = {
         s.id: s
         for s in db.query(Session)
-        .options(selectinload(Session.unit).selectinload(Unit.students))
         .filter(Session.id.in_(gen_session_ids))
         .all()
     }
     rooms_map: dict[str, Room] = {
         r.id: r for r in db.query(Room).filter(Room.id.in_(gen_room_ids)).all()
     }
+
+    # Unit 68: capacity is checked against allocation-derived student count,
+    # not total unit enrollment.
+    alloc_counts: dict[str, int] = {sid: 0 for sid in gen_session_ids}
+    alloc_rows = (
+        db.query(SessionStudentAllocation.session_id)
+        .filter(SessionStudentAllocation.session_id.in_(gen_session_ids))
+        .all()
+    )
+    for (session_id,) in alloc_rows:
+        alloc_counts[session_id] = alloc_counts.get(session_id, 0) + 1
 
     for g in generated:
         # Generated session must not overwrite a locked saved assignment.
@@ -245,14 +255,14 @@ def _validate_generated(
                 ),
             )
 
-        student_count = len(session.unit.students) if session.unit is not None else 0
+        student_count = alloc_counts.get(g.session_id, 0)
         if room.capacity < student_count:
             raise SolverResultApplicationError(
                 "blocking_integrity_violation",
                 (
                     f"Generated placement for session {g.session_id!r} uses room "
-                    f"{room.name!r} (capacity {room.capacity}) smaller than the student "
-                    f"count ({student_count})."
+                    f"{room.name!r} (capacity {room.capacity}) smaller than the "
+                    f"allocation count ({student_count})."
                 ),
             )
 

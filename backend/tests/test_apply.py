@@ -339,10 +339,14 @@ def test_off_timetable_rejected(db):
 
 
 def test_room_capacity_rejected(db):
+    from services.session_allocation import rebalance_unit_session_allocations
+
     make_lecturer(db, "lec1")
     make_room(db, "small", capacity=1)
     make_unit(db, "unit1", "HIS101", "lec1", student_ids=["s1", "s2", "s3"])
     make_session(db, "sessA", "unit1", duration=1)
+    db.flush()
+    rebalance_unit_session_allocations(db, "unit1")
     db.commit()
 
     result = run_result(generated=[gen("sessA", room_id="small")])

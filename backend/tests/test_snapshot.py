@@ -358,10 +358,10 @@ def test_unit_session_conflict_pairs_same_unit(
     session_x2: SessionSnapshot,
     avail_lec1: AvailabilitySnapshot,
 ) -> None:
-    # session_x1 and session_x2 belong to UNIT_X → unit/session conflict pair.
+    # Post-v1 (Unit 68): unit/session overlap is not generated as an active
+    # conflict edge. unit_session_conflict_pairs is always empty for post-v1 data.
     snap = build_snapshot_from_data([room_large], [session_x1, session_x2], [avail_lec1], [])
-    pair = tuple(sorted([SESSION_X1, SESSION_X2]))
-    assert pair in snap.unit_session_conflict_pairs
+    assert snap.unit_session_conflict_pairs == []
 
 
 def test_no_conflict_between_different_units_and_lecturers(
