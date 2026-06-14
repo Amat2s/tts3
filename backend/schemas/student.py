@@ -1,8 +1,19 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
 from models.student import StudentTitle
+
+
+class EnrolledUnitSummary(BaseModel):
+    """Lightweight summary of a unit a student is enrolled in."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    code: str
+    name: str
+    year_level: int
 
 
 class StudentCreate(BaseModel):
@@ -28,8 +39,8 @@ class StudentCreate(BaseModel):
     @field_validator("year_level")
     @classmethod
     def year_level_valid(cls, v: int) -> int:
-        if not (1 <= v <= 5):
-            raise ValueError("Year level must be between 1 and 5.")
+        if not (1 <= v <= 3):
+            raise ValueError("Year level must be between 1 and 3.")
         return v
 
 
@@ -69,5 +80,11 @@ class StudentResponse(BaseModel):
     first_name: str
     last_name: str
     year_level: int
+    units: list[EnrolledUnitSummary] = []
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def unit_count(self) -> int:
+        return len(self.units)

@@ -2,8 +2,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, DateTime, Enum, Integer, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.session import Base
 
@@ -16,6 +16,9 @@ class StudentTitle(str, enum.Enum):
 
 class Student(Base):
     __tablename__ = "students"
+    __table_args__ = (
+        CheckConstraint("year_level IN (1, 2, 3)", name="ck_student_year_level"),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -39,4 +42,12 @@ class Student(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    # Continues to use the existing unit_students join table (no separate
+    # enrolment model). Referenced by name to avoid a cross-module import.
+    units: Mapped[list["Unit"]] = relationship(
+        "Unit",
+        secondary="unit_students",
+        lazy="selectin",
+        back_populates="students",
     )

@@ -598,15 +598,15 @@ def _seed_unit_with_session(
     db, *, session_id, unit_id, code, lecturer_id, room_id, duration=1, student_ids=()
 ):
     """Persist a real ORM lecturer/unit/session/room graph for apply tests."""
-    db.add(
-        Lecturer(
-            id=lecturer_id,
-            title=LecturerTitle.DR,
-            first_name="Ada",
-            last_name="Lovelace",
-        )
+    lecturer = Lecturer(
+        id=lecturer_id,
+        title=LecturerTitle.DR,
+        first_name="Ada",
+        last_name="Lovelace",
     )
-    unit = Unit(id=unit_id, code=code, name=f"Unit {code}", lecturer_id=lecturer_id)
+    db.add(lecturer)
+    unit = Unit(id=unit_id, code=code, name=f"Unit {code}", year_level=1)
+    unit.lecturers.append(lecturer)
     for sid in student_ids:
         unit.students.append(
             Student(
@@ -624,6 +624,7 @@ def _seed_unit_with_session(
             unit_id=unit_id,
             session_type=SessionType.LECTURE,
             duration=duration,
+            lecturer_id=lecturer_id,
         )
     )
     db.add(Room(id=room_id, name=room_id, capacity=30, room_type=RoomType.LECTURE))

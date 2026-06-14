@@ -287,10 +287,14 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
     ]
 
     # --- units → sessions (with derived context) ---
+    # Unit 59: the schedulable lecturer is the session-level lecturer, not the
+    # unit. Sessions without an assigned lecturer are not schedulable and are
+    # skipped here, mirroring services.session.list_schedulable_sessions. The
+    # CP-SAT model and pure snapshot builder are unchanged — only this loader
+    # sources lecturer_id per session.
     units_orm = (
         db.execute(
             select(Unit).options(
-                selectinload(Unit.lecturer),
                 selectinload(Unit.students),
                 selectinload(Unit.sessions),
             )
@@ -301,10 +305,10 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
 
     sessions: list[SessionSnapshot] = []
     for unit in units_orm:
-        if unit.lecturer is None:
-            continue
         student_ids = frozenset(s.id for s in unit.students)
         for sess in unit.sessions:
+            if sess.lecturer_id is None:
+                continue
             sessions.append(
                 SessionSnapshot(
                     session_id=sess.id,
@@ -313,7 +317,7 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
                     unit_name=unit.name,
                     session_type=sess.session_type.value,
                     duration=sess.duration,
-                    lecturer_id=unit.lecturer.id,
+                    lecturer_id=sess.lecturer_id,
                     student_ids=student_ids,
                     student_count=len(student_ids),
                 )

@@ -62,15 +62,25 @@ def make_room(db, room_id, capacity=30, name=None) -> Room:
 
 
 def make_unit(db, unit_id, code, lecturer_id, student_ids=()) -> Unit:
-    unit = Unit(id=unit_id, code=code, name=f"Unit {code}", lecturer_id=lecturer_id)
+    unit = Unit(id=unit_id, code=code, name=f"Unit {code}", year_level=1)
+    db.add(unit)
+    db.flush()
+    lecturer = db.get(Lecturer, lecturer_id)
+    if lecturer is not None:
+        unit.lecturers.append(lecturer)
     for sid in student_ids:
         unit.students.append(make_student(db, sid))
-    db.add(unit)
     return unit
 
 
-def make_session(db, session_id, unit_id, duration=1, session_type=SessionType.LECTURE) -> Session:
-    sess = Session(id=session_id, unit_id=unit_id, session_type=session_type, duration=duration)
+def make_session(db, session_id, unit_id, duration=1, session_type=SessionType.LECTURE, lecturer_id="lec1") -> Session:
+    sess = Session(
+        id=session_id,
+        unit_id=unit_id,
+        session_type=session_type,
+        duration=duration,
+        lecturer_id=lecturer_id,
+    )
     db.add(sess)
     return sess
 

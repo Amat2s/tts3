@@ -7,6 +7,7 @@ from models.room import Room
 from models.session import Session
 from models.unit import Unit
 from schemas.assignment import AssignmentItem, AssignmentResponse, AssignmentSaveRequest
+from services.session_allocation import allocated_student_ids, allocation_counts
 
 logger = structlog.get_logger(__name__)
 
@@ -45,10 +46,20 @@ def _off_timetable(start_slot: str, duration: int) -> bool:
     return _slot_index(start_slot) + duration > len(ORDERED_SLOTS)
 
 
-def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
+def _build_response(
+    assignment: TimetableAssignment,
+    counts: dict[str, int],
+    allocated: dict[str, list[str]],
+) -> AssignmentResponse:
     session = assignment.session
     unit = session.unit
-    lecturer = unit.lecturer
+    # Unit 59: lecturer display comes from the session-level lecturer.
+    lecturer = session.lecturer
+    lecturer_display_name = (
+        f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}"
+        if lecturer is not None
+        else "Unassigned"
+    )
     return AssignmentResponse(
         assignment_id=assignment.id,
         session_id=session.id,
@@ -57,10 +68,10 @@ def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
         unit_name=unit.name,
         session_type=session.session_type,
         duration=session.duration,
-        lecturer_display_name=(
-            f"{lecturer.title.value} {lecturer.first_name} {lecturer.last_name}"
-        ),
-        student_count=len(unit.students),
+        lecturer_display_name=lecturer_display_name,
+        # Unit 60: student count is the allocated group size for this session.
+        student_count=counts.get(session.id, 0),
+        allocated_student_ids=allocated.get(session.id, []),
         day=assignment.day,
         start_slot=assignment.start_slot,
         room_id=assignment.room_id,
@@ -71,9 +82,7 @@ def _build_response(assignment: TimetableAssignment) -> AssignmentResponse:
 
 def _assignment_query(db: DBSession):
     return db.query(TimetableAssignment).options(
-        selectinload(TimetableAssignment.session)
-        .selectinload(Session.unit)
-        .selectinload(Unit.lecturer),
+        selectinload(TimetableAssignment.session).selectinload(Session.lecturer),
         selectinload(TimetableAssignment.session)
         .selectinload(Session.unit)
         .selectinload(Unit.students),
@@ -81,9 +90,17 @@ def _assignment_query(db: DBSession):
     )
 
 
+def _allocation_maps(
+    db: DBSession, assignments: list[TimetableAssignment]
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    session_ids = [a.session_id for a in assignments]
+    return allocation_counts(db, session_ids), allocated_student_ids(db, session_ids)
+
+
 def list_assignments(db: DBSession) -> list[AssignmentResponse]:
     assignments = _assignment_query(db).all()
-    return [_build_response(a) for a in assignments]
+    counts, allocated = _allocation_maps(db, assignments)
+    return [_build_response(a, counts, allocated) for a in assignments]
 
 
 def save_assignments(
@@ -118,7 +135,6 @@ def save_assignments(
         s.id: s
         for s in db.query(Session)
         .options(
-            selectinload(Session.unit).selectinload(Unit.lecturer),
             selectinload(Session.unit).selectinload(Unit.students),
         )
         .filter(Session.id.in_(session_ids))
@@ -128,6 +144,11 @@ def save_assignments(
         r.id: r
         for r in db.query(Room).filter(Room.id.in_(room_ids)).all()
     }
+
+    # Unit 60: per-session student counts come from the hidden allocation rows,
+    # not from total unit enrolment. For a lecture this equals the enrolled unit
+    # student count; for a tutorial it is the allocated group size.
+    save_counts = allocation_counts(db, list(session_ids))
 
     # Verify all referenced sessions and rooms exist.
     for item in items:
@@ -149,9 +170,8 @@ def save_assignments(
     for item in items:
         session = sessions_map[item.session_id]
         room = rooms_map[item.room_id]
-        unit = session.unit
         duration = session.duration
-        student_count = len(unit.students)
+        student_count = save_counts.get(item.session_id, 0)
         start_slot = item.start_slot.value
 
         if room.capacity < student_count:
@@ -239,7 +259,8 @@ def save_assignments(
     # Re-query with full eager loading so responses include all joined display data.
     saved_ids = [r.id for r in new_records]
     saved = _assignment_query(db).filter(TimetableAssignment.id.in_(saved_ids)).all()
-    return [_build_response(a) for a in saved]
+    counts, allocated = _allocation_maps(db, saved)
+    return [_build_response(a, counts, allocated) for a in saved]
 
 
 def clear_assignments(db: DBSession) -> None:
