@@ -12,6 +12,9 @@ import {
 } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -52,6 +55,12 @@ import {
 } from '@/lib/api/sessions'
 import type { Session, SessionType } from '@/lib/api/sessions'
 import { parseUnitYearLevel } from '@/features/units/yearLevel'
+import {
+  EMPTY_UNIT_FILTERS,
+  filterUnits,
+  unitFiltersActive,
+} from '@/features/units/filters'
+import type { UnitFilters } from '@/features/units/filters'
 
 const SESSION_TYPES: { value: SessionType; label: string }[] = [
   { value: 'lecture', label: 'Lecture' },
@@ -743,12 +752,28 @@ export default function UnitsPage() {
   const [deletingUnit, setDeletingUnit] = useState<Unit | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<UnitFilters>(EMPTY_UNIT_FILTERS)
+
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
   const lecturersQuery = useQuery({ queryKey: ['lecturers'], queryFn: listLecturers })
   const studentsQuery = useQuery({ queryKey: ['students'], queryFn: listStudents })
 
   const lecturers = lecturersQuery.data ?? []
   const students = studentsQuery.data ?? []
+
+  // Teaching-lecturer filter options: every loaded lecturer, by display name.
+  const lecturerFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All lecturers' },
+      ...lecturers.map((l) => ({ value: l.id, label: lecturerLabel(l) })),
+    ],
+    [lecturers]
+  )
+
+  const filteredUnits = useMemo(
+    () => filterUnits(unitsQuery.data ?? [], filters),
+    [unitsQuery.data, filters]
+  )
 
   // After saving a unit/session, dependent server state may change: the unit
   // list, the lecturer list (teaching-team membership), the schedulable-session
@@ -992,7 +1017,19 @@ export default function UnitsPage() {
       )
     }
 
-    return units.map((unit) => (
+    if (filteredUnits.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={6} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No units match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredUnits.map((unit) => (
       <UnitTableRow
         key={unit.id}
         unit={unit}
@@ -1014,6 +1051,33 @@ export default function UnitsPage() {
           </Button>
         }
       />
+
+      {unitsQuery.data && unitsQuery.data.length > 0 && (
+        <FilterBar
+          isActive={unitFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_UNIT_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search units by code or name"
+            placeholder="Search by code or name"
+          />
+          <FilterSelect
+            value={filters.year}
+            onChange={(year) => setFilters((f) => ({ ...f, year }))}
+            options={YEAR_FILTERS}
+            label="Filter by year level"
+            className="h-9 text-sm w-36"
+          />
+          <FilterSelect
+            value={filters.lecturerId}
+            onChange={(lecturerId) => setFilters((f) => ({ ...f, lecturerId }))}
+            options={lecturerFilterOptions}
+            label="Filter by teaching lecturer"
+          />
+        </FilterBar>
+      )}
 
       <div
         className="rounded-lg border overflow-hidden"

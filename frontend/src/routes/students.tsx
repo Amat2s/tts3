@@ -3,6 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, Plus, Pencil, Trash2, Search } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,6 +41,12 @@ import {
 import type { Student, StudentTitle } from '@/lib/api/students'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
+import {
+  EMPTY_STUDENT_FILTERS,
+  filterStudents,
+  studentFiltersActive,
+} from '@/features/students/filters'
+import type { StudentFilters } from '@/features/students/filters'
 
 const STUDENT_TITLES: StudentTitle[] = ['Mr.', 'Ms.', 'Mx.']
 // Post-v1: students belong to one of three year levels only (Unit 58/62).
@@ -366,6 +375,8 @@ export default function StudentsPage() {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<StudentFilters>(EMPTY_STUDENT_FILTERS)
+
   const {
     data: students,
     isLoading,
@@ -378,6 +389,22 @@ export default function StudentsPage() {
 
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
   const units = unitsQuery.data ?? []
+
+  // Enrolled-unit filter options: every loaded unit, sorted by code.
+  const unitFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All units' },
+      ...[...units]
+        .sort((a, b) => a.code.localeCompare(b.code))
+        .map((u) => ({ value: u.id, label: unitLabel(u) })),
+    ],
+    [units]
+  )
+
+  const filteredStudents = useMemo(
+    () => filterStudents(students ?? [], filters),
+    [students, filters]
+  )
 
   // Enrolment changes ripple through unit student lists, the schedulable-session
   // pool (hidden allocations), and any saved assignment validation data.
@@ -570,7 +597,19 @@ export default function StudentsPage() {
       )
     }
 
-    return students.map((student) => (
+    if (filteredStudents.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={6} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No students match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredStudents.map((student) => (
       <TableRow key={student.id}>
         <TableCell className="px-4">{student.title}</TableCell>
         <TableCell className="px-4">{student.first_name}</TableCell>
@@ -619,6 +658,33 @@ export default function StudentsPage() {
           </Button>
         }
       />
+
+      {students && students.length > 0 && (
+        <FilterBar
+          isActive={studentFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_STUDENT_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search students by name"
+            placeholder="Search students"
+          />
+          <FilterSelect
+            value={filters.year}
+            onChange={(year) => setFilters((f) => ({ ...f, year }))}
+            options={YEAR_FILTERS}
+            label="Filter by year level"
+            className="h-9 text-sm w-36"
+          />
+          <FilterSelect
+            value={filters.unitId}
+            onChange={(unitId) => setFilters((f) => ({ ...f, unitId }))}
+            options={unitFilterOptions}
+            label="Filter by enrolled unit"
+          />
+        </FilterBar>
+      )}
 
       <div
         className="rounded-lg border overflow-hidden"
