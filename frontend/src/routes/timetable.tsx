@@ -19,10 +19,10 @@ import { SolverStatusPanel } from '@/features/timetable/SolverStatusPanel'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
+import { UnscheduledSessionCardPreview } from '@/features/timetable/UnscheduledSessionCard'
 import { useSolverRun } from '@/features/timetable/useSolverRun'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
 import { getUnitColor } from '@/features/timetable/unitColors'
-import type { UnitColorVariant } from '@/features/timetable/unitColors'
 import {
   type AssignmentResponse,
   listAssignments,
@@ -63,64 +63,12 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
   }
 }
 
-// Token maps for the drag preview overlay.
-const BG_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-bg)',
-  gold: 'var(--unit-gold-bg)',
-  blue: 'var(--unit-blue-bg)',
-  green: 'var(--unit-green-bg)',
-  purple: 'var(--unit-purple-bg)',
-  stone: 'var(--unit-stone-bg)',
-}
-const BORDER_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-border)',
-  gold: 'var(--unit-gold-border)',
-  blue: 'var(--unit-blue-border)',
-  green: 'var(--unit-green-border)',
-  purple: 'var(--unit-purple-border)',
-  stone: 'var(--unit-stone-border)',
-}
-const SESSION_TYPE_LABEL: Record<string, string> = {
-  lecture: 'Lecture',
-  tutorial: 'Tutorial',
-  lab: 'Lab',
-  workshop: 'Workshop',
-}
-
 function DragPreviewCard({ session }: { session: SchedulableSession }) {
-  const colorVariant = getUnitColor(session.unit_id)
   return (
-    <div
-      className="rounded-md border px-3 py-2 flex flex-col gap-1 select-none shadow-md"
-      style={{
-        backgroundColor: BG_MAP[colorVariant],
-        borderColor: BORDER_MAP[colorVariant],
-        borderLeftWidth: '3px',
-        minWidth: '180px',
-        maxWidth: '240px',
-      }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span
-          className="text-xs font-semibold"
-          style={{ color: BORDER_MAP[colorVariant] }}
-        >
-          {session.unit_code}
-        </span>
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          {SESSION_TYPE_LABEL[session.session_type] ?? session.session_type}
-        </span>
-      </div>
-      <p
-        className="text-sm font-medium leading-tight truncate"
-        style={{ color: 'var(--text-primary)' }}
-      >
-        {session.unit_name}
-      </p>
-      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        {session.duration} slot{session.duration !== 1 ? 's' : ''} · {session.lecturer_display_name}
-      </span>
-    </div>
+    <UnscheduledSessionCardPreview
+      session={session}
+      colorVariant={getUnitColor(session.unit_id)}
+    />
   )
 }
 
@@ -353,6 +301,14 @@ export default function TimetablePage() {
     setPendingSessionId((prev) => (prev === sessionId ? null : prev))
   }
 
+  function handleClearAll() {
+    if (editingDisabled || draft.length === 0) return
+    setDraft([])
+    setIsDirty(true)
+    setPendingSessionId(null)
+    setBlockingError(null)
+  }
+
   function handleSave() {
     if (editingDisabled) return
     setSaveError(null)
@@ -508,6 +464,7 @@ export default function TimetablePage() {
         />
         <UnscheduledPool
           sessions={unscheduledSessions}
+          totalSchedulableCount={schedulableSessions?.length}
           isLoading={sessionsLoading}
           isError={sessionsIsError}
           error={sessionsError as Error | null}
@@ -535,6 +492,7 @@ export default function TimetablePage() {
           <TimetableActionBar
             isDirty={isDirty}
             isSaving={saveMutation.isPending}
+            hasDraftAssignments={draft.length > 0}
             saveError={saveError}
             blockingError={blockingError}
             violationMessages={blockingViolations.map((v) => v.message)}
@@ -542,6 +500,7 @@ export default function TimetablePage() {
             canRunSolver={canRunSolver}
             solverDisabledReason={solverDisabledReason}
             editingDisabled={editingDisabled}
+            onClearAll={handleClearAll}
             onSave={handleSave}
             onRunSolver={handleRunSolver}
             isPendingPlacement={!!pendingSessionId}
