@@ -67,8 +67,8 @@ class StudentUpdate(BaseModel):
     @field_validator("year_level")
     @classmethod
     def year_level_valid(cls, v: int | None) -> int | None:
-        if v is not None and not (1 <= v <= 5):
-            raise ValueError("Year level must be between 1 and 5.")
+        if v is not None and not (1 <= v <= 3):
+            raise ValueError("Year level must be between 1 and 3.")
         return v
 
 

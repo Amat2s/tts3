@@ -16,8 +16,19 @@ from constraints.types import (
     ConstraintType,
     SessionInput as ConstraintSessionInput,
 )
+from models.lecturer import Lecturer, LecturerTitle
+from models.session_allocation import SessionStudentAllocation
+from models.student import Student, StudentTitle
+from schemas.session import SessionCreate
+from schemas.unit import UnitCreate
+from services.session import create_session
+from services.unit import create_unit
 from solver.model import solve_timetable
-from solver.snapshot import SnapshotIntegrityError, build_snapshot_from_data
+from solver.snapshot import (
+    SnapshotIntegrityError,
+    build_snapshot_from_data,
+    build_solver_input_snapshot,
+)
 from solver.types import (
     ORDERED_DAYS,
     ORDERED_SLOTS,
@@ -270,3 +281,87 @@ def test_locked_assignment_rejected_by_allocation_capacity():
             [],
             [LockedAssignment("s-a", "Monday", "s1", "r-tiny", 1)],
         )
+
+
+def test_database_snapshot_uses_session_lecturers_and_allocation_rows(db):
+    db.add_all(
+        [
+            Lecturer(
+                id="lec-1",
+                title=LecturerTitle.DR,
+                first_name="Ada",
+                last_name="Lovelace",
+            ),
+            Lecturer(
+                id="lec-2",
+                title=LecturerTitle.DR,
+                first_name="Grace",
+                last_name="Hopper",
+            ),
+            *[
+                Student(
+                    id=f"stu-{i}",
+                    title=StudentTitle.MX,
+                    first_name="Student",
+                    last_name=str(i),
+                    year_level=1,
+                )
+                for i in range(4)
+            ],
+        ]
+    )
+    db.commit()
+
+    unit = create_unit(
+        db,
+        UnitCreate(
+            code="HIS101",
+            name="History",
+            lecturer_ids=["lec-1", "lec-2"],
+            student_ids=[f"stu-{i}" for i in range(4)],
+        ),
+    )
+    tutorial_a = create_session(
+        db,
+        unit.id,
+        SessionCreate(
+            session_type="tutorial",
+            duration=1,
+            lecturer_id="lec-1",
+        ),
+    )
+    tutorial_b = create_session(
+        db,
+        unit.id,
+        SessionCreate(
+            session_type="tutorial",
+            duration=1,
+            lecturer_id="lec-2",
+        ),
+    )
+
+    allocated = {
+        session_id: {
+            row.student_id
+            for row in db.query(SessionStudentAllocation).filter(
+                SessionStudentAllocation.session_id == session_id
+            )
+        }
+        for session_id in (tutorial_a.id, tutorial_b.id)
+    }
+    snapshot = build_solver_input_snapshot(db)
+    sessions = {session.session_id: session for session in snapshot.sessions}
+
+    assert sessions[tutorial_a.id].lecturer_id == "lec-1"
+    assert sessions[tutorial_b.id].lecturer_id == "lec-2"
+    assert sessions[tutorial_a.id].student_ids == frozenset(allocated[tutorial_a.id])
+    assert sessions[tutorial_b.id].student_ids == frozenset(allocated[tutorial_b.id])
+    assert sessions[tutorial_a.id].student_ids.isdisjoint(
+        sessions[tutorial_b.id].student_ids
+    )
+    assert sessions[tutorial_a.id].student_ids | sessions[tutorial_b.id].student_ids == {
+        "stu-0",
+        "stu-1",
+        "stu-2",
+        "stu-3",
+    }

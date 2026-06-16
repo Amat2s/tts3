@@ -1,5 +1,9 @@
 # Post-V1 Adjustments Build Plan — Units 58–71
 
+## Status
+
+- Units 58-71: complete.
+
 ## Planning Rules
 
 These units extend the completed v1 release candidate without jumping into broader v2 scope. The work is intentionally split so database/schema changes, API-client changes, frontend UI changes, solver changes, and final regression coverage are not mixed into one implementation step.

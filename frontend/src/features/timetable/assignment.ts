@@ -17,9 +17,8 @@ export interface TimetableAssignment {
   duration: number
   // Session-level lecturer display (Unit 59), used for conflict messages.
   lecturer_display_name: string
-  // Session-level lecturer id (Unit 67) — drives lecturer overlap and
-  // availability warnings. Optional because the saved assignment DTO does not
-  // carry it; present when the placement is sourced from a schedulable session.
+  // Session-level lecturer id drives lecturer overlap and availability
+  // warnings. Optional only for defensive compatibility with incomplete data.
   lecturer_id?: string
   // Allocation-derived student count (Unit 60). Used for room-capacity blocking.
   student_count: number

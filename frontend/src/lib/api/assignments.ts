@@ -10,7 +10,8 @@ export interface AssignmentResponse {
   unit_name: string
   session_type: SessionType
   duration: number
-  // Session-level lecturer display (Unit 59).
+  // Session-level lecturer identity/display (Units 59/71).
+  lecturer_id: string | null
   lecturer_display_name: string
   // Unit 60: derived from the hidden session-student allocation rows.
   student_count: number

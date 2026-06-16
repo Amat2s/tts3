@@ -52,10 +52,9 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
     session_type: r.session_type,
     duration: r.duration,
     lecturer_display_name: r.lecturer_display_name,
+    lecturer_id: r.lecturer_id ?? undefined,
     student_count: r.student_count,
-    // Allocation-derived validation payload (Unit 60/67). The saved assignment
-    // DTO does not carry the session-level lecturer id, so lecturer_id is left
-    // undefined here; placements sourced from the schedulable pool supply it.
+    // Allocation-derived validation payload (Unit 60/67).
     allocated_student_ids: r.allocated_student_ids,
     day: r.day,
     start_slot: r.start_slot,
