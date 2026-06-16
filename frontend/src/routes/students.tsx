@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Users, Plus, Pencil, Trash2, Search } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,16 +38,39 @@ import {
   updateStudent,
   deleteStudent as deleteStudentApi,
 } from '@/lib/api/students'
-import type { Student, StudentTitle, StudentUpdate } from '@/lib/api/students'
+import type { Student, StudentTitle } from '@/lib/api/students'
+import { listUnits, updateUnit } from '@/lib/api/units'
+import type { Unit } from '@/lib/api/units'
+import {
+  EMPTY_STUDENT_FILTERS,
+  filterStudents,
+  studentFiltersActive,
+} from '@/features/students/filters'
+import type { StudentFilters } from '@/features/students/filters'
 
 const STUDENT_TITLES: StudentTitle[] = ['Mr.', 'Ms.', 'Mx.']
-const YEAR_LEVELS = [1, 2, 3, 4, 5]
+// Post-v1: students belong to one of three year levels only (Unit 58/62).
+const YEAR_LEVELS = [1, 2, 3]
+
+const YEAR_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All years' },
+  { value: '1', label: 'Year 1' },
+  { value: '2', label: 'Year 2' },
+  { value: '3', label: 'Year 3' },
+]
 
 interface StudentFormState {
   title: StudentTitle | ''
   first_name: string
   last_name: string
   year_level: string
+  // Enrolled unit ids — the same unit-student relationship the /units page edits
+  // (Unit 64). No separate enrolment model: saving reconciles this against the
+  // units endpoint's student lists.
+  unit_ids: string[]
+  // Once the admin manually toggles units, default year-based selection no
+  // longer overwrites their choice when the year level changes (create only).
+  unitSelectionTouched: boolean
 }
 
 const EMPTY_FORM: StudentFormState = {
@@ -52,7 +78,13 @@ const EMPTY_FORM: StudentFormState = {
   first_name: '',
   last_name: '',
   year_level: '',
+  unit_ids: [],
+  unitSelectionTouched: false,
 }
+
+type FormUpdater =
+  | Partial<StudentFormState>
+  | ((prev: StudentFormState) => StudentFormState)
 
 function isFormValid(f: StudentFormState): boolean {
   return (
@@ -63,15 +95,112 @@ function isFormValid(f: StudentFormState): boolean {
   )
 }
 
+function unitLabel(u: Pick<Unit, 'code' | 'name'>): string {
+  return `${u.code} — ${u.name}`
+}
+
+function enrolledLabel(count: number): string {
+  return `${count} unit${count === 1 ? '' : 's'}`
+}
+
+/**
+ * Reconcile a student's desired enrolment against the shared unit-student
+ * relationship by editing the affected units' student lists. This is the same
+ * source of truth the /units page writes to — there is no student-side
+ * enrolment endpoint, so we never add a second enrolment model.
+ *
+ * Failures propagate to the caller's mutation (no partial hiding).
+ */
+async function reconcileEnrolment(
+  studentId: string,
+  desiredUnitIds: string[],
+  currentUnitIds: string[],
+  allUnits: Unit[]
+): Promise<void> {
+  const desired = new Set(desiredUnitIds)
+  const current = new Set(currentUnitIds)
+  const toAdd = desiredUnitIds.filter((id) => !current.has(id))
+  const toRemove = currentUnitIds.filter((id) => !desired.has(id))
+
+  const unitById = new Map(allUnits.map((u) => [u.id, u]))
+
+  function studentIdsFor(unitId: string, include: boolean): string[] {
+    const unit = unitById.get(unitId)
+    if (!unit) {
+      throw new Error('A unit changed while saving. Refresh and try again.')
+    }
+    const base = unit.students.map((s) => s.id).filter((id) => id !== studentId)
+    return include ? [...base, studentId] : base
+  }
+
+  await Promise.all([
+    ...toAdd.map((unitId) =>
+      updateUnit(unitId, { student_ids: studentIdsFor(unitId, true) })
+    ),
+    ...toRemove.map((unitId) =>
+      updateUnit(unitId, { student_ids: studentIdsFor(unitId, false) })
+    ),
+  ])
+}
+
 function StudentFormFields({
+  mode,
   values,
   onChange,
   error,
+  units,
 }: {
+  mode: 'create' | 'edit'
   values: StudentFormState
-  onChange: (update: Partial<StudentFormState>) => void
+  onChange: (update: FormUpdater) => void
   error?: string | null
+  units: Unit[]
 }) {
+  const [unitSearch, setUnitSearch] = useState('')
+  const [yearFilter, setYearFilter] = useState<string>('all')
+
+  const selectedYear = values.year_level ? Number(values.year_level) : null
+
+  const filteredUnits = useMemo(() => {
+    const q = unitSearch.trim().toLowerCase()
+    return units.filter((u) => {
+      if (yearFilter !== 'all' && String(u.year_level) !== yearFilter) return false
+      if (q.length === 0) return true
+      return `${u.code} ${u.name}`.toLowerCase().includes(q)
+    })
+  }, [units, unitSearch, yearFilter])
+
+  function handleYearChange(value: string) {
+    onChange((prev) => {
+      const next = { ...prev, year_level: value }
+      // On create, keep the default unit selection in sync with the chosen
+      // year until the admin manually edits the selection.
+      if (mode === 'create' && !prev.unitSelectionTouched) {
+        const year = Number(value)
+        next.unit_ids = units.filter((u) => u.year_level === year).map((u) => u.id)
+      }
+      return next
+    })
+  }
+
+  function toggleUnit(unitId: string) {
+    onChange((prev) => {
+      const ids = prev.unit_ids.includes(unitId)
+        ? prev.unit_ids.filter((id) => id !== unitId)
+        : [...prev.unit_ids, unitId]
+      return { ...prev, unit_ids: ids, unitSelectionTouched: true }
+    })
+  }
+
+  function selectAllForYear() {
+    if (selectedYear === null) return
+    onChange((prev) => ({
+      ...prev,
+      unit_ids: units.filter((u) => u.year_level === selectedYear).map((u) => u.id),
+      unitSelectionTouched: true,
+    }))
+  }
+
   return (
     <div className="grid gap-4 py-2">
       {error && (
@@ -117,7 +246,7 @@ function StudentFormFields({
         <Label>Year level</Label>
         <Select
           value={values.year_level}
-          onValueChange={(v) => onChange({ year_level: v ?? '' })}
+          onValueChange={(v) => handleYearChange(v ?? '')}
           items={YEAR_LEVELS.map((y) => ({ value: String(y), label: `Year ${y}` }))}
         >
           <SelectTrigger className="w-full">
@@ -131,6 +260,102 @@ function StudentFormFields({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="grid gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label>Enrolled units</Label>
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {values.unit_ids.length} selected
+          </span>
+        </div>
+        {units.length === 0 ? (
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            No units found. Add units on the Units page first.
+          </p>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
+                  style={{ color: 'var(--text-muted)' }}
+                />
+                <Input
+                  value={unitSearch}
+                  onChange={(e) => setUnitSearch(e.target.value)}
+                  placeholder="Search by code or name"
+                  autoComplete="off"
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+              <Select
+                value={yearFilter}
+                onValueChange={(v) => setYearFilter(v ?? 'all')}
+                items={YEAR_FILTERS}
+              >
+                <SelectTrigger className="h-8 text-sm w-28 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {YEAR_FILTERS.map((y) => (
+                    <SelectItem key={y.value} value={y.value}>
+                      {y.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div
+              className="rounded-md border overflow-y-auto max-h-44"
+              style={{ borderColor: 'var(--border-default)' }}
+            >
+              {filteredUnits.length === 0 ? (
+                <p className="text-xs px-3 py-3" style={{ color: 'var(--text-muted)' }}>
+                  No units match the current search or filter.
+                </p>
+              ) : (
+                filteredUnits.map((u, i) => (
+                  <label
+                    key={u.id}
+                    className="flex items-center gap-2.5 px-3 py-2 cursor-pointer"
+                    style={{
+                      borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined,
+                      backgroundColor: values.unit_ids.includes(u.id)
+                        ? 'var(--bg-muted)'
+                        : undefined,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={values.unit_ids.includes(u.id)}
+                      onChange={() => toggleUnit(u.id)}
+                      className="h-4 w-4 shrink-0"
+                      style={{ accentColor: 'var(--accent-primary)' }}
+                    />
+                    <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>
+                      {unitLabel(u)}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      Year {u.year_level}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            {selectedYear !== null && (
+              <button
+                type="button"
+                className="text-xs text-left w-fit underline-offset-2 hover:underline"
+                style={{ color: 'var(--accent-primary)' }}
+                onClick={selectAllForYear}
+              >
+                Select all Year {selectedYear} units
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -150,6 +375,8 @@ export default function StudentsPage() {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<StudentFilters>(EMPTY_STUDENT_FILTERS)
+
   const {
     data: students,
     isLoading,
@@ -160,10 +387,54 @@ export default function StudentsPage() {
     queryFn: listStudents,
   })
 
+  const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
+  const units = unitsQuery.data ?? []
+
+  // Enrolled-unit filter options: every loaded unit, sorted by code.
+  const unitFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All units' },
+      ...[...units]
+        .sort((a, b) => a.code.localeCompare(b.code))
+        .map((u) => ({ value: u.id, label: unitLabel(u) })),
+    ],
+    [units]
+  )
+
+  const filteredStudents = useMemo(
+    () => filterStudents(students ?? [], filters),
+    [students, filters]
+  )
+
+  // Enrolment changes ripple through unit student lists, the schedulable-session
+  // pool (hidden allocations), and any saved assignment validation data.
+  function invalidateDependentQueries() {
+    qc.invalidateQueries({ queryKey: ['students'] })
+    qc.invalidateQueries({ queryKey: ['units'] })
+    qc.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+    qc.invalidateQueries({ queryKey: ['assignments'] })
+  }
+
   const createMutation = useMutation({
-    mutationFn: createStudent,
+    mutationFn: async (form: StudentFormState) => {
+      // The backend auto-enrols a new student into every matching-year unit; the
+      // returned `units` is the actual starting enrolment we reconcile against.
+      const created = await createStudent({
+        title: form.title as StudentTitle,
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        year_level: Number(form.year_level),
+      })
+      await reconcileEnrolment(
+        created.id,
+        form.unit_ids,
+        created.units.map((u) => u.id),
+        units
+      )
+      return created
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['students'] })
+      invalidateDependentQueries()
       setCreateOpen(false)
       setCreateForm(EMPTY_FORM)
       setCreateError(null)
@@ -174,10 +445,29 @@ export default function StudentsPage() {
   })
 
   const editMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: StudentUpdate }) =>
-      updateStudent(id, data),
+    mutationFn: async ({
+      student,
+      form,
+    }: {
+      student: Student
+      form: StudentFormState
+    }) => {
+      await updateStudent(student.id, {
+        title: form.title as StudentTitle,
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        year_level: Number(form.year_level),
+      })
+      await reconcileEnrolment(
+        student.id,
+        form.unit_ids,
+        student.units.map((u) => u.id),
+        units
+      )
+      return student.id
+    },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['students'] })
+      invalidateDependentQueries()
       setStudentToEdit(null)
       setEditError(null)
     },
@@ -189,7 +479,7 @@ export default function StudentsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteStudentApi(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['students'] })
+      invalidateDependentQueries()
       setStudentToDelete(null)
       setDeleteError(null)
     },
@@ -198,6 +488,13 @@ export default function StudentsPage() {
     },
   })
 
+  function openCreate() {
+    setCreateOpen(true)
+    setCreateForm(EMPTY_FORM)
+    setCreateError(null)
+    createMutation.reset()
+  }
+
   function openEdit(student: Student) {
     setStudentToEdit(student)
     setEditForm({
@@ -205,48 +502,55 @@ export default function StudentsPage() {
       first_name: student.first_name,
       last_name: student.last_name,
       year_level: String(student.year_level),
+      unit_ids: student.units.map((u) => u.id),
+      // Existing enrolment is a real selection; treat it as already chosen so a
+      // year-level change never silently replaces it.
+      unitSelectionTouched: true,
     })
     setEditError(null)
+    editMutation.reset()
   }
 
   function openDelete(student: Student) {
     setStudentToDelete(student)
     setDeleteError(null)
+    deleteMutation.reset()
   }
 
   function handleCreate() {
     if (!isFormValid(createForm)) return
-    createMutation.mutate({
-      title: createForm.title as StudentTitle,
-      first_name: createForm.first_name.trim(),
-      last_name: createForm.last_name.trim(),
-      year_level: Number(createForm.year_level),
-    })
+    setCreateError(null)
+    createMutation.mutate(createForm)
   }
 
   function handleEdit() {
     if (!studentToEdit || !isFormValid(editForm)) return
-    editMutation.mutate({
-      id: studentToEdit.id,
-      data: {
-        title: editForm.title as StudentTitle,
-        first_name: editForm.first_name.trim(),
-        last_name: editForm.last_name.trim(),
-        year_level: Number(editForm.year_level),
-      },
-    })
+    setEditError(null)
+    editMutation.mutate({ student: studentToEdit, form: editForm })
   }
 
   function handleDelete() {
     if (!studentToDelete) return
+    setDeleteError(null)
     deleteMutation.mutate(studentToDelete.id)
+  }
+
+  function applyUpdate(
+    setter: React.Dispatch<React.SetStateAction<StudentFormState>>,
+    update: FormUpdater
+  ) {
+    if (typeof update === 'function') {
+      setter(update)
+    } else {
+      setter((prev) => ({ ...prev, ...update }))
+    }
   }
 
   function renderTableBody() {
     if (isLoading) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading students…
             </p>
@@ -258,7 +562,7 @@ export default function StudentsPage() {
     if (isError) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {(listError as Error)?.message ?? 'Failed to load students.'}
             </p>
@@ -270,7 +574,7 @@ export default function StudentsPage() {
     if (!students || students.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <div className="flex flex-col items-center gap-3">
               <Users className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
               <div>
@@ -284,7 +588,7 @@ export default function StudentsPage() {
                   className="text-sm max-w-xs mx-auto"
                   style={{ color: 'var(--text-muted)' }}
                 >
-                  Add students and enrol them in sessions to enable conflict constraint detection.
+                  Add students and enrol them in units to enable conflict constraint detection.
                 </p>
               </div>
             </div>
@@ -293,12 +597,34 @@ export default function StudentsPage() {
       )
     }
 
-    return students.map((student) => (
+    if (filteredStudents.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={6} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No students match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredStudents.map((student) => (
       <TableRow key={student.id}>
         <TableCell className="px-4">{student.title}</TableCell>
         <TableCell className="px-4">{student.first_name}</TableCell>
         <TableCell className="px-4 font-medium">{student.last_name}</TableCell>
         <TableCell className="px-4">Year {student.year_level}</TableCell>
+        <TableCell className="px-4">
+          <span
+            className="text-sm"
+            style={{
+              color: student.unit_count > 0 ? 'var(--text-primary)' : 'var(--text-muted)',
+            }}
+          >
+            {enrolledLabel(student.unit_count)}
+          </span>
+        </TableCell>
         <TableCell className="px-4 text-right">
           <div className="flex justify-end gap-1">
             <Button variant="ghost" size="sm" onClick={() => openEdit(student)}>
@@ -324,20 +650,41 @@ export default function StudentsPage() {
     <AppFrame>
       <PageHeader
         title="Students"
-        description="Manage students. Students assigned to sessions are used to derive scheduling conflict constraints."
+        description="Manage students and their unit enrolments. Enrolments drive scheduling conflict constraints."
         action={
-          <Button
-            onClick={() => {
-              setCreateOpen(true)
-              setCreateForm(EMPTY_FORM)
-              setCreateError(null)
-            }}
-          >
+          <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />
             Add student
           </Button>
         }
       />
+
+      {students && students.length > 0 && (
+        <FilterBar
+          isActive={studentFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_STUDENT_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search students by name"
+            placeholder="Search students"
+          />
+          <FilterSelect
+            value={filters.year}
+            onChange={(year) => setFilters((f) => ({ ...f, year }))}
+            options={YEAR_FILTERS}
+            label="Filter by year level"
+            className="h-9 text-sm w-36"
+          />
+          <FilterSelect
+            value={filters.unitId}
+            onChange={(unitId) => setFilters((f) => ({ ...f, unitId }))}
+            options={unitFilterOptions}
+            label="Filter by enrolled unit"
+          />
+        </FilterBar>
+      )}
 
       <div
         className="rounded-lg border overflow-hidden"
@@ -353,6 +700,7 @@ export default function StudentsPage() {
               <TableHead className="px-4">First name</TableHead>
               <TableHead className="px-4">Last name</TableHead>
               <TableHead className="px-4">Year level</TableHead>
+              <TableHead className="px-4">Enrolled units</TableHead>
               <TableHead className="px-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -368,17 +716,19 @@ export default function StudentsPage() {
           if (!open) { setCreateForm(EMPTY_FORM); setCreateError(null) }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Add student</DialogTitle>
             <DialogDescription>
-              Enter the student's details.
+              Enter the student's details and choose their unit enrolments.
             </DialogDescription>
           </DialogHeader>
           <StudentFormFields
+            mode="create"
             values={createForm}
-            onChange={(update) => setCreateForm(f => ({ ...f, ...update }))}
+            onChange={(update) => applyUpdate(setCreateForm, update)}
             error={createError}
+            units={units}
           />
           <DialogFooter showCloseButton>
             <Button
@@ -398,17 +748,19 @@ export default function StudentsPage() {
           if (!open) { setStudentToEdit(null); setEditError(null) }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Edit student</DialogTitle>
             <DialogDescription>
-              Update the student's details.
+              Update the student's details and unit enrolments.
             </DialogDescription>
           </DialogHeader>
           <StudentFormFields
+            mode="edit"
             values={editForm}
-            onChange={(update) => setEditForm(f => ({ ...f, ...update }))}
+            onChange={(update) => applyUpdate(setEditForm, update)}
             error={editError}
+            units={units}
           />
           <DialogFooter showCloseButton>
             <Button
@@ -437,7 +789,7 @@ export default function StudentsPage() {
                   ? `${studentToDelete.title} ${studentToDelete.first_name} ${studentToDelete.last_name}`
                   : ''}
               </strong>{' '}
-              will be permanently removed, along with any session enrolments.
+              will be permanently removed, along with any unit enrolments and session allocations.
             </DialogDescription>
           </DialogHeader>
           {deleteError && (

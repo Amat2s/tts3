@@ -2,12 +2,28 @@ import { apiRequest, ApiRequestError } from '@/lib/api/client'
 
 export type StudentTitle = 'Mr.' | 'Ms.' | 'Mx.'
 
+// Post-v1 (Unit 58): the product operates over three year levels only. This is
+// the single source of truth for the year-level union, reused by unit DTOs.
+export type YearLevel = 1 | 2 | 3
+
+// Lightweight summary of a unit a student is enrolled in. Mirrors the backend
+// `EnrolledUnitSummary`. Enrolment is managed server-side (auto by matching
+// year), so there is no client-side enrolment input in this unit.
+export interface UnitSummary {
+  id: string
+  code: string
+  name: string
+  year_level: YearLevel
+}
+
 export interface Student {
   id: string
   title: StudentTitle
   first_name: string
   last_name: string
-  year_level: number
+  year_level: YearLevel
+  units: UnitSummary[]
+  unit_count: number
   created_at: string
   updated_at: string
 }

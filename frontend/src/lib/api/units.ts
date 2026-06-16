@@ -1,7 +1,8 @@
 import { apiRequest, ApiRequestError } from '@/lib/api/client'
 import type { LecturerTitle } from '@/lib/api/lecturers'
+import type { StudentTitle, YearLevel } from '@/lib/api/students'
 
-export type StudentTitle = 'Mr.' | 'Ms.' | 'Mx.'
+export type { StudentTitle, YearLevel }
 
 export interface LecturerSummary {
   id: string
@@ -15,15 +16,17 @@ export interface StudentSummary {
   title: StudentTitle
   first_name: string
   last_name: string
-  year_level: number
+  year_level: YearLevel
 }
 
 export interface Unit {
   id: string
   code: string
   name: string
-  lecturer_id: string
-  lecturer: LecturerSummary
+  // Derived server-side from the unit code's first digit (Unit 58).
+  year_level: YearLevel
+  // Unit 59: a unit is taught by a team of lecturers, not a single lecturer.
+  lecturers: LecturerSummary[]
   students: StudentSummary[]
   created_at: string
   updated_at: string
@@ -32,14 +35,17 @@ export interface Unit {
 export interface UnitCreate {
   code: string
   name: string
-  lecturer_id: string
+  // At least one teaching lecturer is required (validated server-side).
+  lecturer_ids: string[]
   student_ids?: string[]
+  // `year_level` is never an input — it is derived from `code` server-side.
 }
 
 export interface UnitUpdate {
   code?: string
   name?: string
-  lecturer_id?: string
+  // When supplied, replaces the teaching team (must keep at least one).
+  lecturer_ids?: string[]
   student_ids?: string[]
 }
 

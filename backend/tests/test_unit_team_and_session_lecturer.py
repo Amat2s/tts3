@@ -341,4 +341,5 @@ def test_assignment_response_uses_session_lecturer(db):
 
     responses = list_assignments(db)
     assert len(responses) == 1
+    assert responses[0].lecturer_id == "lec2"
     assert "Turing" in responses[0].lecturer_display_name

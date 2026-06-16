@@ -68,6 +68,7 @@ def _build_response(
         unit_name=unit.name,
         session_type=session.session_type,
         duration=session.duration,
+        lecturer_id=session.lecturer_id,
         lecturer_display_name=lecturer_display_name,
         # Unit 60: student count is the allocated group size for this session.
         student_count=counts.get(session.id, 0),

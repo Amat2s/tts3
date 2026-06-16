@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
@@ -21,6 +22,7 @@ vi.mock('@/lib/api/sessions', () => ({ listSchedulableSessions: vi.fn() }))
 vi.mock('@/lib/api/assignments', () => ({
   listAssignments: vi.fn(),
   saveAssignments: vi.fn(),
+  clearAssignments: vi.fn(),
 }))
 vi.mock('@/lib/api/lecturers', () => ({ listLecturers: vi.fn() }))
 vi.mock('@/lib/api/solver', () => ({
@@ -32,7 +34,11 @@ import TimetablePage from './timetable'
 import { ApiRequestError } from '@/lib/api/client'
 import { listRooms } from '@/lib/api/rooms'
 import { listSchedulableSessions } from '@/lib/api/sessions'
-import { listAssignments, saveAssignments } from '@/lib/api/assignments'
+import {
+  clearAssignments,
+  listAssignments,
+  saveAssignments,
+} from '@/lib/api/assignments'
 import { listLecturers } from '@/lib/api/lecturers'
 import { startSolverRun, getSolverRunStatus } from '@/lib/api/solver'
 import {
@@ -47,6 +53,7 @@ const mockListRooms = vi.mocked(listRooms)
 const mockListSchedulable = vi.mocked(listSchedulableSessions)
 const mockListAssignments = vi.mocked(listAssignments)
 const mockSaveAssignments = vi.mocked(saveAssignments)
+const mockClearAssignments = vi.mocked(clearAssignments)
 const mockListLecturers = vi.mocked(listLecturers)
 const mockStartSolverRun = vi.mocked(startSolverRun)
 const mockGetSolverRunStatus = vi.mocked(getSolverRunStatus)
@@ -69,11 +76,19 @@ function renderTimetable() {
 }
 
 function saveButton(): HTMLElement {
-  return screen.getByRole('button', { name: /Save Timetable/ })
+  return screen.getByRole('button', {
+    name: /^(Save Timetable|Saved|Saving\.\.\.)$/,
+  })
 }
 
 function runSolverButton(): HTMLElement {
-  return screen.getByRole('button', { name: /Run Solver/ })
+  return screen.getByRole('button', {
+    name: /^(Generate Timetable|Solving\.\.\.)$/,
+  })
+}
+
+function clearAllButton(): HTMLElement {
+  return screen.getByRole('button', { name: 'Clear all' })
 }
 
 beforeEach(() => {
@@ -82,6 +97,7 @@ beforeEach(() => {
   mockListAssignments.mockResolvedValue([])
   mockListLecturers.mockResolvedValue([])
   mockSaveAssignments.mockResolvedValue([])
+  mockClearAssignments.mockResolvedValue()
   mockStartSolverRun.mockResolvedValue(makeSolverStatus({ status: 'running' }))
   mockGetSolverRunStatus.mockResolvedValue(makeSolverStatus({ status: 'running' }))
 })
@@ -124,7 +140,123 @@ describe('TimetablePage — saved assignments load into draft state', () => {
   })
 })
 
-describe('TimetablePage — manual scheduling updates draft state only', () => {
+describe('TimetablePage - timetable action polish', () => {
+  it('shows clean, solver, and sticky action-bar states', async () => {
+    renderTimetable()
+
+    await screen.findByText('Monday')
+
+    expect(saveButton()).toHaveTextContent('Saved')
+    expect(saveButton()).toBeDisabled()
+    expect(runSolverButton()).toHaveTextContent('Generate Timetable')
+    expect(clearAllButton()).toBeDisabled()
+    expect(screen.getByTestId('timetable-action-bar')).toHaveClass(
+      'sticky',
+      'top-4',
+      'z-30'
+    )
+  })
+
+  it('opens the Clear all dialog and cancel preserves the draft', async () => {
+    const user = userEvent.setup()
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+
+    renderTimetable()
+
+    expect(
+      await screen.findByText('All schedulable sessions are scheduled.')
+    ).toBeInTheDocument()
+    await user.click(clearAllButton())
+
+    expect(
+      screen.getByRole('heading', {
+        name: 'Clear current timetable draft?',
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /saved timetable will not change until you click Save Timetable/i
+      )
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(
+      screen.queryByRole('heading', {
+        name: 'Clear current timetable draft?',
+      })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('All schedulable sessions are scheduled.')
+    ).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Saved')
+    expect(mockSaveAssignments).not.toHaveBeenCalled()
+    expect(mockClearAssignments).not.toHaveBeenCalled()
+  })
+
+  it('clears only the frontend draft and saves it empty on explicit Save', async () => {
+    const user = userEvent.setup()
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+
+    renderTimetable()
+
+    expect(
+      await screen.findByText('All schedulable sessions are scheduled.')
+    ).toBeInTheDocument()
+    await user.click(clearAllButton())
+    await user.click(screen.getByRole('button', { name: 'Clear timetable' }))
+
+    expect(await screen.findByText('Ancient History')).toBeInTheDocument()
+    expect(
+      screen.queryByText('All schedulable sessions are scheduled.')
+    ).not.toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(saveButton()).toBeEnabled()
+    expect(mockSaveAssignments).not.toHaveBeenCalled()
+    expect(mockClearAssignments).not.toHaveBeenCalled()
+
+    mockListAssignments.mockResolvedValue([])
+    await user.click(saveButton())
+
+    await waitFor(() =>
+      expect(mockSaveAssignments).toHaveBeenCalledWith({ assignments: [] })
+    )
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Saved'))
+    expect(mockClearAssignments).not.toHaveBeenCalled()
+  })
+})
+
+describe('TimetablePage - manual scheduling updates draft state only', () => {
   it('places a pending session into an empty cell without persisting', async () => {
     mockListSchedulable.mockResolvedValue([
       makeSchedulableSession({ session_id: 'sess-1', unit_code: 'HIS101', unit_name: 'Ancient History', duration: 1, student_count: 10 }),
@@ -224,18 +356,28 @@ describe('TimetablePage — solver gating', () => {
       makeRoom({ id: 'room-1', capacity: 30 }),
       makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
     ])
-    // Two saved sessions taught by the same lecturer at the same time → warning.
+    // Two saved sessions with the same session-level lecturer at the same time
+    // remain a warning after assignments are reloaded from the backend.
     mockListAssignments.mockResolvedValue([
-      makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', lecturer_display_name: 'Dr. Ada Lovelace' }),
-      makeAssignmentResponse({ assignment_id: 'asg-2', session_id: 'sess-2', unit_id: 'unit-2', unit_code: 'MAT200', room_id: 'room-2', day: 'Monday', start_slot: 's1', lecturer_display_name: 'Dr. Ada Lovelace' }),
+      makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', lecturer_id: 'lec-1' }),
+      makeAssignmentResponse({ assignment_id: 'asg-2', session_id: 'sess-2', unit_id: 'unit-2', unit_code: 'MAT200', room_id: 'room-2', day: 'Monday', start_slot: 's1', lecturer_id: 'lec-1' }),
     ])
     mockListLecturers.mockResolvedValue([makeLecturer()])
 
     renderTimetable()
 
     // The disabled reason names the warning once the draft has loaded.
-    expect(await screen.findByText(/scheduling warning/)).toBeInTheDocument()
+    const disabledReason = await screen.findByText(/scheduling warning/)
+    expect(disabledReason).toBeVisible()
     expect(runSolverButton()).toBeDisabled()
+    expect(runSolverButton()).toHaveAttribute(
+      'title',
+      expect.stringMatching(/scheduling warning/)
+    )
+    expect(runSolverButton()).toHaveClass(
+      'bg-[var(--solver-accent-soft)]',
+      'text-[var(--solver-accent)]'
+    )
     expect(mockStartSolverRun).not.toHaveBeenCalled()
   })
 
@@ -252,6 +394,7 @@ describe('TimetablePage — solver gating', () => {
 
     await waitFor(() => expect(mockStartSolverRun).toHaveBeenCalledOnce())
     expect(await screen.findByText('Solver is running…')).toBeInTheDocument()
+    expect(clearAllButton()).toBeDisabled()
   })
 })
 

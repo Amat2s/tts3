@@ -24,8 +24,6 @@ const ACCENT_MAP: Record<UnitColorVariant, string> = {
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lec',
   tutorial: 'Tut',
-  lab: 'Lab',
-  workshop: 'Wksp',
 }
 
 // CELL_HEIGHT must match the h-14 (3.5rem) used in GridCell.

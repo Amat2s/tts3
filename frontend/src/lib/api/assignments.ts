@@ -10,8 +10,14 @@ export interface AssignmentResponse {
   unit_name: string
   session_type: SessionType
   duration: number
+  // Session-level lecturer identity/display (Units 59/71).
+  lecturer_id: string | null
   lecturer_display_name: string
+  // Unit 60: derived from the hidden session-student allocation rows.
   student_count: number
+  // Internal validation payload only; the UI must not display tutorial
+  // allocation membership. Lets later units re-validate saved placements.
+  allocated_student_ids: string[]
   day: AvailabilityDay
   start_slot: AvailabilitySlot
   room_id: string

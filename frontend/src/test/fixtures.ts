@@ -12,6 +12,8 @@ import type { SchedulableSession } from '@/lib/api/sessions'
 import type { AssignmentResponse } from '@/lib/api/assignments'
 import type { Lecturer } from '@/lib/api/lecturers'
 import type { SolverRunStatusResponse } from '@/lib/api/solver'
+import type { Student } from '@/lib/api/students'
+import type { Unit } from '@/lib/api/units'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
 
 const ISO = '2026-06-13T00:00:00.000Z'
@@ -41,6 +43,7 @@ export function makeSchedulableSession(
     lecturer_id: 'lec-1',
     lecturer_display_name: 'Dr. Ada Lovelace',
     student_count: 10,
+    allocated_student_ids: [],
     ...overrides,
   }
 }
@@ -56,8 +59,10 @@ export function makeAssignmentResponse(
     unit_name: 'Ancient History',
     session_type: 'lecture',
     duration: 1,
+    lecturer_id: 'lec-1',
     lecturer_display_name: 'Dr. Ada Lovelace',
     student_count: 10,
+    allocated_student_ids: [],
     day: 'Monday',
     start_slot: 's1',
     room_id: 'room-1',
@@ -90,8 +95,10 @@ export function makeAssignment(
     unit_name: 'Ancient History',
     session_type: 'lecture',
     duration: 1,
+    lecturer_id: 'lec-1',
     lecturer_display_name: 'Dr. Ada Lovelace',
     student_count: 10,
+    allocated_student_ids: [],
     day: 'Monday',
     start_slot: 's1',
     room_id: 'room-1',
@@ -112,6 +119,35 @@ export function makeSolverStatus(
     unscheduled_count: null,
     partial_success: false,
     failure_message: null,
+    ...overrides,
+  }
+}
+
+export function makeStudent(overrides: Partial<Student> = {}): Student {
+  return {
+    id: 'student-1',
+    title: 'Mx.',
+    first_name: 'Sam',
+    last_name: 'Carter',
+    year_level: 1,
+    units: [],
+    unit_count: 0,
+    created_at: ISO,
+    updated_at: ISO,
+    ...overrides,
+  }
+}
+
+export function makeUnit(overrides: Partial<Unit> = {}): Unit {
+  return {
+    id: 'unit-1',
+    code: 'HIS101',
+    name: 'Ancient History',
+    year_level: 1,
+    lecturers: [],
+    students: [],
+    created_at: ISO,
+    updated_at: ISO,
     ...overrides,
   }
 }

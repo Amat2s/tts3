@@ -197,12 +197,16 @@ def test_preserves_locked_assignment_and_adds_new(db):
 
 
 def test_partial_when_session_cannot_be_placed(db):
-    # Room too small for the unit's student count -> no feasible candidate ->
-    # the session stays unscheduled -> partial application.
+    # Room too small for the allocation-derived student count -> no feasible
+    # candidate -> the session stays unscheduled -> partial application.
+    from services.session_allocation import rebalance_unit_session_allocations
+
     make_lecturer(db, "lec1")
     make_room(db, "tiny", capacity=1)
     make_unit(db, "unit1", "BIG101", "lec1", student_ids=["s1", "s2", "s3"])
     make_session(db, "sessBig", "unit1", duration=1)
+    db.flush()
+    rebalance_unit_session_allocations(db, "unit1")
     db.commit()
 
     result = run_solver_job(db, payload())

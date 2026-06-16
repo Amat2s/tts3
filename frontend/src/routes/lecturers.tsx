@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UserCheck, Plus, Pencil, Trash2, CalendarDays } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,8 +41,100 @@ import {
   setLecturerAvailability,
 } from '@/lib/api/lecturers'
 import type { Lecturer, LecturerTitle, LecturerUpdate, AvailabilityEntry } from '@/lib/api/lecturers'
+import { listUnits } from '@/lib/api/units'
+import type { Unit } from '@/lib/api/units'
+import {
+  EMPTY_LECTURER_FILTERS,
+  filterLecturers,
+  lecturerFiltersActive,
+} from '@/features/lecturers/filters'
+import type { LecturerFilters } from '@/features/lecturers/filters'
 
 const LECTURER_TITLES: LecturerTitle[] = ['Dr.', 'Prof.', 'A/Prof.', 'Mr.', 'Ms.']
+
+// How many taught-unit chips to show inline before collapsing the rest into a
+// single "+N more" chip (with the full list available on hover).
+const MAX_VISIBLE_TAUGHT_UNITS = 3
+
+function unitChipTitle(u: Pick<Unit, 'code' | 'name'>): string {
+  return `${u.code} — ${u.name}`
+}
+
+function sortUnitsByCode(units: Unit[]): Unit[] {
+  return [...units].sort((a, b) => a.code.localeCompare(b.code))
+}
+
+// A compact, token-styled chip carrying a unit code; the full "CODE — Name" is
+// exposed via the native title tooltip.
+function UnitChip({ label, title }: { label: string; title: string }) {
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
+      style={{
+        borderColor: 'var(--border-default)',
+        backgroundColor: 'var(--bg-muted)',
+        color: 'var(--text-secondary)',
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+// Read-only teaching visibility for the lecturer table. Teaching assignments are
+// owned by the Units page; this only displays the derived relationship.
+function TaughtUnitsCell({
+  units,
+  isLoading,
+  isError,
+}: {
+  units: Unit[]
+  isLoading: boolean
+  isError: boolean
+}) {
+  if (isLoading) {
+    return (
+      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+        …
+      </span>
+    )
+  }
+
+  if (isError) {
+    return (
+      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+        Unavailable
+      </span>
+    )
+  }
+
+  if (units.length === 0) {
+    return (
+      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+        No units assigned
+      </span>
+    )
+  }
+
+  const sorted = sortUnitsByCode(units)
+  const visible = sorted.slice(0, MAX_VISIBLE_TAUGHT_UNITS)
+  const overflow = sorted.slice(MAX_VISIBLE_TAUGHT_UNITS)
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {visible.map((u) => (
+        <UnitChip key={u.id} label={u.code} title={unitChipTitle(u)} />
+      ))}
+      {overflow.length > 0 && (
+        <UnitChip
+          label={`+${overflow.length} more`}
+          title={overflow.map(unitChipTitle).join('\n')}
+        />
+      )}
+    </div>
+  )
+}
 
 interface LecturerFormState {
   title: LecturerTitle | ''
@@ -57,10 +152,14 @@ function LecturerFormFields({
   values,
   onChange,
   error,
+  taughtUnits,
 }: {
   values: LecturerFormState
   onChange: (update: Partial<LecturerFormState>) => void
   error?: string | null
+  // When provided (edit mode), renders a read-only summary of the units this
+  // lecturer teaches. Teaching assignments are not editable from here.
+  taughtUnits?: Unit[]
 }) {
   return (
     <div className="grid gap-4 py-2">
@@ -103,6 +202,25 @@ function LecturerFormFields({
           autoComplete="off"
         />
       </div>
+      {taughtUnits && (
+        <div className="grid gap-1.5">
+          <Label>Units taught</Label>
+          {taughtUnits.length === 0 ? (
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No units assigned
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {sortUnitsByCode(taughtUnits).map((u) => (
+                <UnitChip key={u.id} label={unitChipTitle(u)} title={unitChipTitle(u)} />
+              ))}
+            </div>
+          )}
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Teaching assignments are managed from Units.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -125,6 +243,8 @@ export default function LecturersPage() {
   const [availabilityEntries, setAvailabilityEntries] = useState<AvailabilityEntry[]>([])
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<LecturerFilters>(EMPTY_LECTURER_FILTERS)
+
   const {
     data: lecturers,
     isLoading,
@@ -134,6 +254,40 @@ export default function LecturersPage() {
     queryKey: ['lecturers'],
     queryFn: listLecturers,
   })
+
+  // Teaching visibility is derived from the units list (the Units page owns the
+  // teaching relationship). Reading the same ['units'] cache means a teaching
+  // change made on /units invalidates ['units'] and refetches here automatically.
+  const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
+
+  const taughtUnitsByLecturer = useMemo(() => {
+    const map = new Map<string, Unit[]>()
+    for (const unit of unitsQuery.data ?? []) {
+      for (const lec of unit.lecturers) {
+        const existing = map.get(lec.id)
+        if (existing) existing.push(unit)
+        else map.set(lec.id, [unit])
+      }
+    }
+    return map
+  }, [unitsQuery.data])
+
+  // Taught-unit filter options: every loaded unit, sorted by code.
+  const unitFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All units' },
+      ...sortUnitsByCode(unitsQuery.data ?? []).map((u) => ({
+        value: u.id,
+        label: unitChipTitle(u),
+      })),
+    ],
+    [unitsQuery.data]
+  )
+
+  const filteredLecturers = useMemo(
+    () => filterLecturers(lecturers ?? [], filters, taughtUnitsByLecturer),
+    [lecturers, filters, taughtUnitsByLecturer]
+  )
 
   const createMutation = useMutation({
     mutationFn: createLecturer,
@@ -246,7 +400,7 @@ export default function LecturersPage() {
     if (isLoading) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading lecturers…
             </p>
@@ -258,7 +412,7 @@ export default function LecturersPage() {
     if (isError) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {(listError as Error)?.message ?? 'Failed to load lecturers.'}
             </p>
@@ -270,7 +424,7 @@ export default function LecturersPage() {
     if (!lecturers || lecturers.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <div className="flex flex-col items-center gap-3">
               <UserCheck className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
               <div>
@@ -293,11 +447,30 @@ export default function LecturersPage() {
       )
     }
 
-    return lecturers.map((lecturer) => (
+    if (filteredLecturers.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={5} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No lecturers match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredLecturers.map((lecturer) => (
       <TableRow key={lecturer.id}>
         <TableCell className="px-4">{lecturer.title}</TableCell>
         <TableCell className="px-4">{lecturer.first_name}</TableCell>
         <TableCell className="px-4 font-medium">{lecturer.last_name}</TableCell>
+        <TableCell className="px-4">
+          <TaughtUnitsCell
+            units={taughtUnitsByLecturer.get(lecturer.id) ?? []}
+            isLoading={unitsQuery.isLoading}
+            isError={unitsQuery.isError}
+          />
+        </TableCell>
         <TableCell className="px-4 text-right">
           <div className="flex justify-end gap-1">
             <Button variant="ghost" size="sm" onClick={() => openEdit(lecturer)}>
@@ -346,6 +519,26 @@ export default function LecturersPage() {
         }
       />
 
+      {lecturers && lecturers.length > 0 && (
+        <FilterBar
+          isActive={lecturerFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_LECTURER_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search lecturers by name"
+            placeholder="Search lecturers"
+          />
+          <FilterSelect
+            value={filters.unitId}
+            onChange={(unitId) => setFilters((f) => ({ ...f, unitId }))}
+            options={unitFilterOptions}
+            label="Filter by taught unit"
+          />
+        </FilterBar>
+      )}
+
       <div
         className="rounded-lg border overflow-hidden"
         style={{
@@ -359,6 +552,7 @@ export default function LecturersPage() {
               <TableHead className="px-4">Title</TableHead>
               <TableHead className="px-4">First name</TableHead>
               <TableHead className="px-4">Last name</TableHead>
+              <TableHead className="px-4">Units taught</TableHead>
               <TableHead className="px-4 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -415,6 +609,9 @@ export default function LecturersPage() {
             values={editForm}
             onChange={(update) => setEditForm(f => ({ ...f, ...update }))}
             error={editError}
+            taughtUnits={
+              lecturerToEdit ? taughtUnitsByLecturer.get(lecturerToEdit.id) ?? [] : []
+            }
           />
           <DialogFooter showCloseButton>
             <Button

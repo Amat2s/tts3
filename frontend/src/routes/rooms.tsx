@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorOpen, Plus, Pencil, Trash2 } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -36,10 +39,22 @@ import {
   deleteRoom as deleteRoomApi,
 } from '@/lib/api/rooms'
 import type { Room, RoomType, RoomUpdate } from '@/lib/api/rooms'
+import {
+  EMPTY_ROOM_FILTERS,
+  filterRooms,
+  roomFiltersActive,
+} from '@/features/rooms/filters'
+import type { RoomFilters } from '@/features/rooms/filters'
 
 const ROOM_TYPES: { value: RoomType; label: string }[] = [
   { value: 'lecture', label: 'Lecture Theatre' },
   { value: 'tutorial', label: 'Tutorial Room' },
+]
+
+const ROOM_TYPE_FILTER_OPTIONS = [
+  { value: 'all', label: 'All types' },
+  { value: 'lecture', label: 'Lecture' },
+  { value: 'tutorial', label: 'Tutorial' },
 ]
 
 interface RoomFormState {
@@ -132,6 +147,8 @@ export default function RoomsPage() {
   const [roomToDelete, setRoomToDelete] = useState<Room | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<RoomFilters>(EMPTY_ROOM_FILTERS)
+
   const {
     data: rooms,
     isLoading,
@@ -141,6 +158,11 @@ export default function RoomsPage() {
     queryKey: ['rooms'],
     queryFn: listRooms,
   })
+
+  const filteredRooms = useMemo(
+    () => filterRooms(rooms ?? [], filters),
+    [rooms, filters]
+  )
 
   const createMutation = useMutation({
     mutationFn: createRoom,
@@ -276,7 +298,19 @@ export default function RoomsPage() {
       )
     }
 
-    return rooms.map((room) => (
+    if (filteredRooms.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={4} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No rooms match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredRooms.map((room) => (
       <TableRow key={room.id}>
         <TableCell className="px-4 font-medium">{room.name}</TableCell>
         <TableCell className="px-4">{room.capacity}</TableCell>
@@ -318,6 +352,29 @@ export default function RoomsPage() {
           </Button>
         }
       />
+
+      {rooms && rooms.length > 0 && (
+        <FilterBar
+          isActive={roomFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_ROOM_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search rooms by name"
+            placeholder="Search by room name"
+          />
+          <FilterSelect
+            value={filters.roomType}
+            onChange={(roomType) =>
+              setFilters((f) => ({ ...f, roomType: roomType as RoomType | 'all' }))
+            }
+            options={ROOM_TYPE_FILTER_OPTIONS}
+            label="Filter by room type"
+            className="h-9 text-sm w-40"
+          />
+        </FilterBar>
+      )}
 
       <div
         className="rounded-lg border overflow-hidden"

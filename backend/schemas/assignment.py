@@ -27,6 +27,7 @@ class AssignmentResponse(BaseModel):
     unit_name: str
     session_type: SessionType
     duration: int
+    lecturer_id: str | None
     lecturer_display_name: str
     # Unit 60: derived from the hidden session-student allocation rows.
     student_count: int

@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from models.lecturer import Lecturer, LecturerTitle
 from models.student import Student, StudentTitle
 from models.unit import Unit
-from schemas.student import StudentCreate, StudentResponse
+from schemas.student import StudentCreate, StudentResponse, StudentUpdate
 from schemas.unit import UnitCreate, UnitResponse, UnitUpdate
 from services.student import create_student
 from services.unit import create_unit, update_unit
@@ -227,6 +227,32 @@ def test_update_unit_code_recomputes_year_without_replacing_students(db):
 
 
 # ---------------------------------------------------------------------------
+# Shared enrolment relationship
+# ---------------------------------------------------------------------------
+
+
+def test_unit_enrolment_edit_updates_student_side_of_same_relationship(db):
+    make_lecturer(db)
+    student = make_student(db, "stu1", 1)
+    unit = create_unit(
+        db,
+        UnitCreate(
+            code="HIS101",
+            name="History",
+            lecturer_ids=["lec1"],
+            student_ids=[],
+        ),
+    )
+
+    updated = update_unit(db, unit.id, UnitUpdate(student_ids=[student.id]))
+    db.refresh(student, attribute_names=["units"])
+
+    assert {s.id for s in updated.students} == {"stu1"}
+    assert {u.id for u in student.units} == {unit.id}
+    assert StudentResponse.model_validate(student).unit_count == 1
+
+
+# ---------------------------------------------------------------------------
 # Year-level constraints: schema + database
 # ---------------------------------------------------------------------------
 
@@ -237,6 +263,12 @@ def test_student_create_schema_rejects_out_of_range_year(year):
         StudentCreate(
             title=StudentTitle.MX, first_name="A", last_name="B", year_level=year
         )
+
+
+@pytest.mark.parametrize("year", [4, 5, 0])
+def test_student_update_schema_rejects_out_of_range_year(year):
+    with pytest.raises(ValidationError):
+        StudentUpdate(year_level=year)
 
 
 def test_student_year_level_database_constraint(db):

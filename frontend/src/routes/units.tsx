@@ -1,8 +1,20 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BookOpen, Plus, X, Pencil, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  BookOpen,
+  Minus,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { FilterBar } from '@/components/filters/FilterBar'
+import { SearchInput } from '@/components/filters/SearchInput'
+import { FilterSelect } from '@/components/filters/FilterSelect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,7 +46,7 @@ import type { Unit, UnitUpdate } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import type { Lecturer } from '@/lib/api/lecturers'
 import { listStudents } from '@/lib/api/students'
-import type { Student } from '@/lib/api/students'
+import type { Student, YearLevel } from '@/lib/api/students'
 import {
   listUnitSessions,
   createUnitSession,
@@ -42,135 +54,261 @@ import {
   deleteSession as apiDeleteSession,
 } from '@/lib/api/sessions'
 import type { Session, SessionType } from '@/lib/api/sessions'
+import { parseUnitYearLevel } from '@/features/units/yearLevel'
+import {
+  EMPTY_UNIT_FILTERS,
+  filterUnits,
+  unitFiltersActive,
+} from '@/features/units/filters'
+import type { UnitFilters } from '@/features/units/filters'
 
 const SESSION_TYPES: { value: SessionType; label: string }[] = [
   { value: 'lecture', label: 'Lecture' },
   { value: 'tutorial', label: 'Tutorial' },
-  { value: 'lab', label: 'Lab' },
-  { value: 'workshop', label: 'Workshop' },
 ]
 
-const DURATION_OPTIONS = [
-  { value: 1, label: '1 slot (~50 min)' },
-  { value: 2, label: '2 slots (~100 min)' },
-  { value: 3, label: '3 slots (~150 min)' },
-  { value: 4, label: '4 slots (~200 min)' },
+const MIN_DURATION = 1
+const MAX_DURATION = 4
+
+const YEAR_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All years' },
+  { value: '1', label: 'Year 1' },
+  { value: '2', label: 'Year 2' },
+  { value: '3', label: 'Year 3' },
 ]
 
 interface ShellSession {
-  id: string          // local key for React
-  backendId?: string  // set when loaded from backend; absent for new sessions
+  id: string // local key for React
+  backendId?: string // set when loaded from backend; absent for new sessions
   session_type: SessionType
   duration: number
+  // Per-session teaching lecturer (Unit 59/63). '' means none chosen yet.
+  // Must be one of the unit's teaching-team lecturers before the unit can save.
+  lecturer_id: string
 }
 
 interface UnitFormState {
   code: string
   name: string
-  lecturer_id: string
+  // Unit 63: a unit is taught by a team of lecturers.
+  lecturer_ids: string[]
   student_ids: string[]
+  // Once the admin manually toggles students, default year selection no longer
+  // overrides their choice when the code (and thus derived year) changes.
+  studentSelectionTouched: boolean
   sessions: ShellSession[]
 }
 
 const EMPTY_FORM: UnitFormState = {
   code: '',
   name: '',
-  lecturer_id: '',
+  lecturer_ids: [],
   student_ids: [],
+  studentSelectionTouched: false,
   sessions: [],
 }
 
 type FormUpdater = Partial<UnitFormState> | ((prev: UnitFormState) => UnitFormState)
 
-function isFormValid(f: UnitFormState): boolean {
-  return f.code.trim().length > 0 && f.name.trim().length > 0 && f.lecturer_id.length > 0
+function sessionLecturerInvalid(session: ShellSession, teamIds: string[]): boolean {
+  return session.lecturer_id === '' || !teamIds.includes(session.lecturer_id)
 }
 
-function makeSession(): ShellSession {
-  return { id: crypto.randomUUID(), session_type: 'lecture', duration: 1 }
+function isFormValid(f: UnitFormState): boolean {
+  if (!parseUnitYearLevel(f.code).ok) return false
+  if (f.name.trim().length === 0) return false
+  if (f.lecturer_ids.length === 0) return false
+  if (f.sessions.some((s) => sessionLecturerInvalid(s, f.lecturer_ids))) return false
+  return true
+}
+
+// New sessions default to the sole teaching lecturer when the team has exactly
+// one; otherwise the admin must pick one explicitly.
+function makeSession(teamIds: string[]): ShellSession {
+  return {
+    id: crypto.randomUUID(),
+    session_type: 'lecture',
+    duration: 1,
+    lecturer_id: teamIds.length === 1 ? teamIds[0] : '',
+  }
 }
 
 function toShellSession(s: Session): ShellSession {
-  return { id: crypto.randomUUID(), backendId: s.id, session_type: s.session_type, duration: s.duration }
+  return {
+    id: crypto.randomUUID(),
+    backendId: s.id,
+    session_type: s.session_type,
+    duration: s.duration,
+    lecturer_id: s.lecturer_id ?? '',
+  }
 }
 
-function lecturerLabel(l: Lecturer): string {
+// Accepts both the full `Lecturer` DTO and the lightweight `LecturerSummary`
+// carried on `Unit.lecturers` — both share the name fields.
+function lecturerLabel(l: Pick<Lecturer, 'title' | 'first_name' | 'last_name'>): string {
   return `${l.title} ${l.first_name} ${l.last_name}`
 }
 
 function studentLabel(s: Student): string {
-  return `${s.title} ${s.first_name} ${s.last_name} (Year ${s.year_level})`
+  return `${s.title} ${s.first_name} ${s.last_name}`
+}
+
+function DurationStepper({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="flex items-center rounded-md border"
+        style={{ borderColor: 'var(--border-default)' }}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 rounded-r-none"
+          onClick={() => onChange(Math.max(MIN_DURATION, value - 1))}
+          disabled={value <= MIN_DURATION}
+          aria-label="Decrease duration"
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <span
+          className="w-9 text-center text-sm tabular-nums"
+          style={{ color: 'var(--text-primary)' }}
+          aria-live="polite"
+        >
+          {value}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 rounded-l-none"
+          onClick={() => onChange(Math.min(MAX_DURATION, value + 1))}
+          disabled={value >= MAX_DURATION}
+          aria-label="Increase duration"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+      <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        {value === 1 ? 'hour' : 'hours'}
+      </span>
+    </div>
+  )
 }
 
 function SessionBox({
   session,
+  teamLecturers,
   onUpdate,
   onDelete,
 }: {
   session: ShellSession
+  teamLecturers: Lecturer[]
   onUpdate: (id: string, patch: Partial<ShellSession>) => void
   onDelete: (id: string) => void
 }) {
+  const teamIds = teamLecturers.map((l) => l.id)
+  const invalid = sessionLecturerInvalid(session, teamIds)
+
   return (
     <div
-      className="rounded-md border p-3 flex gap-3 items-start"
-      style={{ borderColor: 'var(--border-default)', backgroundColor: 'var(--bg-muted)' }}
+      className="rounded-md border p-3 grid gap-3"
+      style={{
+        borderColor: invalid ? 'var(--state-error)' : 'var(--border-default)',
+        backgroundColor: 'var(--bg-muted)',
+      }}
     >
-      <div className="flex-1 grid grid-cols-2 gap-3">
-        <div className="grid gap-1">
-          <Label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Session type
-          </Label>
-          <Select
-            value={session.session_type}
-            onValueChange={(v) => v && onUpdate(session.id, { session_type: v as SessionType })}
-            items={SESSION_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SESSION_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="flex gap-3 items-start">
+        <div className="flex-1 grid grid-cols-2 gap-3">
+          <div className="grid gap-1">
+            <Label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Session type
+            </Label>
+            <Select
+              value={session.session_type}
+              onValueChange={(v) => v && onUpdate(session.id, { session_type: v as SessionType })}
+              items={SESSION_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            >
+              <SelectTrigger className="h-8 w-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SESSION_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Duration
+            </Label>
+            <DurationStepper
+              value={session.duration}
+              onChange={(d) => onUpdate(session.id, { duration: d })}
+            />
+          </div>
         </div>
-        <div className="grid gap-1">
-          <Label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            Duration
-          </Label>
-          <Select
-            value={String(session.duration)}
-            onValueChange={(v) => v && onUpdate(session.id, { duration: Number(v) })}
-            items={DURATION_OPTIONS.map((d) => ({ value: String(d.value), label: d.label }))}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DURATION_OPTIONS.map((d) => (
-                <SelectItem key={d.value} value={String(d.value)}>
-                  {d.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 mt-4 shrink-0"
+          onClick={() => onDelete(session.id)}
+          style={{ color: 'var(--text-muted)' }}
+          aria-label="Remove session"
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 w-8 p-0 mt-4 shrink-0"
-        onClick={() => onDelete(session.id)}
-        style={{ color: 'var(--text-muted)' }}
-        aria-label="Remove session"
-      >
-        <X className="h-4 w-4" />
-      </Button>
+
+      <div className="grid gap-1">
+        <Label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Lecturer
+        </Label>
+        {teamLecturers.length === 0 ? (
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Add a teaching lecturer to this unit before assigning sessions.
+          </p>
+        ) : (
+          <Select
+            value={session.lecturer_id}
+            onValueChange={(v) => onUpdate(session.id, { lecturer_id: v ?? '' })}
+            items={teamLecturers.map((l) => ({ value: l.id, label: lecturerLabel(l) }))}
+          >
+            <SelectTrigger className="h-8 w-full text-sm">
+              <SelectValue placeholder="Select a lecturer" />
+            </SelectTrigger>
+            <SelectContent>
+              {teamLecturers.map((l) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {lecturerLabel(l)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {invalid && teamLecturers.length > 0 && (
+          <p
+            className="text-xs flex items-center gap-1"
+            style={{ color: 'var(--state-error)' }}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {session.lecturer_id === ''
+              ? 'Select a lecturer from the teaching team.'
+              : 'This lecturer is no longer on the teaching team. Reassign before saving.'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
@@ -191,11 +329,25 @@ function UnitTableRow({
   })
 
   const count = sessionsQuery.data?.length ?? null
+  const lecturerNames = unit.lecturers.map(lecturerLabel).join(', ')
 
   return (
     <TableRow>
       <TableCell className="px-4">{unit.code}</TableCell>
       <TableCell className="px-4">{unit.name}</TableCell>
+      <TableCell className="px-4">
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          Year {unit.year_level}
+        </span>
+      </TableCell>
+      <TableCell className="px-4">
+        <span
+          className="text-sm"
+          style={{ color: lecturerNames ? 'var(--text-primary)' : 'var(--text-muted)' }}
+        >
+          {lecturerNames || '—'}
+        </span>
+      </TableCell>
       <TableCell className="px-4">
         <span
           className="text-sm"
@@ -230,6 +382,7 @@ function UnitTableRow({
 }
 
 function UnitFormFields({
+  mode,
   values,
   onChange,
   error,
@@ -237,6 +390,7 @@ function UnitFormFields({
   students,
   sessionsLoading,
 }: {
+  mode: 'create' | 'edit'
   values: UnitFormState
   onChange: (update: FormUpdater) => void
   error?: string | null
@@ -244,8 +398,73 @@ function UnitFormFields({
   students: Student[]
   sessionsLoading?: boolean
 }) {
+  const [studentSearch, setStudentSearch] = useState('')
+  const [yearFilter, setYearFilter] = useState<string>('all')
+
+  const yearParse = parseUnitYearLevel(values.code)
+  const derivedYear: YearLevel | null = yearParse.ok ? yearParse.year : null
+
+  const teamLecturers = useMemo(
+    () => lecturers.filter((l) => values.lecturer_ids.includes(l.id)),
+    [lecturers, values.lecturer_ids]
+  )
+
+  const filteredStudents = useMemo(() => {
+    const q = studentSearch.trim().toLowerCase()
+    return students.filter((s) => {
+      if (yearFilter !== 'all' && String(s.year_level) !== yearFilter) return false
+      if (q.length === 0) return true
+      return `${s.first_name} ${s.last_name} ${s.title}`.toLowerCase().includes(q)
+    })
+  }, [students, studentSearch, yearFilter])
+
+  function handleCodeChange(code: string) {
+    onChange((prev) => {
+      const next = { ...prev, code }
+      // On create, keep the default student selection in sync with the derived
+      // year until the admin manually edits the selection.
+      if (mode === 'create' && !prev.studentSelectionTouched) {
+        const parsed = parseUnitYearLevel(code)
+        next.student_ids = parsed.ok
+          ? students.filter((s) => s.year_level === parsed.year).map((s) => s.id)
+          : []
+      }
+      return next
+    })
+  }
+
+  function selectAllInDerivedYear() {
+    if (derivedYear === null) return
+    onChange((prev) => ({
+      ...prev,
+      student_ids: students.filter((s) => s.year_level === derivedYear).map((s) => s.id),
+      studentSelectionTouched: true,
+    }))
+  }
+
+  function toggleStudent(studentId: string) {
+    onChange((prev) => {
+      const ids = prev.student_ids.includes(studentId)
+        ? prev.student_ids.filter((id) => id !== studentId)
+        : [...prev.student_ids, studentId]
+      return { ...prev, student_ids: ids, studentSelectionTouched: true }
+    })
+  }
+
+  function toggleLecturer(lecturerId: string) {
+    onChange((prev) => {
+      const ids = prev.lecturer_ids.includes(lecturerId)
+        ? prev.lecturer_ids.filter((id) => id !== lecturerId)
+        : [...prev.lecturer_ids, lecturerId]
+      return { ...prev, lecturer_ids: ids }
+    })
+  }
+
   function addSession() {
-    onChange((prev) => ({ ...prev, sessions: [...prev.sessions, makeSession()] }))
+    onChange((prev) => ({
+      ...prev,
+      sessions: [...prev.sessions, makeSession(prev.lecturer_ids)],
+    }))
   }
 
   function updateSession(id: string, patch: Partial<ShellSession>) {
@@ -262,160 +481,253 @@ function UnitFormFields({
     }))
   }
 
-  function toggleStudent(studentId: string) {
-    onChange((prev) => {
-      const ids = prev.student_ids.includes(studentId)
-        ? prev.student_ids.filter((id) => id !== studentId)
-        : [...prev.student_ids, studentId]
-      return { ...prev, student_ids: ids }
-    })
-  }
-
   return (
-    <div className="grid gap-4 py-2">
+    <div className="grid gap-4">
       {error && (
         <p className="text-sm" style={{ color: 'var(--state-error)' }}>
           {error}
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-1.5">
-          <Label htmlFor="unit-code">Unit code</Label>
-          <Input
-            id="unit-code"
-            value={values.code}
-            onChange={(e) => onChange({ code: e.target.value })}
-            placeholder="e.g. HIS101"
-            autoComplete="off"
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="unit-name">Unit name</Label>
-          <Input
-            id="unit-name"
-            value={values.name}
-            onChange={(e) => onChange({ name: e.target.value })}
-            placeholder="e.g. Ancient History"
-            autoComplete="off"
-          />
-        </div>
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label htmlFor="lecturer-select">Lecturer</Label>
-        <Select
-          value={values.lecturer_id}
-          onValueChange={(v) => onChange({ lecturer_id: v ?? '' })}
-          items={lecturers.map((l) => ({ value: l.id, label: lecturerLabel(l) }))}
-        >
-          <SelectTrigger id="lecturer-select" className="w-full">
-            <SelectValue placeholder="Select a lecturer" />
-          </SelectTrigger>
-          <SelectContent>
-            {lecturers.map((l) => (
-              <SelectItem key={l.id} value={l.id}>
-                {lecturerLabel(l)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-1.5">
-        <Label>Students</Label>
-        {students.length === 0 ? (
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            No students found. Add students on the Students page first.
-          </p>
-        ) : (
-          <div
-            className="rounded-md border overflow-y-auto max-h-36"
-            style={{ borderColor: 'var(--border-default)' }}
-          >
-            {students.map((s, i) => (
-              <label
-                key={s.id}
-                className="flex items-center gap-2.5 px-3 py-2 cursor-pointer"
-                style={{
-                  borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined,
-                  backgroundColor: values.student_ids.includes(s.id)
-                    ? 'var(--bg-muted)'
-                    : undefined,
-                }}
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* Left column: unit identity and teaching team */}
+        <div className="grid gap-4 content-start">
+          <div className="grid gap-1.5">
+            <Label htmlFor="unit-code">Unit code</Label>
+            <Input
+              id="unit-code"
+              value={values.code}
+              onChange={(e) => handleCodeChange(e.target.value)}
+              placeholder="e.g. HIS101"
+              autoComplete="off"
+            />
+            {derivedYear !== null ? (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Derived year level:{' '}
+                <span style={{ color: 'var(--text-secondary)' }}>Year {derivedYear}</span>
+              </p>
+            ) : (
+              <p
+                className="text-xs flex items-center gap-1"
+                style={{ color: 'var(--state-error)' }}
               >
-                <input
-                  type="checkbox"
-                  checked={values.student_ids.includes(s.id)}
-                  onChange={() => toggleStudent(s.id)}
-                  className="h-4 w-4 shrink-0"
-                  style={{ accentColor: 'var(--accent-primary)' }}
-                />
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
-                  {studentLabel(s)}
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-        {values.student_ids.length > 0 && (
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {values.student_ids.length} student
-            {values.student_ids.length !== 1 ? 's' : ''} selected
-          </p>
-        )}
-      </div>
-
-      <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }} />
-
-      <div className="grid gap-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              Sessions
-            </p>
-            {sessionsLoading && (
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                Loading sessions…
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                {yearParse.ok ? '' : yearParse.error}
               </p>
             )}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={addSession}
-            disabled={sessionsLoading}
-          >
-            <Plus className="h-4 w-4" />
-            Add session
-          </Button>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="unit-name">Unit name</Label>
+            <Input
+              id="unit-name"
+              value={values.name}
+              onChange={(e) => onChange({ name: e.target.value })}
+              placeholder="e.g. Ancient History"
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="grid gap-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Teaching team</Label>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {values.lecturer_ids.length} selected
+              </span>
+            </div>
+            {lecturers.length === 0 ? (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                No lecturers found. Add lecturers on the Lecturers page first.
+              </p>
+            ) : (
+              <div
+                className="rounded-md border overflow-y-auto max-h-44"
+                style={{ borderColor: 'var(--border-default)' }}
+              >
+                {lecturers.map((l, i) => (
+                  <label
+                    key={l.id}
+                    className="flex items-center gap-2.5 px-3 py-2 cursor-pointer"
+                    style={{
+                      borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined,
+                      backgroundColor: values.lecturer_ids.includes(l.id)
+                        ? 'var(--bg-muted)'
+                        : undefined,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={values.lecturer_ids.includes(l.id)}
+                      onChange={() => toggleLecturer(l.id)}
+                      className="h-4 w-4 shrink-0"
+                      style={{ accentColor: 'var(--accent-primary)' }}
+                    />
+                    <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {lecturerLabel(l)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {lecturers.length > 0 && values.lecturer_ids.length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Select at least one teaching lecturer.
+              </p>
+            )}
+          </div>
         </div>
 
-        {!sessionsLoading && values.sessions.length === 0 && (
-          <div
-            className="rounded-md border border-dashed py-6 text-center"
-            style={{ borderColor: 'var(--border-default)' }}
-          >
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              No sessions yet. Add a session to schedule this unit.
-            </p>
-          </div>
-        )}
+        {/* Right column: student selection and sessions */}
+        <div className="grid gap-4 content-start">
+          <div className="grid gap-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Students</Label>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {values.student_ids.length} selected
+              </span>
+            </div>
+            {students.length === 0 ? (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                No students found. Add students on the Students page first.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5"
+                      style={{ color: 'var(--text-muted)' }}
+                    />
+                    <Input
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                      placeholder="Search students"
+                      autoComplete="off"
+                      className="pl-8 h-8 text-sm"
+                    />
+                  </div>
+                  <Select
+                    value={yearFilter}
+                    onValueChange={(v) => setYearFilter(v ?? 'all')}
+                    items={YEAR_FILTERS}
+                  >
+                    <SelectTrigger className="h-8 text-sm w-28 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {YEAR_FILTERS.map((y) => (
+                        <SelectItem key={y.value} value={y.value}>
+                          {y.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-        {values.sessions.length > 0 && (
-          <div className="grid gap-2">
-            {values.sessions.map((session) => (
-              <SessionBox
-                key={session.id}
-                session={session}
-                onUpdate={updateSession}
-                onDelete={removeSession}
-              />
-            ))}
+                <div
+                  className="rounded-md border overflow-y-auto max-h-44"
+                  style={{ borderColor: 'var(--border-default)' }}
+                >
+                  {filteredStudents.length === 0 ? (
+                    <p className="text-xs px-3 py-3" style={{ color: 'var(--text-muted)' }}>
+                      No students match the current search or filter.
+                    </p>
+                  ) : (
+                    filteredStudents.map((s, i) => (
+                      <label
+                        key={s.id}
+                        className="flex items-center gap-2.5 px-3 py-2 cursor-pointer"
+                        style={{
+                          borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined,
+                          backgroundColor: values.student_ids.includes(s.id)
+                            ? 'var(--bg-muted)'
+                            : undefined,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={values.student_ids.includes(s.id)}
+                          onChange={() => toggleStudent(s.id)}
+                          className="h-4 w-4 shrink-0"
+                          style={{ accentColor: 'var(--accent-primary)' }}
+                        />
+                        <span className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>
+                          {studentLabel(s)}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          Year {s.year_level}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                {derivedYear !== null && (
+                  <button
+                    type="button"
+                    className="text-xs text-left w-fit underline-offset-2 hover:underline"
+                    style={{ color: 'var(--accent-primary)' }}
+                    onClick={selectAllInDerivedYear}
+                  >
+                    Select all Year {derivedYear} students
+                  </button>
+                )}
+              </>
+            )}
           </div>
-        )}
+
+          <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+
+          <div className="grid gap-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Sessions
+                </p>
+                {sessionsLoading && (
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    Loading sessions…
+                  </p>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={addSession}
+                disabled={sessionsLoading}
+              >
+                <Plus className="h-4 w-4" />
+                Add session
+              </Button>
+            </div>
+
+            {!sessionsLoading && values.sessions.length === 0 && (
+              <div
+                className="rounded-md border border-dashed py-6 text-center"
+                style={{ borderColor: 'var(--border-default)' }}
+              >
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  No sessions yet. Add a session to schedule this unit.
+                </p>
+              </div>
+            )}
+
+            {values.sessions.length > 0 && (
+              <div className="grid gap-2">
+                {values.sessions.map((session) => (
+                  <SessionBox
+                    key={session.id}
+                    session={session}
+                    teamLecturers={teamLecturers}
+                    onUpdate={updateSession}
+                    onDelete={removeSession}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -440,6 +752,8 @@ export default function UnitsPage() {
   const [deletingUnit, setDeletingUnit] = useState<Unit | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [filters, setFilters] = useState<UnitFilters>(EMPTY_UNIT_FILTERS)
+
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
   const lecturersQuery = useQuery({ queryKey: ['lecturers'], queryFn: listLecturers })
   const studentsQuery = useQuery({ queryKey: ['students'], queryFn: listStudents })
@@ -447,27 +761,54 @@ export default function UnitsPage() {
   const lecturers = lecturersQuery.data ?? []
   const students = studentsQuery.data ?? []
 
+  // Teaching-lecturer filter options: every loaded lecturer, by display name.
+  const lecturerFilterOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All lecturers' },
+      ...lecturers.map((l) => ({ value: l.id, label: lecturerLabel(l) })),
+    ],
+    [lecturers]
+  )
+
+  const filteredUnits = useMemo(
+    () => filterUnits(unitsQuery.data ?? [], filters),
+    [unitsQuery.data, filters]
+  )
+
+  // After saving a unit/session, dependent server state may change: the unit
+  // list, the lecturer list (teaching-team membership), the schedulable-session
+  // pool, and any saved timetable assignments.
+  function invalidateDependentQueries(unitId: string) {
+    queryClient.invalidateQueries({ queryKey: ['units'] })
+    queryClient.invalidateQueries({ queryKey: ['lecturers'] })
+    queryClient.invalidateQueries({ queryKey: ['unit-sessions', unitId] })
+    queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+    queryClient.invalidateQueries({ queryKey: ['assignments'] })
+  }
+
   const createMutation = useMutation({
     mutationFn: async (form: UnitFormState) => {
       const unit = await createUnit({
         code: form.code,
         name: form.name,
-        lecturer_id: form.lecturer_id,
+        lecturer_ids: form.lecturer_ids,
         student_ids: form.student_ids,
       })
       if (form.sessions.length > 0) {
         await Promise.all(
           form.sessions.map((s) =>
-            createUnitSession(unit.id, { session_type: s.session_type, duration: s.duration })
+            createUnitSession(unit.id, {
+              session_type: s.session_type,
+              duration: s.duration,
+              lecturer_id: s.lecturer_id || null,
+            })
           )
         )
       }
       return unit
     },
     onSuccess: (unit) => {
-      queryClient.invalidateQueries({ queryKey: ['units'] })
-      queryClient.invalidateQueries({ queryKey: ['unit-sessions', unit.id] })
-      queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      invalidateDependentQueries(unit.id)
       setCreateOpen(false)
     },
     onError: (err: Error) => setCreateError(err.message),
@@ -499,22 +840,28 @@ export default function UnitsPage() {
         ...sessions
           .filter((s) => s.backendId)
           .map((s) =>
-            apiUpdateSession(s.backendId!, { session_type: s.session_type, duration: s.duration })
+            apiUpdateSession(s.backendId!, {
+              session_type: s.session_type,
+              duration: s.duration,
+              lecturer_id: s.lecturer_id || null,
+            })
           ),
         // create sessions newly added in the form
         ...sessions
           .filter((s) => !s.backendId)
           .map((s) =>
-            createUnitSession(id, { session_type: s.session_type, duration: s.duration })
+            createUnitSession(id, {
+              session_type: s.session_type,
+              duration: s.duration,
+              lecturer_id: s.lecturer_id || null,
+            })
           ),
       ])
 
       return id
     },
     onSuccess: (id) => {
-      queryClient.invalidateQueries({ queryKey: ['units'] })
-      queryClient.invalidateQueries({ queryKey: ['unit-sessions', id] })
-      queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      invalidateDependentQueries(id)
       setEditOpen(false)
     },
     onError: (err: Error) => setEditError(err.message),
@@ -524,7 +871,9 @@ export default function UnitsPage() {
     mutationFn: deleteUnit,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['units'] })
+      queryClient.invalidateQueries({ queryKey: ['lecturers'] })
       queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
       setDeleteOpen(false)
     },
     onError: (err: Error) => setDeleteError(err.message),
@@ -553,8 +902,11 @@ export default function UnitsPage() {
     setEditForm({
       code: unit.code,
       name: unit.name,
-      lecturer_id: unit.lecturer_id,
+      lecturer_ids: unit.lecturers.map((l) => l.id),
       student_ids: unit.students.map((s) => s.id),
+      // Existing units load a real selection; treat it as already chosen so a
+      // code edit never silently replaces it.
+      studentSelectionTouched: true,
       sessions: [],
     })
     setOriginalSessionIds([])
@@ -602,7 +954,7 @@ export default function UnitsPage() {
       data: {
         code: editForm.code.trim(),
         name: editForm.name.trim(),
-        lecturer_id: editForm.lecturer_id,
+        lecturer_ids: editForm.lecturer_ids,
         student_ids: editForm.student_ids,
       },
       sessions: editForm.sessions,
@@ -620,7 +972,7 @@ export default function UnitsPage() {
     if (unitsQuery.isLoading) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading units…
             </p>
@@ -632,7 +984,7 @@ export default function UnitsPage() {
     if (unitsQuery.isError) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {unitsQuery.error instanceof Error
                 ? unitsQuery.error.message
@@ -648,7 +1000,7 @@ export default function UnitsPage() {
     if (units.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={4} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <div className="flex flex-col items-center gap-3">
               <BookOpen className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
               <div>
@@ -665,7 +1017,19 @@ export default function UnitsPage() {
       )
     }
 
-    return units.map((unit) => (
+    if (filteredUnits.length === 0) {
+      return (
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableCell colSpan={6} className="py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No units match the current filters.
+            </p>
+          </TableCell>
+        </TableRow>
+      )
+    }
+
+    return filteredUnits.map((unit) => (
       <UnitTableRow
         key={unit.id}
         unit={unit}
@@ -688,6 +1052,33 @@ export default function UnitsPage() {
         }
       />
 
+      {unitsQuery.data && unitsQuery.data.length > 0 && (
+        <FilterBar
+          isActive={unitFiltersActive(filters)}
+          onClear={() => setFilters(EMPTY_UNIT_FILTERS)}
+        >
+          <SearchInput
+            value={filters.search}
+            onChange={(search) => setFilters((f) => ({ ...f, search }))}
+            label="Search units by code or name"
+            placeholder="Search by code or name"
+          />
+          <FilterSelect
+            value={filters.year}
+            onChange={(year) => setFilters((f) => ({ ...f, year }))}
+            options={YEAR_FILTERS}
+            label="Filter by year level"
+            className="h-9 text-sm w-36"
+          />
+          <FilterSelect
+            value={filters.lecturerId}
+            onChange={(lecturerId) => setFilters((f) => ({ ...f, lecturerId }))}
+            options={lecturerFilterOptions}
+            label="Filter by teaching lecturer"
+          />
+        </FilterBar>
+      )}
+
       <div
         className="rounded-lg border overflow-hidden"
         style={{
@@ -700,6 +1091,8 @@ export default function UnitsPage() {
             <TableRow>
               <TableHead className="px-4">Code</TableHead>
               <TableHead className="px-4">Name</TableHead>
+              <TableHead className="px-4">Year</TableHead>
+              <TableHead className="px-4">Teaching team</TableHead>
               <TableHead className="px-4">Sessions</TableHead>
               <TableHead className="px-4 text-right">Actions</TableHead>
             </TableRow>
@@ -715,14 +1108,15 @@ export default function UnitsPage() {
           if (!open) setCreateOpen(false)
         }}
       >
-        <DialogContent className="sm:max-w-lg overflow-y-auto max-h-[90vh]">
+        <DialogContent className="sm:max-w-4xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Create unit</DialogTitle>
             <DialogDescription>
-              Add a new course unit and define its sessions.
+              Add a new course unit, its teaching team, students, and sessions.
             </DialogDescription>
           </DialogHeader>
           <UnitFormFields
+            mode="create"
             values={createForm}
             onChange={(u) => applyUpdate(setCreateForm, u)}
             error={createError}
@@ -747,14 +1141,15 @@ export default function UnitsPage() {
           if (!open) setEditOpen(false)
         }}
       >
-        <DialogContent className="sm:max-w-lg overflow-y-auto max-h-[90vh]">
+        <DialogContent className="sm:max-w-4xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Edit unit</DialogTitle>
             <DialogDescription>
-              Update the details and sessions for this unit.
+              Update the details, teaching team, students, and sessions for this unit.
             </DialogDescription>
           </DialogHeader>
           <UnitFormFields
+            mode="edit"
             values={editForm}
             onChange={(u) => applyUpdate(setEditForm, u)}
             error={editError}

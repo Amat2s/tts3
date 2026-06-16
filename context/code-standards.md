@@ -7,6 +7,11 @@
 - Do not mix unrelated concerns in one component, route, service, or solver function.
 - Keep domain logic separate from UI rendering, persistence, API routing, background job execution, and solver modeling.
 - Treat sessions as the atomic scheduling unit throughout the codebase.
+- Unit year level must be derived from the first integer in the unit code and restricted to 1-3; do not accept a client-authored unit year.
+- Student year level must be restricted to 1-3 on create, update, and at rest.
+- Unit teaching teams use `unit_lecturers`; session lecturer identity comes from `Session.lecturer_id`, not from the unit team as a whole.
+- Session types are limited to `lecture` and `tutorial`.
+- Hidden `session_student_allocations` are the canonical per-session membership used by validation, capacity checks, and solver input. Do not expose tutorial group membership in the UI.
 - Treat scheduled sessions as locked by definition.
 - Do not introduce a third persistent session state beyond scheduled and unscheduled in v1.
 - Warning placements are allowed in the UI, but they must be represented as validation warnings, not as a separate persistent state. Blocking placements must be rejected before entering the frontend draft.
@@ -111,6 +116,7 @@ type SessionScheduleState =
 - Use explicit field constraints for required values, duration bounds, and enum values.
 - Validate session duration as an integer number of slots.
 - Enforce v1 duration bounds: minimum 1 slot, maximum 4 slots.
+- Keep duration as an integer slot count in APIs/storage; frontend labels may display the value as hours.
 - Represent day, slot, and session state with enums or constrained values.
 - Do not accept arbitrary JSON blobs for core scheduling entities unless the shape is validated.
 - Keep validation error messages precise enough to help the frontend display actionable feedback.
@@ -122,7 +128,7 @@ type SessionScheduleState =
 - Do not modify production schema manually.
 - Keep migrations small and reversible where practical.
 - Use explicit relationships for core domain entities.
-- Store many-to-many relationships, such as session-student membership, in join tables.
+- Store unit enrolment and teaching teams in explicit many-to-many tables. Store hidden session-student membership in `session_student_allocations`.
 - Prefer database constraints for invariants that must never be violated at rest.
 - Enforce uniqueness where the product requires it, such as room names if room names are treated as unique.
 - Use nullable assignment fields only if the application and database constraints prevent invalid combinations.
@@ -173,9 +179,8 @@ type SessionScheduleState =
   - session running off the timetable.
 - Warning validation allows the placement to remain visible but blocks solver execution.
 - Warning rules are:
-  - lecturer overlap conflict;
-  - student overlap conflict;
-  - unit/session overlap conflict where applicable from existing v1 data;
+  - session-level lecturer overlap conflict;
+  - allocated-student overlap conflict;
   - lecturer availability conflict;
   - other non-blocking conflicts represented by current v1 data.
 - A validation issue object should include:
@@ -187,8 +192,9 @@ type SessionScheduleState =
   - affected student IDs when relevant;
   - human-readable message.
 - Do not treat unscheduled sessions as validation issues.
-- Do not treat sessions without students as incomplete solely because students are missing.
-- Sessions without students have no known student-conflict constraints.
+- Do not treat zero-allocation sessions as incomplete solely because no students are allocated.
+- Zero-allocation sessions have no known student-conflict constraints.
+- Do not add an independent same-unit/session overlap warning; actual allocated-student intersection is authoritative.
 - When data changes make a scheduled assignment violate a blocking rule, automatically unschedule the affected session and surface the reason when relevant.
 - Warning-invalid assignments may be saved. They must remain visibly flagged after being loaded again.
 - Solver execution must be blocked whenever any blocking or warning issue exists.
@@ -256,7 +262,7 @@ type SessionScheduleState =
 ## Data and Storage
 
 - Core metadata belongs in Supabase Postgres.
-- Store students, lecturers, rooms, units, sessions, enrolments, and timetable assignments in the database.
+- Store students, lecturers, rooms, units, sessions, unit enrolments, unit teaching teams, hidden session allocations, and timetable assignments in the database.
 - Do not use blob storage in v1.
 - Do not store large generated files in the database.
 - Future generated exports, uploaded imports, and large artifacts should use object storage.
@@ -269,6 +275,8 @@ type SessionScheduleState =
   - unscheduled sessions must not have day, start slot, or room.
 - Do not store validation severity as a separate persistent session state. Derive blocking/warning status from current data.
 - Preserve existing timetable assignments when data changes, unless the product rule explicitly requires unscheduling.
+- Clear All is a frontend draft operation and must not call the backend clear endpoint until the admin explicitly saves the empty draft.
+- Management search and filters remain frontend-only unless a later spec introduces backend query parameters.
 - If a room is deleted, sessions assigned to that room become unscheduled.
 - If a solver run fails, existing timetable state must remain unchanged.
 - If a solver run partially succeeds, successfully scheduled sessions are persisted and failed sessions remain unscheduled.

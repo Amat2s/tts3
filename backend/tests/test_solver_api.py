@@ -284,10 +284,14 @@ def test_start_returns_no_work_status_without_trigger(client, db, monkeypatch):
 
 
 def test_start_defensive_integrity_failure_is_structured(client, db, monkeypatch):
+    from services.session_allocation import rebalance_unit_session_allocations
+
     make_lecturer(db)
     make_room(db, capacity=1)
     make_unit(db, student_ids=["s1", "s2"])
     make_session(db)
+    db.flush()
+    rebalance_unit_session_allocations(db, "unit1")
     make_assignment(db)
     db.commit()
 

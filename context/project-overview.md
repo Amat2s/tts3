@@ -36,17 +36,17 @@ This application is a university timetable scheduling system for administrators.
 10. Inside each unit, the admin creates sessions.
 11. A session becomes schedulable when it has:
     - a unit
-    - a name
-    - a lecturer
+    - a Lecture or Tutorial type
+    - a session-level lecturer from the unit's teaching team
     - a duration
-12. Students are optional for a session. If a session has no students, it has no known student-conflict constraints.
+12. Hidden session-student allocations are rebuilt from unit enrolment. Lectures include every enrolled student; tutorials divide enrolled students into balanced, stable groups. A zero-allocation session has no student-conflict constraints.
 13. Schedulable sessions appear underneath the timetable grid in the unscheduled pool.
 14. The unscheduled pool groups sessions by unit.
 15. The admin can drag an unscheduled session onto the timetable grid.
 16. Manual scheduling changes update a frontend timetable draft first.
 17. Blocking placement rules reject impossible placements immediately: room duplication, room too small, crossing lunch, and running off the timetable.
 18. Warning-level conflicts are allowed to remain scheduled but are visibly flagged.
-19. Warning-level conflicts include lecturer conflicts, student conflicts, unit/session overlap conflicts where applicable, lecturer availability conflicts, and other non-blocking conflicts already represented by v1 data.
+19. Warning-level conflicts include session-lecturer conflicts, allocated-student conflicts, lecturer availability conflicts, and other non-blocking conflicts represented by current data.
 20. The admin explicitly saves the timetable draft to persist assignment results to the database.
 21. While any frontend validation issue exists, the solver button is disabled.
 22. Once no frontend validation issues exist, the admin can run the solver.
@@ -79,18 +79,22 @@ This application is a university timetable scheduling system for administrators.
 - Sessions are the atomic scheduling units.
 - Each unit has:
   - id
+  - code
   - name
-  - lecturer
-  - students
+  - year level derived from the first integer in its code (1-3 only)
+  - a teaching team of one or more lecturers
+  - enrolled students through the shared `unit_students` relationship
 - Each session has:
-  - name (inherit unit name + label distinction (lecture/tutorial))
-  - unit/course (inherit)
-  - lecturer (inherit)
-  - optional students (inherit)
-  - duration
-- Sessions are schedulable once they have a unit, name, lecturer, and duration.
+  - unit/course
+  - type (`lecture` or `tutorial`)
+  - one session-level lecturer selected from the unit teaching team
+  - integer slot duration (displayed as hours in the UI)
+- Sessions are schedulable once they have a unit, a session-level lecturer, a supported type, and a duration.
+- Hidden session-student allocation rows are system-owned and not shown or editable in the UI.
+- Lectures allocate all enrolled unit students.
+- Tutorials allocate each enrolled student to exactly one tutorial, balanced and stable where practical.
 - Room requirements are not stored directly on sessions in v1.
-- Room capacity checks are derived from the number of students assigned to the session.
+- Room capacity checks are derived from the session allocation count.
 
 ### Lecturer Management
 
@@ -102,19 +106,21 @@ This application is a university timetable scheduling system for administrators.
   - availability
 - Lecturer availability is a warning-level validation rule in the frontend editor and a hard solver constraint later.
 - A lecturer conflict can remain scheduled as a visible warning, but it blocks solver execution until resolved.
+- The lecturer page shows taught units read-only; teaching-team edits remain owned by the unit page.
 
 ### Student Management
 
 - Admin can create students.
-- Students can be assigned to sessions.
 - Each student has:
   - title
   - first name
   - last name
-  - year level
-- Student assignment is used to derive student-conflict warnings in the frontend editor and hard solver constraints later.
-- If two sessions share one or more students and overlap, the frontend allows the placement to remain but flags it as a warning and blocks solver execution.
-- Sessions may exist without students in v1.
+  - year level restricted to 1-3
+- Creating a student automatically enrols them into existing units with the same derived year.
+- Creating a unit without an explicit student list defaults to students in the unit's derived year.
+- Enrolment edits from the student and unit pages update the same `unit_students` relationship.
+- Hidden session allocations derive student-conflict warnings and solver conflicts.
+- If two sessions share one or more allocated students and overlap, the frontend allows the placement to remain but flags it as a warning and blocks solver execution.
 
 ### Room Management
 
@@ -124,7 +130,7 @@ This application is a university timetable scheduling system for administrators.
   - capacity
   - room type (lecture/tutorial)
 - Rooms define the timetable canvas.
-- A session can only be assigned to a room if the room capacity is greater than or equal to the number of students in the session.
+- A session can only be assigned to a room if room capacity is greater than or equal to its hidden allocation count.
 - A room cannot contain overlapping sessions.
 - If a room is deleted, sessions scheduled in that room become unscheduled.
 
@@ -133,6 +139,7 @@ This application is a university timetable scheduling system for administrators.
 - Admin can drag unscheduled sessions onto the timetable.
 - Admin can move scheduled sessions around the timetable.
 - Admin can remove scheduled sessions back to the unscheduled pool.
+- Clear All removes assignments from the frontend draft only; persistence still requires explicit Save.
 - Manual scheduling edits update a frontend draft first.
 - The admin explicitly saves the timetable draft to persist assignments to the database.
 - Blocking-invalid placements are rejected before entering the draft.
@@ -156,11 +163,12 @@ Blocking rules are:
 
 Warning rules are:
 
-- lecturer overlap conflicts;
-- student overlap conflicts;
-- unit/session overlap conflicts where applicable from existing unit and session data;
+- session-level lecturer overlap conflicts;
+- allocated-student overlap conflicts;
 - lecturer availability conflicts;
 - any other non-blocking conflicts already represented by current v1 data.
+
+Independent same-unit/session overlap is not a warning. Actual allocated-student overlap is authoritative.
 
 If a room, unit, session, student, or lecturer change makes an existing scheduled assignment violate a blocking rule, the frontend automatically unschedules that session. Warning-invalid assignments may remain scheduled and may be saved, but the solver remains blocked until warnings are resolved.
 
@@ -198,11 +206,17 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 
 - Single-admin timetable scheduling system.
 - Manual creation of rooms, lecturers, students, units, and sessions.
+- Unit years derived from codes and student years restricted to 1-3.
+- Shared unit-student enrolment editable from unit and student management.
+- Unit teaching teams and session-level lecturers.
+- Hidden lecture/tutorial student allocations used for capacity and conflicts.
+- Frontend-only management search and filters.
 - Main `/timetable` workspace.
 - Fixed weekly timetable grid from Monday to Friday.
 - Rooms nested under each day.
 - Fixed time-slot rows.
 - Sessions with integer-slot durations.
+- Duration displayed as hours while remaining an integer slot count internally.
 - Unscheduled session pool grouped by unit.
 - Drag-and-drop manual scheduling.
 - Moving scheduled sessions.
@@ -234,10 +248,10 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Comparing multiple generated timetables.
 - Timetable version history.
 - Automatic session generation from units.
-- Automatic student allocation to sessions.
+- User-visible or user-editable tutorial allocation groups.
 - Continuous or arbitrary start times.
 - Sessions that start outside fixed grid boundaries.
-- Room equipment requirements, room types, or specialist facilities.
+- Room equipment or specialist-facility requirements.
 - Caching infrastructure such as Redis.
 - Object storage in v1.
 

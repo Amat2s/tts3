@@ -39,11 +39,14 @@
 ## Storage Model
 
 - **Supabase PostgreSQL**: Stores all core domain data:
+  - units and derived year levels
   - sessions
   - students
   - lecturers
   - rooms
-  - enrolments
+  - unit-student enrolments (`unit_students`)
+  - unit teaching teams (`unit_lecturers`)
+  - hidden session-student allocations
   - session assignments (locked + scheduled state)
 - **No blob storage in v1**: file uploads not required yet (future: CSV imports, exports, reports)
 - **Future object storage (Supabase Storage or Vercel Blob)**: for timetable exports and bulk imports
@@ -59,19 +62,26 @@
 
 ## Invariants
 
-1. Sessions are atomic scheduling units and always include: unit/course context, lecturer context, session type, and duration; students are optional.
+1. Sessions are atomic scheduling units and include unit/course context, a `lecture` or `tutorial` type, integer-slot duration, and a nullable session-level lecturer. A session without a lecturer is not schedulable.
 2. Time is discretized into fixed slots; sessions occupy contiguous slot intervals only.
 3. The timetable editor has two assignment layers in v1: saved assignments from the backend and an unsaved frontend draft.
 4. Manual scheduling actions update the frontend draft first. They are persisted only when the admin explicitly saves the timetable.
 5. User-facing validation is owned by the frontend in v1.
 6. Frontend validation has two severities: `blocking` and `warning`.
 7. Blocking placement rules reject a proposed placement before it enters the draft: room double-booking, room capacity too small, crossing lunch, and running off the timetable.
-8. Warning rules allow the placement to remain visible but mark it as invalid/warning and block solver execution. Warning rules include lecturer conflicts, student conflicts, unit/session overlap conflicts where applicable, lecturer availability conflicts, and other non-blocking conflicts represented by current v1 data.
+8. Warning rules allow the placement to remain visible but mark it as invalid/warning and block solver execution. Warning rules include session-level lecturer conflicts, allocated-student conflicts, lecturer availability conflicts, and other non-blocking conflicts represented by current data. Independent same-unit overlap is retired.
 9. If underlying data changes make an existing saved or draft assignment violate a blocking rule, the frontend must automatically unschedule that session and make the reason visible when relevant.
 10. Backend assignment save endpoints enforce defensive invariants for impossible persisted states, but these defensive rejections are not the normal user-facing validation path.
 11. Warning-invalid assignments may be saved to the database. The frontend remains responsible for displaying warning state after loading saved data.
 12. Solver execution is blocked whenever the frontend validation engine reports any blocking issue or warning issue.
 13. Backend constraint definitions are introduced later as a solver mirror of the frontend validation rules, not as a user-facing validation API in v1.
-14. Room capacity must always be ≥ session student count for a placement to enter or remain in the draft.
+14. Room capacity must always be greater than or equal to the session's hidden allocation count for a placement to enter or remain in the draft.
 15. Solver output is partial allowed; unscheduled sessions remain explicitly in the UI pool.
 16. No scheduling version history is stored in v1; latest saved state plus current frontend draft are the only timetable states.
+17. Unit year level is derived from the first integer in the unit code and is restricted to 1-3; student year level is also restricted to 1-3.
+18. Unit teaching membership is many-to-many through `unit_lecturers`; each scheduled session uses its own `lecturer_id`, which must belong to that unit's team.
+19. `session_student_allocations` are hidden, system-owned derived rows. Lectures include every enrolled unit student; tutorials are balanced and stable where practical, with each enrolled student in exactly one tutorial.
+20. Unit and student enrolment editing share the canonical `unit_students` relationship.
+21. Clear All changes only the frontend draft until the explicit save operation persists the empty assignment set.
+22. Management search and filters are frontend-only and do not add backend query parameters.
+23. Duration remains an integer slot count in persistence and solver input, while the frontend labels it in hours.
