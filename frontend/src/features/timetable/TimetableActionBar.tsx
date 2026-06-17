@@ -47,6 +47,9 @@ interface TimetableActionBarProps {
   // Assignment load error
   assignmentsError?: string | null
   onRetryAssignments?: () => void
+  // Local draft-persistence notice (Unit 79)
+  draftNotice?: 'restored' | 'discarded' | null
+  onDismissDraftNotice?: () => void
 }
 
 interface MessageState {
@@ -56,6 +59,8 @@ interface MessageState {
   isAlert: boolean
   dismissible: boolean
   retryable: boolean
+  // Optional override for the dismiss action; defaults to onDismissSolver.
+  onDismiss?: () => void
 }
 
 function sessionLabel(count: number): string {
@@ -84,6 +89,8 @@ export function TimetableActionBar({
   onDismissSolver,
   assignmentsError,
   onRetryAssignments,
+  draftNotice = null,
+  onDismissDraftNotice,
 }: TimetableActionBarProps) {
   const [showDetails, setShowDetails] = useState(false)
   const [clearDialogOpen, setClearDialogOpen] = useState(false)
@@ -210,6 +217,30 @@ export function TimetableActionBar({
         isAlert: false,
         dismissible: true,
         retryable: false,
+      }
+    }
+
+    // Priority 2.5: local draft-persistence notice (dismissible, one-time)
+    if (draftNotice === 'restored') {
+      return {
+        text: 'Unsaved draft restored.',
+        color: 'var(--accent-primary)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+        onDismiss: onDismissDraftNotice,
+      }
+    }
+    if (draftNotice === 'discarded') {
+      return {
+        text: 'Old unsaved draft was discarded because saved timetable data changed.',
+        color: 'var(--state-warning)',
+        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+        onDismiss: onDismissDraftNotice,
       }
     }
 
@@ -344,9 +375,9 @@ export function TimetableActionBar({
                   <button
                     type="button"
                     className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
-                    aria-label="Dismiss solver status"
+                    aria-label="Dismiss message"
                     style={{ color: msgState.color }}
-                    onClick={onDismissSolver}
+                    onClick={msgState.onDismiss ?? onDismissSolver}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>

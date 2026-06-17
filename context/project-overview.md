@@ -71,6 +71,11 @@ This application is a university timetable scheduling system for administrators.
 - Session duration controls how many vertical time-slot rows the session spans.
 - If no rooms exist, the timetable grid does not render.
 - If rooms exist but no schedulable sessions exist, the grid renders and the unscheduled area displays an empty-state message.
+- The `/timetable` page shows no page header or description between the navbar and the sticky action bar.
+- All timetable feedback (save state, solver state, blocking/warning messages, and validation details) lives in one sticky action bar that does not shift the page; details open as an anchored overlay above the timetable.
+- The unscheduled pool shows fixed-width unit boxes that wrap across the page; its search matches unit code/name and teaching-team lecturer names only (not session type).
+- The lunch row displays `Lunch/Mass` using dedicated lunch/mass colour tokens.
+- The navbar brand reads `Campion - Timetable`.
 
 ### Unit and Session Management
 
@@ -79,9 +84,10 @@ This application is a university timetable scheduling system for administrators.
 - Sessions are the atomic scheduling units.
 - Each unit has:
   - id
-  - code
+  - code (exactly three letters followed by three numbers, e.g. `HIS101`; trimmed and uppercased; unique)
   - name
   - year level derived from the first integer in its code (1-3 only)
+  - a subject derived from the unit-code letter prefix by the frontend parser (used for display, filtering, and colour only)
   - a teaching team of one or more lecturers
   - enrolled students through the shared `unit_students` relationship
 - Each session has:
@@ -95,12 +101,15 @@ This application is a university timetable scheduling system for administrators.
 - Tutorials allocate each enrolled student to exactly one tutorial, balanced and stable where practical.
 - Room requirements are not stored directly on sessions in v1.
 - Room capacity checks are derived from the session allocation count.
+- A unit code is valid only when it has the `AAA999` structure, a supported subject prefix (HIS, PHI, THE, LIT, LAN, GRE, SCI), and a derived year of 1-3.
+- Invalid unit codes disable unit create/save and show an invalid-unit warning.
+- Unit cards, scheduled cards, and unscheduled cards take their colour from the unit's subject, not a generic hash.
 
 ### Lecturer Management
 
 - Admin can create lecturers.
 - Each lecturer has:
-  - title
+  - title (restricted to `Mr`, `Ms`, `Mrs`, `Dr`, `Fr`, `A/Prof.`, `Prof.`)
   - first name
   - last name
   - availability
@@ -111,8 +120,8 @@ This application is a university timetable scheduling system for administrators.
 ### Student Management
 
 - Admin can create students.
+- Students have no title.
 - Each student has:
-  - title
   - first name
   - last name
   - year level restricted to 1-3
@@ -141,7 +150,9 @@ This application is a university timetable scheduling system for administrators.
 - Admin can remove scheduled sessions back to the unscheduled pool.
 - Clear All removes assignments from the frontend draft only; persistence still requires explicit Save.
 - Manual scheduling edits update a frontend draft first.
+- The unsaved draft is persisted in versioned browser storage so leaving `/timetable` or refreshing does not lose draft work; the stored draft clears after a successful save, and restored drafts remain subject to the existing blocking/auto-unschedule rules.
 - The admin explicitly saves the timetable draft to persist assignments to the database.
+- Saving an empty draft is valid and persists an empty assignment set.
 - Blocking-invalid placements are rejected before entering the draft.
 - Warning-invalid placements are allowed, highlighted, and may be saved.
 - Solver execution is blocked while any frontend validation issue exists.
@@ -221,6 +232,8 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Drag-and-drop manual scheduling.
 - Moving scheduled sessions.
 - Removing scheduled sessions back to the unscheduled pool.
+- Frontend unit-code parser deriving subject, colour, and year for display, filtering, and validation UX.
+- Browser-persisted unsaved timetable draft with schema versioning, cleared after a successful save.
 - Hard constraint evaluation.
 - Constraint violation highlighting.
 - Solver button gating based on frontend validation issues.

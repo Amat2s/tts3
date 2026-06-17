@@ -88,6 +88,8 @@ describe('LecturersPage — title selector (Unit 72/73/75)', () => {
     for (const title of expected) {
       expect(await screen.findByRole('option', { name: title })).toBeInTheDocument()
     }
+    // Enforce that ONLY those titles exist — no extra/unexpected options.
+    expect(screen.getAllByRole('option')).toHaveLength(expected.length)
   })
 })
 
@@ -108,8 +110,13 @@ describe('LecturersPage — subject and year filters', () => {
 
     // Open the subject filter.
     await user.click(screen.getByLabelText('Filter by subject'))
-    expect(await screen.findByRole('option', { name: 'History' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /ENG/ })).toBeNull()
+    await screen.findByRole('option', { name: 'History' })
+    // Assert the complete option set rather than just the absence of an /ENG/
+    // label — this catches an invalid ENG code surfacing under any label.
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'All subjects',
+      'History',
+    ])
   })
 
   it('year filter select is rendered when lecturers are loaded', async () => {

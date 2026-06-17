@@ -80,12 +80,21 @@ describe('filterLecturers', () => {
     // Grace teaches ENG102 (ENG is not a supported prefix); ENG never appears as a
     // valid subject filter option so no filter value should match via that unit.
     // Filtering by LIT (Literature) returns nothing — ENG ≠ LIT.
-    const result = filterLecturers(
+    const lit = filterLecturers(
       lecturers,
       { ...EMPTY_LECTURER_FILTERS, subject: 'LIT' },
       taughtUnitsByLecturer
     )
-    expect(result).toHaveLength(0)
+    expect(lit).toHaveLength(0)
+
+    // Filtering by the invalid prefix itself must also match nothing: ENG is not
+    // a recognised subject, so Grace is not matched via her ENG102 unit.
+    const eng = filterLecturers(
+      lecturers,
+      { ...EMPTY_LECTURER_FILTERS, subject: 'ENG' },
+      taughtUnitsByLecturer
+    )
+    expect(eng).toHaveLength(0)
   })
 
   it('filters by year derived from teaching-team unit codes', () => {

@@ -8,6 +8,8 @@
 - Keep domain logic separate from UI rendering, persistence, API routing, background job execution, and solver modeling.
 - Treat sessions as the atomic scheduling unit throughout the codebase.
 - Unit year level must be derived from the first integer in the unit code and restricted to 1-3; do not accept a client-authored unit year.
+- Unit codes must be exactly three letters followed by three numbers (`AAA999`), trimmed and uppercased before validation/persistence, and unique. The frontend subject/year parser derives subject, colour, and year for display, filtering, and validation UX only; the backend defensively validates the structural format while year derivation stays authoritative. Invalid unit codes must disable unit create/save in the UI.
+- Students have no title field. Lecturer titles are restricted to `Mr`, `Ms`, `Mrs`, `Dr`, `Fr`, `A/Prof.`, `Prof.`.
 - Student year level must be restricted to 1-3 on create, update, and at rest.
 - Unit teaching teams use `unit_lecturers`; session lecturer identity comes from `Session.lecturer_id`, not from the unit team as a whole.
 - Session types are limited to `lecture` and `tutorial`.
@@ -198,6 +200,7 @@ type SessionScheduleState =
 - When data changes make a scheduled assignment violate a blocking rule, automatically unschedule the affected session and surface the reason when relevant.
 - Warning-invalid assignments may be saved. They must remain visibly flagged after being loaded again.
 - Solver execution must be blocked whenever any blocking or warning issue exists.
+- User-facing validation messages must use human time labels (e.g. `1:30-2:20`), not raw slot IDs such as `s4`. Internal issue objects may continue to use slot IDs.
 
 ## Backend Constraint Mirror
 
@@ -227,6 +230,8 @@ type SessionScheduleState =
 - Do not create one-off component styles when a reusable component is appropriate.
 - Do not hardcode arbitrary visual decisions repeatedly across components.
 - take all styling from `ui-context.md` - never use raw hex tokens
+- Unit, scheduled, and unscheduled session cards must take their colour from the unit subject via the subject colour tokens; the generic unit-colour tokens are a fallback for invalid/legacy codes only.
+- Use the dedicated lunch/mass tokens for the `Lunch/Mass` row rather than reusing error colours, and use the strong/emphasis grid-line tokens for darker grid borders.
 - Keep timetable grid styling consistent across empty, valid, invalid, selected, dragging, and solver-running states.
 - Use clear visual distinction for:
   - unscheduled sessions
@@ -276,6 +281,8 @@ type SessionScheduleState =
 - Do not store validation severity as a separate persistent session state. Derive blocking/warning status from current data.
 - Preserve existing timetable assignments when data changes, unless the product rule explicitly requires unscheduling.
 - Clear All is a frontend draft operation and must not call the backend clear endpoint until the admin explicitly saves the empty draft.
+- Saving an empty draft is valid and must persist an empty assignment set; do not early-return from save solely because the draft is empty.
+- The unsaved timetable draft may be persisted to browser storage under a schema-versioned key. Persist only the draft and minimal metadata (schema version, saved-assignment fingerprint, timestamp) — never server-owned TanStack Query data. Clear the stored draft after a successful save, version-check and validate it on load, discard stale or malformed stored drafts safely, and keep restored drafts subject to the existing blocking auto-unschedule rules.
 - Management search and filters remain frontend-only unless a later spec introduces backend query parameters.
 - If a room is deleted, sessions assigned to that room become unscheduled.
 - If a solver run fails, existing timetable state must remain unchanged.

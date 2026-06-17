@@ -88,11 +88,8 @@ export function TimetableGrid({
   onMoveSelect,
   onMetricsChange,
 }: TimetableGridProps) {
-  if (rooms.length === 0) return null
-
-  const assignmentMap = buildAssignmentMap(assignments)
-  const coveredSet = buildCoveredSet(assignments)
-
+  // Hooks must run unconditionally and before any early return so the hook
+  // order stays stable when `rooms` changes from empty to non-empty.
   // Measure the first grid cell and report dimensions to the parent.
   // Uses a ResizeObserver on the container so metrics update on layout changes.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -120,6 +117,11 @@ export function TimetableGrid({
     ro.observe(container)
     return () => ro.disconnect()
   }, []) // ResizeObserver handles layout-driven changes; callback accessed via ref
+
+  if (rooms.length === 0) return null
+
+  const assignmentMap = buildAssignmentMap(assignments)
+  const coveredSet = buildCoveredSet(assignments)
 
   return (
     <div

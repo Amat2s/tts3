@@ -26,6 +26,12 @@ import {
   type TimetableGridMetrics,
 } from '@/features/timetable/hoverHighlight'
 import {
+  clearStoredDraft,
+  computeSavedAssignmentFingerprint,
+  loadStoredDraft,
+  saveStoredDraft,
+} from '@/features/timetable/draftStorage'
+import {
   type AssignmentResponse,
   listAssignments,
   saveAssignments,
@@ -160,6 +166,10 @@ export default function TimetablePage() {
   const [activeHoverKey, setActiveHoverKey] = useState<string | null>(null)
   // Measured grid cell dimensions for the drag preview and pointer modifier.
   const [gridMetrics, setGridMetrics] = useState<TimetableGridMetrics | null>(null)
+  // One-time notice when a locally persisted draft is restored or discarded.
+  const [draftNotice, setDraftNotice] = useState<'restored' | 'discarded' | null>(
+    null
+  )
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -168,15 +178,66 @@ export default function TimetablePage() {
     draftRef.current = draft
   }, [draft])
 
+  // Restore happens exactly once, after saved assignments first load. Subsequent
+  // saved-assignment refetches (after a save or solver run) must never resurrect
+  // an old stored draft.
+  const hydratedRef = useRef(false)
+
   useEffect(() => {
-    if (savedAssignments !== undefined) {
-      setDraft(savedAssignments.map(toTimetableAssignment))
+    if (savedAssignments === undefined) return
+
+    const savedDraftList = savedAssignments.map(toTimetableAssignment)
+
+    if (!hydratedRef.current) {
+      hydratedRef.current = true
+      const fingerprint = computeSavedAssignmentFingerprint(savedAssignments)
+      const result = loadStoredDraft(fingerprint)
+
+      if (result.status === 'restored') {
+        // Restore the unsaved draft; it is dirty by definition and must flow
+        // through the existing blocking-cleanup and warning derivation paths.
+        setDraft(result.draft.assignments)
+        setIsDirty(true)
+        setSaveError(null)
+        setBlockingError(null)
+        setPendingSessionId(null)
+        setDraftNotice('restored')
+        return
+      }
+
+      if (result.status === 'discarded') {
+        setDraftNotice('discarded')
+      }
+      // 'none' and 'discarded' both initialize from saved backend state below.
+      setDraft(savedDraftList)
       setIsDirty(false)
       setSaveError(null)
       setBlockingError(null)
       setPendingSessionId(null)
+      return
     }
+
+    // Subsequent saved-assignment refetches (after a save or solver run):
+    // re-init from saved state, clear any stale restore notice, never resurrect.
+    setDraft(savedDraftList)
+    setIsDirty(false)
+    setSaveError(null)
+    setBlockingError(null)
+    setPendingSessionId(null)
+    setDraftNotice(null)
   }, [savedAssignments])
+
+  // Persist the draft whenever it is dirty; clear storage once it is clean again
+  // (e.g. after a successful save). Gated on hydration so the initial load never
+  // wipes a draft before the restore attempt has run.
+  useEffect(() => {
+    if (!hydratedRef.current || savedAssignments === undefined) return
+    if (isDirty) {
+      saveStoredDraft(draft, computeSavedAssignmentFingerprint(savedAssignments))
+    } else {
+      clearStoredDraft()
+    }
+  }, [draft, isDirty, savedAssignments])
 
   // Auto-unschedule any draft assignments that now violate blocking rules after
   // room or session data changes (e.g. room capacity reduced, student count increased).
@@ -320,7 +381,9 @@ export default function TimetablePage() {
   }
 
   function handleCellClick(day: string, slotId: string, roomId: string) {
-    if (editingDisabled) return
+    // Block placement when the saved baseline could not be loaded — otherwise the
+    // user could save a draft on top of an unknown saved timetable.
+    if (editingDisabled || assignmentsIsError) return
     if (!pendingSessionId) return
     const session = schedulableSessions?.find(
       (s) => s.session_id === pendingSessionId
@@ -401,6 +464,8 @@ export default function TimetablePage() {
   function handleDragEnd(event: DragEndEvent) {
     setActiveSessionId(null)
     setActiveHoverKey(null)
+    // Block placement when the saved baseline could not be loaded (see handleCellClick).
+    if (assignmentsIsError) return
     const { active, over } = event
     if (!over) return
 
@@ -593,6 +658,8 @@ export default function TimetablePage() {
                 : null
             }
             onRetryAssignments={() => refetchAssignments()}
+            draftNotice={draftNotice}
+            onDismissDraftNotice={() => setDraftNotice(null)}
           />
           {renderCanvas()}
         </div>

@@ -21,7 +21,7 @@ Mostly UI changes, turn this into a full spec batch. Consult ui-context.md for s
 
 3. Titles
    - No student titles: remove them
-   - Lecturer list: Mr, Miss, Mrs, Dr, Fr, Prof.
+   - Lecturer list: Mr, Ms, Mrs, Dr, Fr, A/Prof., Prof.
    - No dot except for Prof.
 
 4. Top/warning bar

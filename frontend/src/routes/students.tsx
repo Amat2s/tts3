@@ -93,7 +93,7 @@ function isFormValid(f: StudentFormState): boolean {
   return (
     f.first_name.trim().length > 0 &&
     f.last_name.trim().length > 0 &&
-    f.year_level !== ''
+    YEAR_LEVELS.includes(Number(f.year_level))
   )
 }
 
