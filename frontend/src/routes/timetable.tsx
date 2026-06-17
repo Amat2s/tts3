@@ -22,7 +22,7 @@ import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
 import { UnscheduledSessionCardPreview } from '@/features/timetable/UnscheduledSessionCard'
 import { useSolverRun } from '@/features/timetable/useSolverRun'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
-import { getUnitColor } from '@/features/timetable/unitColors'
+import { getSubjectTokens } from '@/features/timetable/unitColors'
 import {
   type AssignmentResponse,
   listAssignments,
@@ -30,6 +30,7 @@ import {
 } from '@/lib/api/assignments'
 import { listLecturers } from '@/lib/api/lecturers'
 import { listRooms } from '@/lib/api/rooms'
+import { listUnits } from '@/lib/api/units'
 import {
   type SchedulableSession,
   listSchedulableSessions,
@@ -66,7 +67,7 @@ function DragPreviewCard({ session }: { session: SchedulableSession }) {
   return (
     <UnscheduledSessionCardPreview
       session={session}
-      colorVariant={getUnitColor(session.unit_id)}
+      colorTokens={getSubjectTokens(session.unit_code)}
     />
   )
 }
@@ -112,6 +113,11 @@ export default function TimetablePage() {
   const { data: lecturers } = useQuery({
     queryKey: ['lecturers'],
     queryFn: listLecturers,
+  })
+
+  const { data: units } = useQuery({
+    queryKey: ['units'],
+    queryFn: listUnits,
   })
 
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
@@ -463,6 +469,7 @@ export default function TimetablePage() {
         />
         <UnscheduledPool
           sessions={unscheduledSessions}
+          units={units}
           totalSchedulableCount={schedulableSessions?.length}
           isLoading={sessionsLoading}
           isError={sessionsIsError}

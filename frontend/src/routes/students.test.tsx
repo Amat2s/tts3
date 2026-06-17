@@ -84,6 +84,53 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe('StudentsPage — title removal (Unit 72/73/75)', () => {
+  it('student create form has no title field', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    await user.click(await screen.findByRole('button', { name: /Add student/ }))
+    const dialog = await screen.findByRole('dialog')
+    // No element labelled "title" should exist in the form.
+    expect(within(dialog).queryByText(/^Title$/i)).toBeNull()
+  })
+
+  it('student table has no title column header', async () => {
+    mockListStudents.mockResolvedValue([makeStudent({ id: 's1', first_name: 'Alice' })])
+    renderStudents()
+    await screen.findByText('Alice')
+    const headers = screen.getAllByRole('columnheader')
+    expect(headers.every((h) => !/^title$/i.test(h.textContent?.trim() ?? ''))).toBe(true)
+  })
+})
+
+describe('StudentsPage — subject filter', () => {
+  it('subject filter options are derived from valid unit codes only', async () => {
+    const user = userEvent.setup()
+    // HIS101 is valid (History); ENG102 has an unsupported prefix.
+    mockListStudents.mockResolvedValue([
+      makeStudent({
+        id: 's1',
+        first_name: 'Alice',
+        units: [{ id: 'u1', code: 'HIS101', name: 'Ancient History', year_level: 1 }],
+        unit_count: 1,
+      }),
+    ])
+    mockListUnits.mockResolvedValue([
+      makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', year_level: 1 }),
+      makeUnit({ id: 'u2', code: 'ENG102', name: 'Unsupported', year_level: 1 }),
+    ])
+
+    renderStudents()
+    await screen.findByText('Alice')
+
+    // Open the subject filter select.
+    await user.click(screen.getByLabelText('Filter by subject'))
+    // History (HIS) should appear; ENG is invalid and must not appear.
+    expect(await screen.findByRole('option', { name: 'History' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /ENG/ })).toBeNull()
+  })
+})
+
 describe('StudentsPage — enrolled unit count column', () => {
   it('renders the enrolled-unit count for each student', async () => {
     mockListStudents.mockResolvedValue([

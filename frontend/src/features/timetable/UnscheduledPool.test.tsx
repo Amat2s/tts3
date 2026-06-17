@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import { makeSchedulableSession } from '@/test/fixtures'
+import { makeSchedulableSession, makeUnit } from '@/test/fixtures'
 import { UnscheduledPool } from './UnscheduledPool'
 import {
   buildUnitBuckets,
@@ -43,15 +43,43 @@ describe('unscheduled pool view model', () => {
   it.each([
     ['his101', 'history-lecture'],
     ['calculus', 'math-tutorial'],
-    ['tutorial', 'math-tutorial'],
     ['grace hopper', 'math-tutorial'],
-  ])('searches unit, session, and lecturer text for "%s"', (search, id) => {
+  ])('searches unit code, name, and teaching-team lecturer for "%s"', (search, id) => {
     const result = filterUnscheduledSessions(sessions, {
       search,
       yearLevel: 'all',
     })
 
     expect(result.map((session) => session.session_id)).toEqual([id])
+  })
+
+  it('does not match session type text', () => {
+    const result = filterUnscheduledSessions(sessions, {
+      search: 'tutorial',
+      yearLevel: 'all',
+    })
+    expect(result).toHaveLength(0)
+  })
+
+  it('matches a teaching-team member not assigned as session lecturer', () => {
+    const teamSessions = [
+      makeSchedulableSession({
+        session_id: 'his-lec',
+        unit_id: 'unit-his',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        lecturer_display_name: 'Dr Ada Lovelace',
+      }),
+    ]
+    const teamMap = new Map([['unit-his', ['Dr Ada Lovelace', 'Prof Grace Hopper']]])
+
+    const result = filterUnscheduledSessions(
+      teamSessions,
+      { search: 'grace hopper', yearLevel: 'all' },
+      teamMap
+    )
+
+    expect(result.map((s) => s.session_id)).toEqual(['his-lec'])
   })
 
   it('filters by year level', () => {
@@ -225,6 +253,104 @@ describe('UnscheduledPool rendering', () => {
     fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
 
     expect(onSelectSession).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('renders unit boxes with equal-width w-full class inside a grid container', () => {
+    const sessions = [
+      makeSchedulableSession({
+        session_id: 's1',
+        unit_id: 'unit-a',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+      makeSchedulableSession({
+        session_id: 's2',
+        unit_id: 'unit-b',
+        unit_code: 'PHI201',
+        unit_name: 'Philosophy',
+        lecturer_display_name: 'Dr Grace Hopper',
+      }),
+    ]
+
+    renderPool(
+      <UnscheduledPool sessions={sessions} totalSchedulableCount={2} />
+    )
+
+    const boxes = screen.getAllByRole('region')
+    expect(boxes.length).toBeGreaterThanOrEqual(2)
+    for (const box of boxes) {
+      expect(box.className).toContain('w-full')
+    }
+  })
+
+  it('does not render unit boxes with zero sessions', () => {
+    renderPool(
+      <UnscheduledPool
+        sessions={[makeSchedulableSession()]}
+        totalSchedulableCount={1}
+      />
+    )
+
+    const boxes = screen.getAllByRole('region')
+    for (const box of boxes) {
+      expect(box).not.toBeEmptyDOMElement()
+    }
+  })
+
+  it('searches teaching-team lecturer via units prop', async () => {
+    const user = userEvent.setup()
+    const units = [
+      makeUnit({
+        id: 'unit-1',
+        code: 'HIS101',
+        lecturers: [
+          { id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' },
+          { id: 'lec-2', title: 'Prof', first_name: 'Grace', last_name: 'Hopper' },
+        ],
+      }),
+    ]
+    const sessions = [
+      makeSchedulableSession({
+        unit_id: 'unit-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        lecturer_display_name: 'Dr Ada Lovelace',
+      }),
+    ]
+
+    renderPool(
+      <UnscheduledPool
+        sessions={sessions}
+        units={units}
+        totalSchedulableCount={1}
+      />
+    )
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search unscheduled sessions' }),
+      'Grace Hopper'
+    )
+
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+  })
+
+  it('does not match session type in pool search', async () => {
+    const user = userEvent.setup()
+    renderPool(
+      <UnscheduledPool
+        sessions={[makeSchedulableSession({ session_type: 'tutorial' })]}
+        totalSchedulableCount={1}
+      />
+    )
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search unscheduled sessions' }),
+      'tutorial'
+    )
+
+    expect(
+      screen.getByText('No unscheduled sessions match your filters.')
+    ).toBeInTheDocument()
   })
 
   it('clears a pending selection when filters hide that session', async () => {

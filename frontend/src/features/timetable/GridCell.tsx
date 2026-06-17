@@ -2,7 +2,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { useState } from 'react'
 import type { TimetableAssignment } from './assignment'
 import { ScheduledSessionCard } from './ScheduledSessionCard'
-import { getUnitColor } from './unitColors'
+import { getSubjectTokens } from './unitColors'
 
 interface GridCellProps {
   slotId: string
@@ -76,7 +76,7 @@ export function GridCell({
       {assignment && (
         <ScheduledSessionCard
           assignment={assignment}
-          colorVariant={getUnitColor(assignment.unit_id)}
+          colorTokens={getSubjectTokens(assignment.unit_code)}
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}
           editingDisabled={editingDisabled}

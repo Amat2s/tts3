@@ -92,7 +92,7 @@ afterEach(() => {
 })
 
 describe('UnitsPage post-v1 unit modal', () => {
-  it('uses the wider layout and shows derived-year or invalid-code feedback', async () => {
+  it('uses the wider layout and shows parser feedback under the unit-code field', async () => {
     const { user, dialog } = await openCreateDialog()
     const codeInput = within(dialog).getByLabelText('Unit code')
     const createButton = within(dialog).getByRole('button', { name: 'Create unit' })
@@ -100,12 +100,12 @@ describe('UnitsPage post-v1 unit modal', () => {
     expect(dialog).toHaveClass('sm:max-w-4xl')
 
     await user.type(codeInput, 'HIS401')
-    expect(within(dialog).getByText(/first digit must be 1, 2, or 3/)).toBeVisible()
+    expect(within(dialog).getByText(/Invalid unit code/)).toBeVisible()
     expect(createButton).toBeDisabled()
 
     await user.clear(codeInput)
     await user.type(codeInput, 'HIS101')
-    expect(within(dialog).getByText(/Derived year level:/)).toHaveTextContent('Year 1')
+    expect(within(dialog).getByText('History · Orange · Year 1')).toBeVisible()
   })
 
   it('defaults matching-year students and supports student search and year filtering', async () => {
@@ -143,6 +143,54 @@ describe('UnitsPage post-v1 unit modal', () => {
     expect(await screen.findByRole('option', { name: /Ada Lovelace/ })).toBeVisible()
     expect(screen.getByRole('option', { name: /Grace Hopper/ })).toBeVisible()
     expect(screen.queryByRole('option', { name: /Alan Turing/ })).not.toBeInTheDocument()
+  })
+
+  it('normalises unit code input to uppercase as the user types', async () => {
+    const { user, dialog } = await openCreateDialog()
+    const codeInput = within(dialog).getByLabelText('Unit code') as HTMLInputElement
+
+    await user.type(codeInput, 'his101')
+
+    expect(codeInput.value).toBe('HIS101')
+    expect(within(dialog).getByText('History · Orange · Year 1')).toBeVisible()
+  })
+
+  it('disables create when unit code has invalid structure', async () => {
+    const { user, dialog } = await openCreateDialog()
+    const codeInput = within(dialog).getByLabelText('Unit code')
+
+    await user.type(codeInput, 'HIS')
+    expect(within(dialog).getByText(/Invalid unit code/)).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Create unit' })).toBeDisabled()
+  })
+
+  it('disables create when subject prefix is not supported', async () => {
+    const { user, dialog } = await openCreateDialog()
+    const codeInput = within(dialog).getByLabelText('Unit code')
+
+    await user.type(codeInput, 'ABC101')
+    expect(within(dialog).getByText(/Invalid unit code/)).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Create unit' })).toBeDisabled()
+  })
+
+  it('disables create when year level is outside 1–3', async () => {
+    const { user, dialog } = await openCreateDialog()
+    const codeInput = within(dialog).getByLabelText('Unit code')
+
+    await user.type(codeInput, 'HIS401')
+    expect(within(dialog).getByText(/Invalid unit code/)).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Create unit' })).toBeDisabled()
+  })
+
+  it('shows class, colour, and year for a valid parser result', async () => {
+    const { user, dialog } = await openCreateDialog()
+
+    await user.type(within(dialog).getByLabelText('Unit code'), 'PHI201')
+    expect(within(dialog).getByText('Philosophy · Blue · Year 2')).toBeVisible()
+
+    await user.clear(within(dialog).getByLabelText('Unit code'))
+    await user.type(within(dialog).getByLabelText('Unit code'), 'THE301')
+    expect(within(dialog).getByText('Theology · Pink · Year 3')).toBeVisible()
   })
 
   it('offers only Lecture/Tutorial and clamps duration to 1-4 hours', async () => {

@@ -47,6 +47,12 @@ import {
   studentFiltersActive,
 } from '@/features/students/filters'
 import type { StudentFilters } from '@/features/students/filters'
+import {
+  parseUnitCode,
+  SUBJECTS,
+  SUBJECT_PREFIXES,
+} from '@/lib/unit-code-parser'
+import type { SubjectPrefix } from '@/lib/unit-code-parser'
 
 // Post-v1: students belong to one of three year levels only (Unit 58/62).
 const YEAR_LEVELS = [1, 2, 3]
@@ -381,6 +387,23 @@ export default function StudentsPage() {
     [units]
   )
 
+  // Subject filter options derived from loaded units. Only valid subject codes
+  // appear — units with unknown or structurally invalid codes are ignored.
+  const subjectFilterOptions = useMemo(() => {
+    const seen = new Set<SubjectPrefix>()
+    for (const u of units) {
+      const r = parseUnitCode(u.code)
+      if (r.valid) seen.add(r.prefix)
+    }
+    return [
+      { value: 'all', label: 'All subjects' },
+      ...SUBJECT_PREFIXES.filter((p) => seen.has(p)).map((p) => ({
+        value: p as string,
+        label: SUBJECTS[p].subjectName,
+      })),
+    ]
+  }, [units])
+
   const filteredStudents = useMemo(
     () => filterStudents(students ?? [], filters),
     [students, filters]
@@ -669,6 +692,12 @@ export default function StudentsPage() {
             onChange={(unitId) => setFilters((f) => ({ ...f, unitId }))}
             options={unitFilterOptions}
             label="Filter by enrolled unit"
+          />
+          <FilterSelect
+            value={filters.subject}
+            onChange={(subject) => setFilters((f) => ({ ...f, subject }))}
+            options={subjectFilterOptions}
+            label="Filter by subject"
           />
         </FilterBar>
       )}

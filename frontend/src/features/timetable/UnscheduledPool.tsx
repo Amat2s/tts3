@@ -6,7 +6,8 @@ import { FilterSelect } from '@/components/filters/FilterSelect'
 import { SearchInput } from '@/components/filters/SearchInput'
 import { Button } from '@/components/ui/button'
 import type { SchedulableSession } from '@/lib/api/sessions'
-import { getUnitColor } from './unitColors'
+import type { Unit } from '@/lib/api/units'
+import { getSubjectTokens } from './unitColors'
 import { UnitGroup } from './UnitGroup'
 import {
   buildUnitBuckets,
@@ -25,6 +26,7 @@ const YEAR_LEVEL_OPTIONS = [
 
 interface UnscheduledPoolProps {
   sessions?: SchedulableSession[]
+  units?: Unit[]
   isLoading?: boolean
   isError?: boolean
   error?: Error | null
@@ -36,6 +38,7 @@ interface UnscheduledPoolProps {
 
 export function UnscheduledPool({
   sessions = [],
+  units,
   isLoading = false,
   isError = false,
   error,
@@ -47,9 +50,20 @@ export function UnscheduledPool({
   const [filters, setFilters] = useState<UnscheduledPoolFilters>(
     EMPTY_UNSCHEDULED_POOL_FILTERS
   )
+  const unitTeachingTeams = useMemo(() => {
+    if (!units) return undefined
+    const map = new Map<string, string[]>()
+    for (const unit of units) {
+      map.set(
+        unit.id,
+        unit.lecturers.map((l) => `${l.title} ${l.first_name} ${l.last_name}`)
+      )
+    }
+    return map
+  }, [units])
   const filteredSessions = useMemo(
-    () => filterUnscheduledSessions(sessions, filters),
-    [filters, sessions]
+    () => filterUnscheduledSessions(sessions, filters, unitTeachingTeams),
+    [filters, sessions, unitTeachingTeams]
   )
   const unitBuckets = useMemo(
     () => buildUnitBuckets(filteredSessions),
@@ -179,7 +193,7 @@ export function UnscheduledPool({
                 setFilters((current) => ({ ...current, search }))
               }
               label="Search unscheduled sessions"
-              placeholder="Search unit, type, or lecturer"
+              placeholder="Search unit or lecturer"
               className="w-full sm:w-72"
             />
             <FilterSelect
@@ -216,7 +230,12 @@ export function UnscheduledPool({
               </Button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-start gap-4">
+            <div
+              className="grid items-start gap-4"
+              style={{
+                gridTemplateColumns: 'repeat(auto-fill, minmax(17rem, 20rem))',
+              }}
+            >
               {unitBuckets.map((bucket) => (
                 <UnitGroup
                   key={bucket.unitId}
@@ -225,7 +244,7 @@ export function UnscheduledPool({
                   unitName={bucket.unitName}
                   unitYearLevel={bucket.unitYearLevel}
                   sessions={bucket.sessions}
-                  colorVariant={getUnitColor(bucket.unitId)}
+                  colorTokens={getSubjectTokens(bucket.unitCode)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   onSelectSession={onSelectSession}

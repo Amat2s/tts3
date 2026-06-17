@@ -1,25 +1,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, X } from 'lucide-react'
 import type { TimetableAssignment } from './assignment'
-import type { UnitColorVariant } from './unitColors'
-
-const BG_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-bg)',
-  gold: 'var(--unit-gold-bg)',
-  blue: 'var(--unit-blue-bg)',
-  green: 'var(--unit-green-bg)',
-  purple: 'var(--unit-purple-bg)',
-  stone: 'var(--unit-stone-bg)',
-}
-
-const ACCENT_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-border)',
-  gold: 'var(--unit-gold-border)',
-  blue: 'var(--unit-blue-border)',
-  green: 'var(--unit-green-border)',
-  purple: 'var(--unit-purple-border)',
-  stone: 'var(--unit-stone-border)',
-}
+import type { UnitColorTokens } from './unitColors'
 
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lec',
@@ -32,7 +14,7 @@ const CELL_HEIGHT_REM = 3.5
 
 interface ScheduledSessionCardProps {
   assignment: TimetableAssignment
-  colorVariant: UnitColorVariant
+  colorTokens: UnitColorTokens
   isPending?: boolean
   hasWarning?: boolean
   editingDisabled?: boolean
@@ -42,7 +24,7 @@ interface ScheduledSessionCardProps {
 
 export function ScheduledSessionCard({
   assignment,
-  colorVariant,
+  colorTokens,
   isPending = false,
   hasWarning = false,
   editingDisabled = false,
@@ -54,9 +36,6 @@ export function ScheduledSessionCard({
     data: { sessionId: assignment.session_id },
     disabled: editingDisabled,
   })
-
-  const accent = ACCENT_MAP[colorVariant]
-  const bg = BG_MAP[colorVariant]
 
   function handleUnschedule(e: React.MouseEvent) {
     e.stopPropagation()
@@ -71,10 +50,10 @@ export function ScheduledSessionCard({
       className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
       style={{
         height: `calc(${assignment.duration} * ${CELL_HEIGHT_REM}rem)`,
-        backgroundColor: bg,
-        borderColor: hasWarning ? 'var(--state-warning)' : accent,
+        backgroundColor: colorTokens.background,
+        borderColor: hasWarning ? 'var(--state-warning)' : colorTokens.border,
         borderLeftWidth: '4px',
-        outline: isPending ? `2px solid ${accent}` : undefined,
+        outline: isPending ? `2px solid ${colorTokens.border}` : undefined,
         outlineOffset: isPending ? '1px' : undefined,
         opacity: isPending ? 0.8 : isDragging ? 0.3 : 1,
         cursor: editingDisabled ? 'default' : 'pointer',
@@ -85,7 +64,7 @@ export function ScheduledSessionCard({
         <div className="flex items-baseline gap-1 min-w-0 overflow-hidden">
           <span
             className="text-xs font-semibold shrink-0"
-            style={{ color: accent }}
+            style={{ color: colorTokens.text }}
           >
             {assignment.unit_code}
           </span>

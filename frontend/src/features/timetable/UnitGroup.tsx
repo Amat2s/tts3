@@ -1,16 +1,7 @@
 import type { SchedulableSession } from '@/lib/api/sessions'
 import type { YearLevel } from '@/lib/api/students'
-import type { UnitColorVariant } from './unitColors'
+import type { UnitColorTokens } from './unitColors'
 import { UnscheduledSessionCard } from './UnscheduledSessionCard'
-
-const ACCENT_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-border)',
-  gold: 'var(--unit-gold-border)',
-  blue: 'var(--unit-blue-border)',
-  green: 'var(--unit-green-border)',
-  purple: 'var(--unit-purple-border)',
-  stone: 'var(--unit-stone-border)',
-}
 
 interface UnitGroupProps {
   unitId: string
@@ -18,7 +9,7 @@ interface UnitGroupProps {
   unitName: string
   unitYearLevel?: YearLevel
   sessions: SchedulableSession[]
-  colorVariant: UnitColorVariant
+  colorTokens: UnitColorTokens
   pendingSessionId?: string | null
   editingDisabled?: boolean
   onSelectSession?: (sessionId: string) => void
@@ -30,19 +21,17 @@ export function UnitGroup({
   unitName,
   unitYearLevel,
   sessions,
-  colorVariant,
+  colorTokens,
   pendingSessionId,
   editingDisabled = false,
   onSelectSession,
 }: UnitGroupProps) {
-  const accent = ACCENT_MAP[colorVariant]
-
   return (
     <section
-      className="flex min-w-0 basis-72 grow flex-col overflow-hidden rounded-lg border shadow-sm sm:max-w-sm"
+      className="flex w-full min-w-0 flex-col overflow-hidden rounded-lg border shadow-sm"
       style={{
         borderColor: 'var(--border-default)',
-        borderTopColor: accent,
+        borderTopColor: colorTokens.border,
         borderTopWidth: '3px',
         backgroundColor: 'var(--bg-elevated)',
       }}
@@ -68,8 +57,8 @@ export function UnitGroup({
               <span
                 className="rounded-full border px-2 py-0.5 text-xs font-medium"
                 style={{
-                  borderColor: accent,
-                  color: accent,
+                  borderColor: colorTokens.border,
+                  color: colorTokens.text,
                   backgroundColor: 'var(--bg-surface)',
                 }}
               >
@@ -96,7 +85,7 @@ export function UnitGroup({
           <UnscheduledSessionCard
             key={session.session_id}
             session={session}
-            colorVariant={colorVariant}
+            colorTokens={colorTokens}
             isSelected={pendingSessionId === session.session_id}
             editingDisabled={editingDisabled}
             onClick={() => onSelectSession?.(session.session_id)}
