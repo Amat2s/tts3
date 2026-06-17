@@ -59,7 +59,6 @@ function renderStudents() {
 function studentSummary(student = makeStudent()): StudentSummary {
   return {
     id: student.id,
-    title: student.title,
     first_name: student.first_name,
     last_name: student.last_name,
     year_level: student.year_level,
@@ -72,7 +71,6 @@ beforeEach(() => {
   mockCreateStudent.mockImplementation(async (data) =>
     makeStudent({
       id: 'new-student',
-      title: data.title,
       first_name: data.first_name,
       last_name: data.last_name,
       year_level: data.year_level as 1 | 2 | 3,

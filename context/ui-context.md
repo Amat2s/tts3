@@ -66,6 +66,48 @@ Use muted academic colors for unit-based timetable cards. These should be assign
 | Unit stone background  | `--unit-stone-bg`      | `#EFEAE4` |
 | Unit stone border      | `--unit-stone-border`  | `#8A7E78` |
 
+## Subject Colors
+
+Subject colors are derived from the unit-code subject prefix by the frontend
+unit-code parser (`frontend/src/lib/unit-code-parser.ts`). They are declared once
+as design tokens; components must reference these tokens and never inline the hex
+values. The hues are restrained academic colors chosen to harmonise with the warm
+palette above.
+
+| Subject    | Prefix | Background token          | Border token                  | Text token                  |
+| ---------- | ------ | ------------------------- | ----------------------------- | --------------------------- |
+| History    | `HIS`  | `--subject-history-bg`    | `--subject-history-border`    | `--subject-history-text`    |
+| Philosophy | `PHI`  | `--subject-philosophy-bg` | `--subject-philosophy-border` | `--subject-philosophy-text` |
+| Theology   | `THE`  | `--subject-theology-bg`   | `--subject-theology-border`   | `--subject-theology-text`   |
+| Literature | `LIT`  | `--subject-literature-bg` | `--subject-literature-border` | `--subject-literature-text` |
+| Latin      | `LAN`  | `--subject-latin-bg`      | `--subject-latin-border`      | `--subject-latin-text`      |
+| Greek      | `GRE`  | `--subject-greek-bg`      | `--subject-greek-border`      | `--subject-greek-text`      |
+| Science    | `SCI`  | `--subject-science-bg`    | `--subject-science-border`    | `--subject-science-text`    |
+
+| Token                         | Value     |
+| ----------------------------- | --------- |
+| `--subject-history-bg`        | `#F7E5D4` |
+| `--subject-history-border`    | `#B86B2B` |
+| `--subject-history-text`      | `#6B3515` |
+| `--subject-philosophy-bg`     | `#E7EEF7` |
+| `--subject-philosophy-border` | `#2F5F8F` |
+| `--subject-philosophy-text`   | `#234766` |
+| `--subject-theology-bg`       | `#F6E7EF` |
+| `--subject-theology-border`   | `#A5527D` |
+| `--subject-theology-text`     | `#67304C` |
+| `--subject-literature-bg`     | `#E4EFE8` |
+| `--subject-literature-border` | `#2F6B4F` |
+| `--subject-literature-text`   | `#244D39` |
+| `--subject-latin-bg`          | `#FAECD8` |
+| `--subject-latin-border`      | `#D1903D` |
+| `--subject-latin-text`        | `#7A4B16` |
+| `--subject-greek-bg`          | `#EAF3DF` |
+| `--subject-greek-border`      | `#7BA84A` |
+| `--subject-greek-text`        | `#4F6D2E` |
+| `--subject-science-bg`        | `#DFE9F2` |
+| `--subject-science-border`    | `#244D73` |
+| `--subject-science-text`      | `#1E3A56` |
+
 ## AI / Solver Accent Variants
 
 Use these only for solver-related UI, not general branding. The solver should feel helpful and technical, but not futuristic or flashy.

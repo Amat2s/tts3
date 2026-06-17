@@ -9,11 +9,13 @@ from db.session import Base
 
 
 class LecturerTitle(str, enum.Enum):
-    DR = "Dr."
-    PROF = "Prof."
+    MR = "Mr"
+    MS = "Ms"
+    MRS = "Mrs"
+    DR = "Dr"
+    FR = "Fr"
     ASSOC_PROF = "A/Prof."
-    MR = "Mr."
-    MS = "Ms."
+    PROF = "Prof."
 
 
 class AvailabilityDay(str, enum.Enum):

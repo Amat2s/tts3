@@ -15,7 +15,7 @@ from models.lecturer import AvailabilityDay, AvailabilitySlot, Lecturer, Lecture
 from models.room import Room, RoomType
 from models.session import Session, SessionType
 from models.solver_run import SolverRun, SolverRunStatus
-from models.student import Student, StudentTitle
+from models.student import Student
 from models.unit import Unit
 from services import solver_run as solver_run_service
 from services.trigger_client import TriggerClientError, TriggerRunHandle
@@ -121,7 +121,6 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
 def make_student(db, student_id: str) -> Student:
     student = Student(
         id=student_id,
-        title=StudentTitle.MX,
         first_name="Stu",
         last_name=student_id,
         year_level=1,

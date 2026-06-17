@@ -38,7 +38,7 @@ import {
   updateStudent,
   deleteStudent as deleteStudentApi,
 } from '@/lib/api/students'
-import type { Student, StudentTitle } from '@/lib/api/students'
+import type { Student, YearLevel } from '@/lib/api/students'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
 import {
@@ -48,7 +48,6 @@ import {
 } from '@/features/students/filters'
 import type { StudentFilters } from '@/features/students/filters'
 
-const STUDENT_TITLES: StudentTitle[] = ['Mr.', 'Ms.', 'Mx.']
 // Post-v1: students belong to one of three year levels only (Unit 58/62).
 const YEAR_LEVELS = [1, 2, 3]
 
@@ -60,7 +59,6 @@ const YEAR_FILTERS: { value: string; label: string }[] = [
 ]
 
 interface StudentFormState {
-  title: StudentTitle | ''
   first_name: string
   last_name: string
   year_level: string
@@ -74,7 +72,6 @@ interface StudentFormState {
 }
 
 const EMPTY_FORM: StudentFormState = {
-  title: '',
   first_name: '',
   last_name: '',
   year_level: '',
@@ -88,7 +85,6 @@ type FormUpdater =
 
 function isFormValid(f: StudentFormState): boolean {
   return (
-    f.title !== '' &&
     f.first_name.trim().length > 0 &&
     f.last_name.trim().length > 0 &&
     f.year_level !== ''
@@ -206,22 +202,6 @@ function StudentFormFields({
       {error && (
         <p className="text-sm" style={{ color: 'var(--state-error)' }}>{error}</p>
       )}
-      <div className="grid gap-1.5">
-        <Label>Title</Label>
-        <Select
-          value={values.title}
-          onValueChange={(v) => onChange({ title: v as StudentTitle })}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Select a title" />
-          </SelectTrigger>
-          <SelectContent>
-            {STUDENT_TITLES.map(t => (
-              <SelectItem key={t} value={t}>{t}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
       <div className="grid gap-1.5">
         <Label htmlFor="student-first-name">First name</Label>
         <Input
@@ -420,10 +400,9 @@ export default function StudentsPage() {
       // The backend auto-enrols a new student into every matching-year unit; the
       // returned `units` is the actual starting enrolment we reconcile against.
       const created = await createStudent({
-        title: form.title as StudentTitle,
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
-        year_level: Number(form.year_level),
+        year_level: Number(form.year_level) as YearLevel,
       })
       await reconcileEnrolment(
         created.id,
@@ -453,10 +432,9 @@ export default function StudentsPage() {
       form: StudentFormState
     }) => {
       await updateStudent(student.id, {
-        title: form.title as StudentTitle,
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
-        year_level: Number(form.year_level),
+        year_level: Number(form.year_level) as YearLevel,
       })
       await reconcileEnrolment(
         student.id,
@@ -498,7 +476,6 @@ export default function StudentsPage() {
   function openEdit(student: Student) {
     setStudentToEdit(student)
     setEditForm({
-      title: student.title,
       first_name: student.first_name,
       last_name: student.last_name,
       year_level: String(student.year_level),
@@ -519,12 +496,23 @@ export default function StudentsPage() {
 
   function handleCreate() {
     if (!isFormValid(createForm)) return
+    // Saving reconciles enrolment against the loaded units; without resolved
+    // unit data we could create the student then fail mid-reconcile (partial
+    // write), so block until the units query has settled.
+    if (!unitsQuery.isSuccess) {
+      setCreateError('Units are still loading. Please wait and try again.')
+      return
+    }
     setCreateError(null)
     createMutation.mutate(createForm)
   }
 
   function handleEdit() {
     if (!studentToEdit || !isFormValid(editForm)) return
+    if (!unitsQuery.isSuccess) {
+      setEditError('Units are still loading. Please wait and try again.')
+      return
+    }
     setEditError(null)
     editMutation.mutate({ student: studentToEdit, form: editForm })
   }
@@ -550,7 +538,7 @@ export default function StudentsPage() {
     if (isLoading) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={6} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading students…
             </p>
@@ -562,7 +550,7 @@ export default function StudentsPage() {
     if (isError) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={6} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {(listError as Error)?.message ?? 'Failed to load students.'}
             </p>
@@ -574,7 +562,7 @@ export default function StudentsPage() {
     if (!students || students.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={6} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <div className="flex flex-col items-center gap-3">
               <Users className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
               <div>
@@ -600,7 +588,7 @@ export default function StudentsPage() {
     if (filteredStudents.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={6} className="py-16 text-center">
+          <TableCell colSpan={5} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               No students match the current filters.
             </p>
@@ -611,7 +599,6 @@ export default function StudentsPage() {
 
     return filteredStudents.map((student) => (
       <TableRow key={student.id}>
-        <TableCell className="px-4">{student.title}</TableCell>
         <TableCell className="px-4">{student.first_name}</TableCell>
         <TableCell className="px-4 font-medium">{student.last_name}</TableCell>
         <TableCell className="px-4">Year {student.year_level}</TableCell>
@@ -696,7 +683,6 @@ export default function StudentsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="px-4">Title</TableHead>
               <TableHead className="px-4">First name</TableHead>
               <TableHead className="px-4">Last name</TableHead>
               <TableHead className="px-4">Year level</TableHead>
@@ -733,7 +719,11 @@ export default function StudentsPage() {
           <DialogFooter showCloseButton>
             <Button
               onClick={handleCreate}
-              disabled={!isFormValid(createForm) || createMutation.isPending}
+              disabled={
+                !isFormValid(createForm) ||
+                createMutation.isPending ||
+                !unitsQuery.isSuccess
+              }
             >
               {createMutation.isPending ? 'Adding…' : 'Add student'}
             </Button>
@@ -765,7 +755,11 @@ export default function StudentsPage() {
           <DialogFooter showCloseButton>
             <Button
               onClick={handleEdit}
-              disabled={!isFormValid(editForm) || editMutation.isPending}
+              disabled={
+                !isFormValid(editForm) ||
+                editMutation.isPending ||
+                !unitsQuery.isSuccess
+              }
             >
               {editMutation.isPending ? 'Saving…' : 'Save changes'}
             </Button>
@@ -786,7 +780,7 @@ export default function StudentsPage() {
             <DialogDescription>
               <strong>
                 {studentToDelete
-                  ? `${studentToDelete.title} ${studentToDelete.first_name} ${studentToDelete.last_name}`
+                  ? `${studentToDelete.first_name} ${studentToDelete.last_name}`
                   : ''}
               </strong>{' '}
               will be permanently removed, along with any unit enrolments and session allocations.

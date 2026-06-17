@@ -1,17 +1,10 @@
-import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.session import Base
-
-
-class StudentTitle(str, enum.Enum):
-    MR = "Mr."
-    MS = "Ms."
-    MX = "Mx."
 
 
 class Student(Base):
@@ -22,14 +15,6 @@ class Student(Base):
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    title: Mapped[StudentTitle] = mapped_column(
-        Enum(
-            StudentTitle,
-            name="studenttitle",
-            values_callable=lambda obj: [e.value for e in obj],
-        ),
-        nullable=False,
     )
     first_name: Mapped[str] = mapped_column(String, nullable=False)
     last_name: Mapped[str] = mapped_column(String, nullable=False)

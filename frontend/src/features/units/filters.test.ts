@@ -7,7 +7,7 @@ import {
 import { makeUnit } from '@/test/fixtures'
 import type { LecturerSummary } from '@/lib/api/units'
 
-const ada: LecturerSummary = { id: 'l1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' }
+const ada: LecturerSummary = { id: 'l1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' }
 const grace: LecturerSummary = { id: 'l2', title: 'Prof.', first_name: 'Grace', last_name: 'Hopper' }
 
 const units = [

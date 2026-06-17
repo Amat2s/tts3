@@ -1,10 +1,36 @@
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from models.lecturer import LecturerTitle
-from models.student import StudentTitle
 from services.year_level import parse_unit_year_level
+
+# Defensive structural validation of unit codes: exactly six characters, three
+# letters followed by three numbers (e.g. HIS101). The richer subject/year
+# parser (subject prefixes, colours, labels) stays frontend-only; the backend
+# only guarantees the structural contract and the derived year level.
+UNIT_CODE_PATTERN = re.compile(r"^[A-Z]{3}\d{3}$")
+UNIT_CODE_ERROR = (
+    "Unit code must be three letters followed by three numbers, e.g. HIS101."
+)
+
+
+def _normalize_unit_code(value: str) -> str:
+    """Trim, uppercase, and structurally validate a unit code.
+
+    Returns the normalized (uppercase) code. Raises ``ValueError`` (mapped to a
+    422 by Pydantic) when the code is blank or does not match ``AAA999``.
+    """
+    if not value.strip():
+        raise ValueError("Unit code must not be blank.")
+    normalized = value.strip().upper()
+    if not UNIT_CODE_PATTERN.match(normalized):
+        raise ValueError(UNIT_CODE_ERROR)
+    # Confirm the year level is derivable (first digit 1/2/3); raises a
+    # 422-mapped ValueError otherwise.
+    parse_unit_year_level(normalized)
+    return normalized
 
 
 class LecturerSummary(BaseModel):
@@ -20,7 +46,6 @@ class StudentSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    title: StudentTitle
     first_name: str
     last_name: str
     year_level: int
@@ -38,13 +63,8 @@ class UnitCreate(BaseModel):
 
     @field_validator("code")
     @classmethod
-    def code_not_blank(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Unit code must not be blank.")
-        stripped = v.strip()
-        # Validate the year level is derivable; raises a 422-mapped ValueError.
-        parse_unit_year_level(stripped)
-        return stripped
+    def code_valid(cls, v: str) -> str:
+        return _normalize_unit_code(v)
 
     @field_validator("name")
     @classmethod
@@ -71,15 +91,10 @@ class UnitUpdate(BaseModel):
 
     @field_validator("code")
     @classmethod
-    def code_not_blank(cls, v: str | None) -> str | None:
+    def code_valid(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if not v.strip():
-            raise ValueError("Unit code must not be blank.")
-        stripped = v.strip()
-        # Validate the year level is derivable; raises a 422-mapped ValueError.
-        parse_unit_year_level(stripped)
-        return stripped
+        return _normalize_unit_code(v)
 
     @field_validator("name")
     @classmethod

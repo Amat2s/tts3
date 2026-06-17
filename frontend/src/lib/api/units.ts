@@ -1,8 +1,8 @@
 import { apiRequest, ApiRequestError } from '@/lib/api/client'
 import type { LecturerTitle } from '@/lib/api/lecturers'
-import type { StudentTitle, YearLevel } from '@/lib/api/students'
+import type { YearLevel } from '@/lib/api/students'
 
-export type { StudentTitle, YearLevel }
+export type { YearLevel }
 
 export interface LecturerSummary {
   id: string
@@ -13,7 +13,6 @@ export interface LecturerSummary {
 
 export interface StudentSummary {
   id: string
-  title: StudentTitle
   first_name: string
   last_name: string
   year_level: YearLevel

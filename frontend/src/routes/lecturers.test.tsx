@@ -117,7 +117,7 @@ describe('LecturersPage — taught units column', () => {
 describe('LecturersPage — edit modal is read-only for teaching', () => {
   it('shows a read-only taught-units summary with helper text and no edit controls', async () => {
     const user = userEvent.setup()
-    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     mockListLecturers.mockResolvedValue([teaching])
     mockListUnits.mockResolvedValue([
       makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
@@ -140,7 +140,7 @@ describe('LecturersPage — edit modal is read-only for teaching', () => {
 
   it('does not send any unit IDs when saving a lecturer edit', async () => {
     const user = userEvent.setup()
-    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     mockListLecturers.mockResolvedValue([teaching])
     mockListUnits.mockResolvedValue([
       makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
@@ -156,7 +156,7 @@ describe('LecturersPage — edit modal is read-only for teaching', () => {
 
     await waitFor(() => expect(mockUpdateLecturer).toHaveBeenCalledTimes(1))
     const [, payload] = mockUpdateLecturer.mock.calls[0]
-    expect(payload).toEqual({ title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    expect(payload).toEqual({ title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     // Defensive: no unit-related key is ever submitted from the lecturer modal.
     expect(Object.keys(payload).some((k) => k.includes('unit'))).toBe(false)
   })

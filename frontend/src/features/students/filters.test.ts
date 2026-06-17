@@ -12,7 +12,6 @@ const eng = { id: 'u2', code: 'ENG102', name: 'Literature', year_level: 1 as con
 const students = [
   makeStudent({
     id: 's1',
-    title: 'Ms.',
     first_name: 'Ada',
     last_name: 'Lovelace',
     year_level: 1,
@@ -21,7 +20,6 @@ const students = [
   }),
   makeStudent({
     id: 's2',
-    title: 'Mr.',
     first_name: 'Grace',
     last_name: 'Hopper',
     year_level: 2,
@@ -30,7 +28,6 @@ const students = [
   }),
   makeStudent({
     id: 's3',
-    title: 'Mx.',
     first_name: 'Alan',
     last_name: 'Turing',
     year_level: 1,
@@ -44,7 +41,7 @@ describe('filterStudents', () => {
     expect(filterStudents(students, EMPTY_STUDENT_FILTERS)).toHaveLength(3)
   })
 
-  it('searches by first name, last name, and title', () => {
+  it('searches by first name and last name', () => {
     expect(
       filterStudents(students, { ...EMPTY_STUDENT_FILTERS, search: 'lovelace' }).map((s) => s.id)
     ).toEqual(['s1'])
@@ -52,7 +49,7 @@ describe('filterStudents', () => {
       filterStudents(students, { ...EMPTY_STUDENT_FILTERS, search: 'grace' }).map((s) => s.id)
     ).toEqual(['s2'])
     expect(
-      filterStudents(students, { ...EMPTY_STUDENT_FILTERS, search: 'mx.' }).map((s) => s.id)
+      filterStudents(students, { ...EMPTY_STUDENT_FILTERS, search: 'turing' }).map((s) => s.id)
     ).toEqual(['s3'])
   })
 

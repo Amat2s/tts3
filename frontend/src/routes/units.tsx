@@ -150,7 +150,7 @@ function lecturerLabel(l: Pick<Lecturer, 'title' | 'first_name' | 'last_name'>):
 }
 
 function studentLabel(s: Student): string {
-  return `${s.title} ${s.first_name} ${s.last_name}`
+  return `${s.first_name} ${s.last_name}`
 }
 
 function DurationStepper({
@@ -414,7 +414,7 @@ function UnitFormFields({
     return students.filter((s) => {
       if (yearFilter !== 'all' && String(s.year_level) !== yearFilter) return false
       if (q.length === 0) return true
-      return `${s.first_name} ${s.last_name} ${s.title}`.toLowerCase().includes(q)
+      return `${s.first_name} ${s.last_name}`.toLowerCase().includes(q)
     })
   }, [students, studentSearch, yearFilter])
 

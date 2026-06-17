@@ -50,7 +50,7 @@ import {
 } from '@/features/lecturers/filters'
 import type { LecturerFilters } from '@/features/lecturers/filters'
 
-const LECTURER_TITLES: LecturerTitle[] = ['Dr.', 'Prof.', 'A/Prof.', 'Mr.', 'Ms.']
+const LECTURER_TITLES: LecturerTitle[] = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'A/Prof.', 'Prof.']
 
 // How many taught-unit chips to show inline before collapsing the rest into a
 // single "+N more" chip (with the full list available on hover).

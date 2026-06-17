@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from models.lecturer import Lecturer, LecturerTitle
-from models.student import Student, StudentTitle
+from models.student import Student
 from models.unit import Unit
 from schemas.student import StudentCreate, StudentResponse, StudentUpdate
 from schemas.unit import UnitCreate, UnitResponse, UnitUpdate
@@ -42,7 +42,6 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
 def make_student(db, student_id, year_level) -> Student:
     s = Student(
         id=student_id,
-        title=StudentTitle.MX,
         first_name="Stu",
         last_name=student_id,
         year_level=year_level,
@@ -122,7 +121,7 @@ def test_unit_create_does_not_accept_year_level_from_client():
 
 @pytest.mark.parametrize(
     "code,expected",
-    [("HIS101", 1), ("THE203", 2), ("PHI3A", 3)],
+    [("HIS101", 1), ("THE203", 2), ("PHI301", 3)],
 )
 def test_create_unit_stores_derived_year_level(db, code, expected):
     make_lecturer(db)
@@ -195,7 +194,7 @@ def test_create_student_auto_enrols_in_matching_year_units(db):
 
     student = create_student(
         db,
-        StudentCreate(title=StudentTitle.MX, first_name="New", last_name="Stu", year_level=2),
+        StudentCreate(first_name="New", last_name="Stu", year_level=2),
     )
 
     enrolled_unit_ids = {u.id for u in student.units}
@@ -261,7 +260,7 @@ def test_unit_enrolment_edit_updates_student_side_of_same_relationship(db):
 def test_student_create_schema_rejects_out_of_range_year(year):
     with pytest.raises(ValidationError):
         StudentCreate(
-            title=StudentTitle.MX, first_name="A", last_name="B", year_level=year
+            first_name="A", last_name="B", year_level=year
         )
 
 
@@ -275,7 +274,6 @@ def test_student_year_level_database_constraint(db):
     db.add(
         Student(
             id="bad",
-            title=StudentTitle.MX,
             first_name="A",
             last_name="B",
             year_level=4,
@@ -304,7 +302,7 @@ def test_student_response_includes_units_and_unit_count(db):
     create_unit(db, UnitCreate(code="THE203", name="Theology", lecturer_ids=["lec1"]))
     student = create_student(
         db,
-        StudentCreate(title=StudentTitle.MX, first_name="New", last_name="Stu", year_level=2),
+        StudentCreate(first_name="New", last_name="Stu", year_level=2),
     )
 
     response = StudentResponse.model_validate(student)
@@ -316,7 +314,7 @@ def test_student_response_includes_units_and_unit_count(db):
 def test_unit_response_includes_year_level(db):
     make_lecturer(db)
     unit = create_unit(
-        db, UnitCreate(code="PHI3A", name="Philosophy", lecturer_ids=["lec1"])
+        db, UnitCreate(code="PHI301", name="Philosophy", lecturer_ids=["lec1"])
     )
     response = UnitResponse.model_validate(unit)
     assert response.year_level == 3

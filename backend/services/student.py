@@ -25,7 +25,6 @@ def create_student(db: Session, data: StudentCreate) -> Student:
         db.query(Unit).filter(Unit.year_level == data.year_level).all()
     )
     student = Student(
-        title=data.title,
         first_name=data.first_name,
         last_name=data.last_name,
         year_level=data.year_level,

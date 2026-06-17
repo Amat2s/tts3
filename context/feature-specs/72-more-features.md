@@ -17,21 +17,23 @@ Mostly UI changes, turn this into a full spec batch. Consult ui-context.md for s
      - `LAN` - Latin (Light Orange)
      - `GRE` - Greek (Light Green)
      - `SCI` - Science (Dark blue)
-   - Parser should execute under the hood; nothing about it should be shown to the UI. Disable create button in modal if Unit Code does not satisfy both parser outputs. Parser output can be shown below unit code when it knows what class it is and what year; it can display [Class] [Colour] [Year level]
+   - Parser should execute under the hood automatically (no parser controls or raw logic exposed in the UI). Disable create button in modal if Unit Code does not satisfy both parser outputs. Parser output is shown below unit code when it knows what class it is and what year; it can display [Class] [Colour] [Year level]
 
 3. Titles
-    - No student titles: remove them
-    - Lecturer list: Mr, Miss, Mrs, Dr, Fr, Prof.
-    - No dot except for Prof.
+   - No student titles: remove them
+   - Lecturer list: Mr, Miss, Mrs, Dr, Fr, Prof.
+   - No dot except for Prof.
 
 4. Top/warning bar
-    - Everything should be displayed in the one bar - nothing outside
-    - No text box should appear and move the page. 
-    - The show details extention should open above the timetable.
-    - Instead of mentioning the slot name (e.g. s4), it should show its value (e.g. 1:30-2:20) 
+   - Everything should be displayed in the one bar - nothing outside
+   - No text box should appear and move the page.
+   - The show details extention should open above the timetable.
+   - Instead of mentioning the slot name (e.g. s4), it should show its value (e.g. 1:30-2:20)
 
 5. Drag and drop
-    - when being dragged, sessions should have the same shape that they do on the timetable, this should be calculated dynamically by grid width and height
+   - when being dragged, sessions should have the same shape that they do on the timetable, this should be calculated dynamically by grid width and height, and session duration.
+   - session draggable should center on mouse width-wise and center of first slot height-wise
+   - All timetable grids that the session would cover should highlight when hovered over. If the session cannot be placed there, the grids should not highlight at all.
 
 6. Save timetable draft state in local memory, so that it doesn't get wiped every time you leave the page.
 
@@ -40,7 +42,7 @@ Mostly UI changes, turn this into a full spec batch. Consult ui-context.md for s
 8. Buggy save button - sometimes it won't save the timetable if its empty, check for any issues
 
 9. Timetable styling
-    - make the borders darker. The lunch bar should be a red with gold text that says Lunch/Mass
+   - make the borders darker. The lunch bar should be a red with gold text that says Lunch/Mass
 
 10. Navbar left corner title should be the same font as other titles, same colour as it is, bold, and should say "Campion - Timetable"
 

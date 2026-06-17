@@ -10,9 +10,9 @@ import type { Unit } from '@/lib/api/units'
 const his = makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History' })
 const eng = makeUnit({ id: 'u2', code: 'ENG102', name: 'Literature' })
 
-const ada = makeLecturer({ id: 'l1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+const ada = makeLecturer({ id: 'l1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
 const grace = makeLecturer({ id: 'l2', title: 'Prof.', first_name: 'Grace', last_name: 'Hopper' })
-const alan = makeLecturer({ id: 'l3', title: 'Mr.', first_name: 'Alan', last_name: 'Turing' })
+const alan = makeLecturer({ id: 'l3', title: 'Mr', first_name: 'Alan', last_name: 'Turing' })
 
 const lecturers = [ada, grace, alan]
 

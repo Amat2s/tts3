@@ -19,7 +19,7 @@ from models.assignment import TimetableAssignment
 from models.lecturer import AvailabilityDay, AvailabilitySlot, Lecturer, LecturerTitle
 from models.room import Room, RoomType
 from models.session import Session, SessionType
-from models.student import Student, StudentTitle
+from models.student import Student
 from schemas.assignment import AssignmentItem, AssignmentSaveRequest
 from schemas.session import SessionCreate, SessionResponse, SessionUpdate
 from schemas.unit import UnitCreate, UnitResponse, UnitUpdate
@@ -52,7 +52,6 @@ def make_lecturer(db, lecturer_id, last_name="Lovelace") -> Lecturer:
 def make_student(db, student_id, year_level=1) -> Student:
     s = Student(
         id=student_id,
-        title=StudentTitle.MX,
         first_name="Stu",
         last_name=student_id,
         year_level=year_level,
