@@ -14,6 +14,7 @@ interface GridCellProps {
   pendingSessionId?: string | null
   hasWarning?: boolean
   editingDisabled?: boolean
+  isHoverHighlighted?: boolean
   onCellClick?: () => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
@@ -29,6 +30,7 @@ export function GridCell({
   pendingSessionId,
   hasWarning = false,
   editingDisabled = false,
+  isHoverHighlighted = false,
   onCellClick,
   onUnschedule,
   onMoveSelect,
@@ -38,13 +40,15 @@ export function GridCell({
   // Droppable ID format matches buildAssignmentMap key: "${day}:${roomId}:${slotId}"
   // isOccupied covers all slots spanned by a multi-slot session, not just the start slot.
   // Drops are also disabled while a solver run is in progress.
-  const { setNodeRef, isOver } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: `${day}:${roomId}:${slotId}`,
     disabled: isOccupied || editingDisabled,
   })
 
   const isClickDropTarget = !!pendingSessionId && !isOccupied && !editingDisabled
-  const showDropHighlight = isOver || (isClickDropTarget && hovered)
+  // Hover highlight is driven by the parent-computed hoverHighlightKeys (valid
+  // drag proposals only). Click-based hover uses local mouse state.
+  const showDropHighlight = isHoverHighlighted || (isClickDropTarget && hovered)
 
   function handleClick() {
     if (isClickDropTarget) {
@@ -56,6 +60,10 @@ export function GridCell({
     <div
       ref={setNodeRef}
       className="relative h-14 flex-1 border-r rounded-none"
+      data-grid-cell="true"
+      data-slot={slotId}
+      data-day={day}
+      data-room={roomId}
       style={{
         borderRightColor: isDayBoundary
           ? 'var(--grid-line-strong)'
@@ -69,9 +77,6 @@ export function GridCell({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={handleClick}
-      data-slot={slotId}
-      data-day={day}
-      data-room={roomId}
     >
       {assignment && (
         <ScheduledSessionCard

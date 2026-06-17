@@ -1,15 +1,17 @@
 import {
   AlertTriangle,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Cpu,
   Loader2,
   Save,
   Trash2,
+  X,
   XCircle,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -19,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import type { SolverRunStatusResponse } from '@/lib/api/solver'
 
 interface TimetableActionBarProps {
   isDirty: boolean
@@ -29,14 +32,34 @@ interface TimetableActionBarProps {
   violationMessages?: string[]
   warningMessages?: string[]
   canRunSolver: boolean
-  /** Full reason the solver cannot run, or null when it can. */
   solverDisabledReason: string | null
-  /** True while a solver run is starting or active. */
   editingDisabled?: boolean
   onClearAll: () => void
   onSave: () => void
   onRunSolver?: () => void
   isPendingPlacement?: boolean
+  // Solver lifecycle (merged from SolverStatusPanel)
+  solverRunStatus: SolverRunStatusResponse | null
+  isSolverStarting: boolean
+  solverStartError: string | null
+  solverStatusError?: string | null
+  onDismissSolver: () => void
+  // Assignment load error
+  assignmentsError?: string | null
+  onRetryAssignments?: () => void
+}
+
+interface MessageState {
+  text: string
+  color: string
+  icon: React.ReactNode
+  isAlert: boolean
+  dismissible: boolean
+  retryable: boolean
+}
+
+function sessionLabel(count: number): string {
+  return `${count} session${count !== 1 ? 's' : ''}`
 }
 
 export function TimetableActionBar({
@@ -54,21 +77,226 @@ export function TimetableActionBar({
   onSave,
   onRunSolver,
   isPendingPlacement = false,
+  solverRunStatus,
+  isSolverStarting,
+  solverStartError,
+  solverStatusError,
+  onDismissSolver,
+  assignmentsError,
+  onRetryAssignments,
 }: TimetableActionBarProps) {
   const [showDetails, setShowDetails] = useState(false)
   const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const detailsRef = useRef<HTMLDivElement>(null)
 
   const violationCount = violationMessages.length
   const warningCount = warningMessages.length
   const totalIssues = violationCount + warningCount
   const hasIssues = totalIssues > 0
-  const reasonColor =
-    violationCount > 0
-      ? 'var(--state-error)'
-      : warningCount > 0
-        ? 'var(--state-warning)'
-        : 'var(--text-muted)'
-  const reasonHasValidationIssue = violationCount > 0 || warningCount > 0
+
+  // Close overlay on Escape key
+  useEffect(() => {
+    if (!showDetails) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowDetails(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [showDetails])
+
+  // Close overlay if issues disappear
+  useEffect(() => {
+    if (!hasIssues) setShowDetails(false)
+  }, [hasIssues])
+
+  function getMessageState(): MessageState {
+    // Priority 1: assignment-load / save system error
+    if (assignmentsError) {
+      return {
+        text: assignmentsError,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: true,
+      }
+    }
+    if (saveError) {
+      return {
+        text: saveError,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Priority 2: solver running / status error
+    if (isSolverStarting) {
+      return {
+        text: 'Starting solver run…',
+        color: 'var(--solver-accent)',
+        icon: <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+    if (solverStatusError) {
+      return {
+        text: 'Solver status could not be refreshed — retrying.',
+        color: 'var(--state-warning)',
+        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+    if (solverStartError) {
+      return {
+        text: `Could not start the solver: ${solverStartError}`,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: true,
+        retryable: false,
+      }
+    }
+    if (
+      solverRunStatus?.status === 'pending' ||
+      solverRunStatus?.status === 'running'
+    ) {
+      return {
+        text: 'Solver is running…',
+        color: 'var(--solver-accent)',
+        icon: <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+    if (solverRunStatus?.status === 'failed') {
+      const detail =
+        solverRunStatus.failure_message ||
+        'The solver could not complete. Your saved timetable is unchanged.'
+      return {
+        text: `Solver run failed — ${detail}`,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: true,
+        retryable: false,
+      }
+    }
+    if (solverRunStatus?.status === 'succeeded') {
+      const scheduled = solverRunStatus.scheduled_count ?? 0
+      const unscheduled = solverRunStatus.unscheduled_count ?? 0
+      const isPartial = solverRunStatus.partial_success || unscheduled > 0
+      if (isPartial) {
+        return {
+          text: `Solver finished with a partial result — scheduled ${sessionLabel(scheduled)}, ${sessionLabel(unscheduled)} could not be placed.`,
+          color: 'var(--state-warning)',
+          icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+          isAlert: false,
+          dismissible: true,
+          retryable: false,
+        }
+      }
+      return {
+        text: `Solver finished — scheduled ${sessionLabel(scheduled)}.`,
+        color: 'var(--state-success)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+      }
+    }
+
+    // Priority 3: blocking placement failure after attempted drop/place
+    if (blockingError) {
+      return {
+        text: `Cannot place session: ${blockingError}`,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Priority 4: blocking validation summary
+    if (violationCount > 0) {
+      return {
+        text: `${violationCount} blocking violation${violationCount !== 1 ? 's' : ''} must be resolved before saving or running the solver.`,
+        color: 'var(--state-error)',
+        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Priority 5: warning validation summary
+    if (warningCount > 0) {
+      return {
+        text: `${warningCount} scheduling warning${warningCount !== 1 ? 's' : ''} must be resolved before running the solver.`,
+        color: 'var(--state-warning)',
+        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Editing disabled (solver active, no run status yet available)
+    if (editingDisabled) {
+      return {
+        text: 'Editing is disabled while the solver runs.',
+        color: 'var(--solver-accent)',
+        icon: <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Pending placement hint
+    if (isPendingPlacement) {
+      return {
+        text: 'Session selected — click an empty cell to place it, or click the session again to cancel.',
+        color: 'var(--accent-primary)',
+        icon: null,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Priority 6: unsaved changes / saved state
+    if (isDirty) {
+      return {
+        text: 'Unsaved changes',
+        color: 'var(--text-muted)',
+        icon: null,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
+    // Priority 7: neutral ready state
+    return {
+      text: 'No issues — timetable is ready.',
+      color: 'var(--text-muted)',
+      icon: null,
+      isAlert: false,
+      dismissible: false,
+      retryable: false,
+    }
+  }
+
+  const msgState = getMessageState()
 
   function handleConfirmClear() {
     onClearAll()
@@ -77,204 +305,201 @@ export function TimetableActionBar({
 
   return (
     <>
+      {/* Outer wrapper: sticky positioning + relative anchor for the overlay */}
       <div
         data-testid="timetable-action-bar"
-        className="sticky top-4 z-30 rounded-lg border shadow-sm"
-        style={{
-          borderColor: 'var(--border-strong)',
-          backgroundColor: 'var(--bg-elevated)',
-        }}
+        className="sticky top-4 z-30 relative"
       >
-        <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <div
-              className="min-w-0"
-              role={saveError ? 'alert' : 'status'}
-              aria-live={saveError ? 'assertive' : 'polite'}
-            >
-              {saveError ? (
-                <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-                  {saveError}
-                </p>
-              ) : blockingError ? (
-                <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-                  Cannot place session: {blockingError}
-                </p>
-              ) : editingDisabled ? (
-                <span
-                  className="flex items-center gap-1.5 text-sm"
-                  style={{ color: 'var(--solver-accent)' }}
+        {/* Visually styled bar */}
+        <div
+          className="rounded-lg border shadow-sm"
+          style={{
+            borderColor: 'var(--border-strong)',
+            backgroundColor: 'var(--bg-elevated)',
+            minHeight: '3.25rem',
+          }}
+        >
+          <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            {/* Left: message + details trigger */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+              <div
+                className="flex min-w-0 items-center gap-1.5 text-sm"
+                role={msgState.isAlert ? 'alert' : 'status'}
+                aria-live={msgState.isAlert ? 'assertive' : 'polite'}
+                style={{ color: msgState.color }}
+              >
+                {msgState.icon}
+                <span className="min-w-0">{msgState.text}</span>
+                {msgState.retryable && onRetryAssignments && (
+                  <button
+                    type="button"
+                    className="ml-1 shrink-0 text-xs underline"
+                    style={{ color: msgState.color }}
+                    onClick={onRetryAssignments}
+                  >
+                    Try again
+                  </button>
+                )}
+                {msgState.dismissible && (
+                  <button
+                    type="button"
+                    className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
+                    aria-label="Dismiss solver status"
+                    style={{ color: msgState.color }}
+                    onClick={onDismissSolver}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {hasIssues && (
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center gap-1 text-xs underline"
+                  style={{ color: 'var(--text-muted)' }}
+                  aria-expanded={showDetails}
+                  aria-controls="timetable-validation-details"
+                  onClick={() => setShowDetails((v) => !v)}
                 >
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                  Editing is disabled while the solver runs.
-                </span>
-              ) : isPendingPlacement ? (
-                <p
-                  className="text-sm"
-                  style={{ color: 'var(--accent-primary)' }}
-                >
-                  Session selected - click an empty cell to place it, or click
-                  the session again to cancel.
-                </p>
-              ) : !canRunSolver && solverDisabledReason ? (
-                <span
-                  className="flex items-center gap-1.5 text-sm"
-                  style={{ color: reasonColor }}
-                >
-                  {reasonHasValidationIssue && (
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {showDetails ? (
+                    <ChevronUp className="h-3 w-3" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3" />
                   )}
-                  {solverDisabledReason}
-                </span>
-              ) : isDirty ? (
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                  Unsaved changes
-                </p>
-              ) : (
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                  No issues - timetable is ready.
-                </p>
+                  {showDetails ? 'Hide' : 'View'} details ({totalIssues})
+                </button>
               )}
             </div>
 
-            {hasIssues && (
-              <button
-                type="button"
-                className="flex shrink-0 items-center gap-1 text-xs underline"
-                style={{ color: 'var(--text-muted)' }}
-                aria-expanded={showDetails}
-                aria-controls="timetable-validation-details"
-                onClick={() => setShowDetails((value) => !value)}
+            {/* Right: action buttons */}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasDraftAssignments || editingDisabled || isSaving}
+                onClick={() => setClearDialogOpen(true)}
+                className="border-[var(--state-error)] text-[var(--state-error)] hover:bg-[var(--state-error-bg)] hover:text-[var(--state-error)]"
               >
-                {showDetails ? (
-                  <ChevronUp className="h-3 w-3" />
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Clear all
+              </Button>
+
+              <Button
+                size="sm"
+                disabled={!canRunSolver}
+                title={solverDisabledReason ?? undefined}
+                onClick={onRunSolver}
+                className={
+                  canRunSolver
+                    ? 'border-[var(--solver-accent)] bg-[var(--solver-accent)] text-[var(--text-inverse)] hover:bg-[var(--solver-accent-hover)]'
+                    : 'border-[var(--solver-accent)] bg-[var(--solver-accent-soft)] text-[var(--solver-accent)] disabled:opacity-70'
+                }
+              >
+                {editingDisabled ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Solving...
+                  </>
                 ) : (
-                  <ChevronDown className="h-3 w-3" />
+                  <>
+                    <Cpu className="mr-1.5 h-3.5 w-3.5" />
+                    Generate Timetable
+                  </>
                 )}
-                {showDetails ? 'Hide' : 'View'} details ({totalIssues})
-              </button>
-            )}
-          </div>
+              </Button>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasDraftAssignments || editingDisabled || isSaving}
-              onClick={() => setClearDialogOpen(true)}
-              className="border-[var(--state-error)] text-[var(--state-error)] hover:bg-[var(--state-error-bg)] hover:text-[var(--state-error)]"
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Clear all
-            </Button>
-
-            <Button
-              size="sm"
-              disabled={!canRunSolver}
-              title={solverDisabledReason ?? undefined}
-              onClick={onRunSolver}
-              className={
-                canRunSolver
-                  ? 'border-[var(--solver-accent)] bg-[var(--solver-accent)] text-[var(--text-inverse)] hover:bg-[var(--solver-accent-hover)]'
-                  : 'border-[var(--solver-accent)] bg-[var(--solver-accent-soft)] text-[var(--solver-accent)] disabled:opacity-70'
-              }
-            >
-              {editingDisabled ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  Solving...
-                </>
-              ) : (
-                <>
-                  <Cpu className="mr-1.5 h-3.5 w-3.5" />
-                  Generate Timetable
-                </>
-              )}
-            </Button>
-
-            <Button
-              size="sm"
-              disabled={!isDirty || isSaving || editingDisabled}
-              onClick={onSave}
-              className={
-                isDirty && !isSaving && !editingDisabled
-                  ? 'bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)]'
-                  : undefined
-              }
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  Saving...
-                </>
-              ) : isDirty ? (
-                <>
-                  <Save className="mr-1.5 h-3.5 w-3.5" />
-                  Save Timetable
-                </>
-              ) : (
-                <>
-                  <Check className="mr-1.5 h-3.5 w-3.5" />
-                  Saved
-                </>
-              )}
-            </Button>
+              <Button
+                size="sm"
+                disabled={!isDirty || isSaving || editingDisabled}
+                onClick={onSave}
+                className={
+                  isDirty && !isSaving && !editingDisabled
+                    ? 'bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)]'
+                    : undefined
+                }
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : isDirty ? (
+                  <>
+                    <Save className="mr-1.5 h-3.5 w-3.5" />
+                    Save Timetable
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-1.5 h-3.5 w-3.5" />
+                    Saved
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 
+        {/* Details overlay — absolutely positioned, does not add layout height */}
         {showDetails && hasIssues && (
           <div
+            ref={detailsRef}
             id="timetable-validation-details"
-            className="flex h-36 flex-col gap-3 overflow-y-auto border-t px-4 py-3"
+            role="region"
+            aria-label="Validation details"
+            className="absolute left-0 right-0 z-40 mt-1 max-h-60 overflow-y-auto rounded-lg border shadow-lg"
             style={{
-              borderColor: 'var(--border-subtle)',
-              backgroundColor: 'var(--bg-muted)',
+              top: '100%',
+              borderColor: 'var(--border-default)',
+              backgroundColor: 'var(--bg-elevated)',
             }}
           >
-            {violationCount > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p
-                  className="text-xs font-semibold"
-                  style={{ color: 'var(--state-error)' }}
-                >
-                  Blocking violations - {violationCount}
-                </p>
-                <ul className="flex flex-col gap-1">
-                  {violationMessages.map((message, index) => (
-                    <li
-                      key={`${message}-${index}`}
-                      className="flex items-start gap-1.5 text-xs"
-                      style={{ color: 'var(--state-error)' }}
-                    >
-                      <XCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                      {message}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {warningCount > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p
-                  className="text-xs font-semibold"
-                  style={{ color: 'var(--state-warning)' }}
-                >
-                  Scheduling warnings - {warningCount}
-                </p>
-                <ul className="flex flex-col gap-1">
-                  {warningMessages.map((message, index) => (
-                    <li
-                      key={`${message}-${index}`}
-                      className="flex items-start gap-1.5 text-xs"
-                      style={{ color: 'var(--state-warning)' }}
-                    >
-                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                      {message}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <div className="flex flex-col gap-3 px-4 py-3">
+              {violationCount > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <p
+                    className="text-xs font-semibold"
+                    style={{ color: 'var(--state-error)' }}
+                  >
+                    Blocking violations — {violationCount}
+                  </p>
+                  <ul className="flex flex-col gap-1">
+                    {violationMessages.map((message, index) => (
+                      <li
+                        key={`${message}-${index}`}
+                        className="flex items-start gap-1.5 text-xs"
+                        style={{ color: 'var(--state-error)' }}
+                      >
+                        <XCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                        {message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {warningCount > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <p
+                    className="text-xs font-semibold"
+                    style={{ color: 'var(--state-warning)' }}
+                  >
+                    Scheduling warnings — {warningCount}
+                  </p>
+                  <ul className="flex flex-col gap-1">
+                    {warningMessages.map((message, index) => (
+                      <li
+                        key={`${message}-${index}`}
+                        className="flex items-start gap-1.5 text-xs"
+                        style={{ color: 'var(--state-warning)' }}
+                      >
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                        {message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

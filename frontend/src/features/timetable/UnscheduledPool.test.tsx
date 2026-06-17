@@ -305,7 +305,7 @@ describe('UnscheduledPool rendering', () => {
         code: 'HIS101',
         lecturers: [
           { id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' },
-          { id: 'lec-2', title: 'Prof', first_name: 'Grace', last_name: 'Hopper' },
+          { id: 'lec-2', title: 'Prof.', first_name: 'Grace', last_name: 'Hopper' },
         ],
       }),
     ]

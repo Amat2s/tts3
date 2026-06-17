@@ -4,25 +4,27 @@ import {
   KeyboardSensor,
   PointerSensor,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarDays } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
-import { ErrorState } from '@/components/error/ErrorState'
-import { SolverStatusPanel } from '@/features/timetable/SolverStatusPanel'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
-import { UnscheduledSessionCardPreview } from '@/features/timetable/UnscheduledSessionCard'
+import { DragPreviewCard } from '@/features/timetable/DragPreviewCard'
 import { useSolverRun } from '@/features/timetable/useSolverRun'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
-import { getSubjectTokens } from '@/features/timetable/unitColors'
+import {
+  computeHoverHighlightKeys,
+  type TimetableGridMetrics,
+} from '@/features/timetable/hoverHighlight'
 import {
   type AssignmentResponse,
   listAssignments,
@@ -63,13 +65,41 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
   }
 }
 
-function DragPreviewCard({ session }: { session: SchedulableSession }) {
-  return (
-    <UnscheduledSessionCardPreview
-      session={session}
-      colorTokens={getSubjectTokens(session.unit_code)}
-    />
-  )
+// Pointer-align modifier: centers the overlay width-wise on the cursor and
+// positions the cursor at the center of the first slot vertically.
+// Works for both unscheduled-pool drags and scheduled-card moves.
+function createPointerAlignModifier(metrics: TimetableGridMetrics | null) {
+  return function pointerAlignModifier({
+    activatorEvent,
+    draggingNodeRect,
+    overlayNodeRect,
+    transform,
+  }: {
+    activatorEvent: Event | null
+    draggingNodeRect: { left: number; top: number; width: number; height: number } | null
+    overlayNodeRect: { width: number; height: number } | null
+    transform: { x: number; y: number; scaleX: number; scaleY: number }
+  }) {
+    if (!activatorEvent || !draggingNodeRect) return transform
+    const event = activatorEvent as PointerEvent
+    if (!('clientX' in event)) return transform
+
+    // Where the pointer was within the original draggable at drag-start
+    const offsetX = event.clientX - draggingNodeRect.left
+    const offsetY = event.clientY - draggingNodeRect.top
+
+    // Target pointer position within the overlay:
+    // - horizontal center of the overlay
+    // - vertical center of the first slot only (rowHeight / 2)
+    const overlayWidth = overlayNodeRect?.width ?? (metrics?.cellWidth ?? 200)
+    const rowH = metrics?.rowHeight ?? 56
+
+    return {
+      ...transform,
+      x: transform.x + offsetX - overlayWidth / 2,
+      y: transform.y + offsetY - rowH / 2,
+    }
+  }
 }
 
 export default function TimetablePage() {
@@ -126,6 +156,10 @@ export default function TimetablePage() {
   const [blockingError, setBlockingError] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  // The droppable ID currently hovered by the active drag ("day:roomId:slotId").
+  const [activeHoverKey, setActiveHoverKey] = useState<string | null>(null)
+  // Measured grid cell dimensions for the drag preview and pointer modifier.
+  const [gridMetrics, setGridMetrics] = useState<TimetableGridMetrics | null>(null)
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -250,9 +284,34 @@ export default function TimetablePage() {
   const canRunSolver = solverDisabledReason === null
 
   // The session being actively dragged (for DragOverlay preview).
-  const activeSession = activeSessionId
-    ? schedulableSessions?.find((s) => s.session_id === activeSessionId)
+  const activeSession: SchedulableSession | null = activeSessionId
+    ? (schedulableSessions?.find((s) => s.session_id === activeSessionId) ?? null)
     : null
+
+  // Highlighted cell keys for the current valid drag hover proposal.
+  const hoverHighlightKeys = useMemo(
+    () =>
+      computeHoverHighlightKeys(
+        activeHoverKey,
+        activeSessionId,
+        schedulableSessions ?? [],
+        draft,
+        rooms ?? []
+      ),
+    [activeHoverKey, activeSessionId, schedulableSessions, draft, rooms]
+  )
+
+  // Stable metrics change handler — avoids causing the measurement effect to
+  // re-fire on every render by keeping the same function reference.
+  const handleMetricsChange = useCallback((metrics: TimetableGridMetrics) => {
+    setGridMetrics(metrics)
+  }, [])
+
+  // Pointer-align modifier for DragOverlay — recreated only when metrics change.
+  const pointerAlignModifier = useMemo(
+    () => createPointerAlignModifier(gridMetrics),
+    [gridMetrics]
+  )
 
   function handleSelectSession(sessionId: string) {
     if (editingDisabled) return
@@ -329,13 +388,19 @@ export default function TimetablePage() {
     if (editingDisabled) return
     const sessionId = event.active.id as string
     setActiveSessionId(sessionId)
+    setActiveHoverKey(null)
     // Cancel any pending click-based selection when drag starts.
     setPendingSessionId(null)
     setBlockingError(null)
   }
 
+  function handleDragOver(event: DragOverEvent) {
+    setActiveHoverKey(event.over ? (event.over.id as string) : null)
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     setActiveSessionId(null)
+    setActiveHoverKey(null)
     const { active, over } = event
     if (!over) return
 
@@ -381,6 +446,7 @@ export default function TimetablePage() {
 
   function handleDragCancel() {
     setActiveSessionId(null)
+    setActiveHoverKey(null)
   }
 
   function renderCanvas() {
@@ -463,9 +529,11 @@ export default function TimetablePage() {
           pendingSessionId={pendingSessionId}
           warningSessionIds={warningSessionIds}
           editingDisabled={editingDisabled}
+          hoverHighlightKeys={hoverHighlightKeys}
           onCellClick={handleCellClick}
           onUnschedule={handleUnschedule}
           onMoveSelect={handleSelectSession}
+          onMetricsChange={handleMetricsChange}
         />
         <UnscheduledPool
           sessions={unscheduledSessions}
@@ -491,6 +559,7 @@ export default function TimetablePage() {
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
@@ -510,29 +579,26 @@ export default function TimetablePage() {
             onSave={handleSave}
             onRunSolver={handleRunSolver}
             isPendingPlacement={!!pendingSessionId}
+            solverRunStatus={solver.runStatus}
+            isSolverStarting={solver.isStarting}
+            solverStartError={solver.startError}
+            solverStatusError={solver.statusError}
+            onDismissSolver={solver.dismiss}
+            assignmentsError={
+              assignmentsIsError
+                ? getErrorMessage(
+                    assignmentsError,
+                    'The saved timetable data could not be loaded.'
+                  )
+                : null
+            }
+            onRetryAssignments={() => refetchAssignments()}
           />
-          <SolverStatusPanel
-            runStatus={solver.runStatus}
-            isStarting={solver.isStarting}
-            startError={solver.startError}
-            statusError={solver.statusError}
-            onDismiss={solver.dismiss}
-          />
-          {assignmentsIsError && (
-            <ErrorState
-              title="Saved timetable could not be loaded"
-              message={getErrorMessage(
-                assignmentsError,
-                'The saved timetable data could not be loaded. Any unsaved changes are based on an empty timetable until this is resolved.'
-              )}
-              onRetry={() => refetchAssignments()}
-            />
-          )}
           {renderCanvas()}
         </div>
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay dropAnimation={null} modifiers={[pointerAlignModifier]}>
           {activeSession ? (
-            <DragPreviewCard session={activeSession} />
+            <DragPreviewCard session={activeSession} metrics={gridMetrics} />
           ) : null}
         </DragOverlay>
       </DndContext>
