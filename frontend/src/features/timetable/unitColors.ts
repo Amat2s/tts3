@@ -1,11 +1,16 @@
-const COLOR_VARIANTS = ['maroon', 'gold', 'blue', 'green', 'purple', 'stone'] as const
+import { parseUnitCode } from '@/lib/unit-code-parser'
+import type { SubjectTokens } from '@/lib/unit-code-parser'
 
-export type UnitColorVariant = (typeof COLOR_VARIANTS)[number]
+export type UnitColorTokens = SubjectTokens
 
-export function getUnitColor(identifier: string): UnitColorVariant {
-  let hash = 0
-  for (let i = 0; i < identifier.length; i++) {
-    hash = (hash * 31 + identifier.charCodeAt(i)) >>> 0
-  }
-  return COLOR_VARIANTS[hash % COLOR_VARIANTS.length]
+const FALLBACK_TOKENS: UnitColorTokens = {
+  background: 'var(--unit-stone-bg)',
+  border: 'var(--unit-stone-border)',
+  text: 'var(--text-secondary)',
+}
+
+/** Returns subject-based colour tokens for a valid unit code, or stone fallback for invalid/legacy codes. */
+export function getSubjectTokens(unitCode: string): UnitColorTokens {
+  const result = parseUnitCode(unitCode)
+  return result.valid ? result.tokens : FALLBACK_TOKENS
 }

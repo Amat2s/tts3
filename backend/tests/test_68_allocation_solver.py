@@ -18,7 +18,7 @@ from constraints.types import (
 )
 from models.lecturer import Lecturer, LecturerTitle
 from models.session_allocation import SessionStudentAllocation
-from models.student import Student, StudentTitle
+from models.student import Student
 from schemas.session import SessionCreate
 from schemas.unit import UnitCreate
 from services.session import create_session
@@ -301,7 +301,6 @@ def test_database_snapshot_uses_session_lecturers_and_allocation_rows(db):
             *[
                 Student(
                     id=f"stu-{i}",
-                    title=StudentTitle.MX,
                     first_name="Student",
                     last_name=str(i),
                     year_level=1,

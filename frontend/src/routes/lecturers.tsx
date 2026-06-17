@@ -49,8 +49,21 @@ import {
   lecturerFiltersActive,
 } from '@/features/lecturers/filters'
 import type { LecturerFilters } from '@/features/lecturers/filters'
+import {
+  parseUnitCode,
+  SUBJECTS,
+  SUBJECT_PREFIXES,
+} from '@/lib/unit-code-parser'
+import type { SubjectPrefix } from '@/lib/unit-code-parser'
 
-const LECTURER_TITLES: LecturerTitle[] = ['Dr.', 'Prof.', 'A/Prof.', 'Mr.', 'Ms.']
+const LECTURER_TITLES: LecturerTitle[] = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'A/Prof.', 'Prof.']
+
+const YEAR_FILTERS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All years' },
+  { value: '1', label: 'Year 1' },
+  { value: '2', label: 'Year 2' },
+  { value: '3', label: 'Year 3' },
+]
 
 // How many taught-unit chips to show inline before collapsing the rest into a
 // single "+N more" chip (with the full list available on hover).
@@ -283,6 +296,23 @@ export default function LecturersPage() {
     ],
     [unitsQuery.data]
   )
+
+  // Subject filter options derived from loaded units. Only valid subject codes
+  // appear — units with unknown or structurally invalid codes are ignored.
+  const subjectFilterOptions = useMemo(() => {
+    const seen = new Set<SubjectPrefix>()
+    for (const u of unitsQuery.data ?? []) {
+      const r = parseUnitCode(u.code)
+      if (r.valid) seen.add(r.prefix)
+    }
+    return [
+      { value: 'all', label: 'All subjects' },
+      ...SUBJECT_PREFIXES.filter((p) => seen.has(p)).map((p) => ({
+        value: p as string,
+        label: SUBJECTS[p].subjectName,
+      })),
+    ]
+  }, [unitsQuery.data])
 
   const filteredLecturers = useMemo(
     () => filterLecturers(lecturers ?? [], filters, taughtUnitsByLecturer),
@@ -535,6 +565,19 @@ export default function LecturersPage() {
             onChange={(unitId) => setFilters((f) => ({ ...f, unitId }))}
             options={unitFilterOptions}
             label="Filter by taught unit"
+          />
+          <FilterSelect
+            value={filters.subject}
+            onChange={(subject) => setFilters((f) => ({ ...f, subject }))}
+            options={subjectFilterOptions}
+            label="Filter by subject"
+          />
+          <FilterSelect
+            value={filters.year}
+            onChange={(year) => setFilters((f) => ({ ...f, year }))}
+            options={YEAR_FILTERS}
+            label="Filter by year"
+            className="h-9 text-sm w-28"
           />
         </FilterBar>
       )}

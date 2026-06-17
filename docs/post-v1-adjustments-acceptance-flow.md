@@ -6,7 +6,7 @@ Use one authenticated admin workspace with the latest Alembic migration applied.
 
 ## Manual Checklist
 
-1. Sign in. `[] PASS  [ ] FAIL`
+1. Sign in. `[ ] PASS  [ ] FAIL`
 2. Create Year 1, Year 2, and Year 3 students. `[ ] PASS  [ ] FAIL`
 3. Create units whose first code digits derive Years 1, 2, and 3. `[ ] PASS  [ ] FAIL`
 4. Confirm matching-year students are selected and enrolled by default. `[ ] PASS  [ ] FAIL`

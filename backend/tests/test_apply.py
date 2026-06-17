@@ -15,7 +15,7 @@ from models.assignment import TimetableAssignment
 from models.lecturer import AvailabilityDay, AvailabilitySlot, Lecturer, LecturerTitle
 from models.room import Room, RoomType
 from models.session import Session, SessionType
-from models.student import Student, StudentTitle
+from models.student import Student
 from models.unit import Unit
 from solver.apply import (
     ApplicationStatus,
@@ -46,7 +46,6 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
 def make_student(db, student_id) -> Student:
     s = Student(
         id=student_id,
-        title=StudentTitle.MX,
         first_name="Stu",
         last_name=student_id,
         year_level=1,

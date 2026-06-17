@@ -102,6 +102,31 @@
   --unit-stone-bg: #EFEAE4;
   --unit-stone-border: #8A7E78;
 
+  /* Subject colours (Unit 73) — keyed off the unit-code subject prefix. Declared
+     once here as design tokens; components must reference these, never inline the
+     hex values. Restrained academic hues that harmonise with the warm palette. */
+  --subject-history-bg: #F7E5D4;
+  --subject-history-border: #B86B2B;
+  --subject-history-text: #6B3515;
+  --subject-philosophy-bg: #E7EEF7;
+  --subject-philosophy-border: #2F5F8F;
+  --subject-philosophy-text: #234766;
+  --subject-theology-bg: #F6E7EF;
+  --subject-theology-border: #A5527D;
+  --subject-theology-text: #67304C;
+  --subject-literature-bg: #E4EFE8;
+  --subject-literature-border: #2F6B4F;
+  --subject-literature-text: #244D39;
+  --subject-latin-bg: #FAECD8;
+  --subject-latin-border: #D1903D;
+  --subject-latin-text: #7A4B16;
+  --subject-greek-bg: #EAF3DF;
+  --subject-greek-border: #7BA84A;
+  --subject-greek-text: #4F6D2E;
+  --subject-science-bg: #DFE9F2;
+  --subject-science-border: #244D73;
+  --subject-science-text: #1E3A56;
+
   /* Solver accents */
   --solver-accent: #2F5F8F;
   --solver-accent-hover: #264D73;

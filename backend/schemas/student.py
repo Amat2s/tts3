@@ -2,8 +2,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
-from models.student import StudentTitle
-
 
 class EnrolledUnitSummary(BaseModel):
     """Lightweight summary of a unit a student is enrolled in."""
@@ -17,7 +15,6 @@ class EnrolledUnitSummary(BaseModel):
 
 
 class StudentCreate(BaseModel):
-    title: StudentTitle
     first_name: str
     last_name: str
     year_level: int
@@ -45,7 +42,6 @@ class StudentCreate(BaseModel):
 
 
 class StudentUpdate(BaseModel):
-    title: StudentTitle | None = None
     first_name: str | None = None
     last_name: str | None = None
     year_level: int | None = None
@@ -76,7 +72,6 @@ class StudentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    title: StudentTitle
     first_name: str
     last_name: str
     year_level: int

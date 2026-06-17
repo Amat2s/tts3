@@ -1,6 +1,7 @@
 import type { Day } from '@/features/timetable/slots'
 import type { SlotId, TimetableAssignment } from '@/features/timetable/assignment'
 import type { Lecturer, AvailabilityDay } from '@/lib/api/lecturers'
+import { slotLabel } from '@/lib/slot-label'
 import { SLOT_INDEX, ALL_SLOTS, rangesOverlap } from './slot-helpers'
 
 // Unit 67: `unit_session_overlap` was removed as an independent warning type.
@@ -116,7 +117,7 @@ export function checkDraftForWarnings(
           affected_lecturer_id: a.lecturer_id,
           affected_day: a.day,
           affected_slot: slot,
-          message: `${a.lecturer_display_name} is marked unavailable on ${a.day} (slot ${slot}).`,
+          message: `${a.lecturer_display_name} is marked unavailable on ${a.day} at ${slotLabel(slot)}.`,
         })
         break
       }

@@ -49,7 +49,8 @@ export function unscheduledPoolFiltersActive(
 
 export function filterUnscheduledSessions(
   sessions: SchedulableSession[],
-  filters: UnscheduledPoolFilters
+  filters: UnscheduledPoolFilters,
+  unitTeachingTeams?: Map<string, string[]>,
 ): SchedulableSession[] {
   const query = filters.search.trim().toLocaleLowerCase()
 
@@ -63,12 +64,12 @@ export function filterUnscheduledSessions(
 
     if (query.length === 0) return true
 
-    return [
-      session.unit_code,
-      session.unit_name,
-      session.session_type,
-      session.lecturer_display_name,
-    ].some((value) => value.toLocaleLowerCase().includes(query))
+    const teamNames =
+      unitTeachingTeams?.get(session.unit_id) ?? [session.lecturer_display_name]
+
+    return [session.unit_code, session.unit_name, ...teamNames].some((value) =>
+      value.toLocaleLowerCase().includes(query)
+    )
   })
 }
 

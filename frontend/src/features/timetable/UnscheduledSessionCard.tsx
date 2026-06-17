@@ -1,25 +1,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { Clock, User, Users } from 'lucide-react'
 import type { SchedulableSession } from '@/lib/api/sessions'
-import type { UnitColorVariant } from './unitColors'
-
-const BG_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-bg)',
-  gold: 'var(--unit-gold-bg)',
-  blue: 'var(--unit-blue-bg)',
-  green: 'var(--unit-green-bg)',
-  purple: 'var(--unit-purple-bg)',
-  stone: 'var(--unit-stone-bg)',
-}
-
-const BORDER_MAP: Record<UnitColorVariant, string> = {
-  maroon: 'var(--unit-maroon-border)',
-  gold: 'var(--unit-gold-border)',
-  blue: 'var(--unit-blue-border)',
-  green: 'var(--unit-green-border)',
-  purple: 'var(--unit-purple-border)',
-  stone: 'var(--unit-stone-border)',
-}
+import type { UnitColorTokens } from './unitColors'
 
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lecture',
@@ -31,7 +13,7 @@ const CARD_CLASS_NAME =
 
 interface UnscheduledSessionCardProps {
   session: SchedulableSession
-  colorVariant: UnitColorVariant
+  colorTokens: UnitColorTokens
   isSelected?: boolean
   editingDisabled?: boolean
   onClick?: () => void
@@ -39,7 +21,7 @@ interface UnscheduledSessionCardProps {
 
 export function UnscheduledSessionCard({
   session,
-  colorVariant,
+  colorTokens,
   isSelected = false,
   editingDisabled = false,
   onClick,
@@ -57,58 +39,58 @@ export function UnscheduledSessionCard({
       {...attributes}
       className={CARD_CLASS_NAME}
       style={{
-        backgroundColor: BG_MAP[colorVariant],
-        borderColor: BORDER_MAP[colorVariant],
+        backgroundColor: colorTokens.background,
+        borderColor: colorTokens.border,
         borderLeftWidth: '3px',
-        outline: isSelected ? `2px solid ${BORDER_MAP[colorVariant]}` : undefined,
+        outline: isSelected ? `2px solid ${colorTokens.border}` : undefined,
         outlineOffset: isSelected ? '1px' : undefined,
         opacity: isDragging ? 0.3 : editingDisabled ? 0.6 : 1,
         cursor: editingDisabled ? 'default' : 'pointer',
       }}
       onClick={editingDisabled ? undefined : onClick}
     >
-      <SessionCardContent session={session} colorVariant={colorVariant} />
+      <SessionCardContent session={session} colorTokens={colorTokens} />
     </div>
   )
 }
 
 interface UnscheduledSessionCardPreviewProps {
   session: SchedulableSession
-  colorVariant: UnitColorVariant
+  colorTokens: UnitColorTokens
 }
 
 export function UnscheduledSessionCardPreview({
   session,
-  colorVariant,
+  colorTokens,
 }: UnscheduledSessionCardPreviewProps) {
   return (
     <div
       className={`${CARD_CLASS_NAME} shadow-md`}
       style={{
         width: '288px',
-        backgroundColor: BG_MAP[colorVariant],
-        borderColor: BORDER_MAP[colorVariant],
+        backgroundColor: colorTokens.background,
+        borderColor: colorTokens.border,
         borderLeftWidth: '3px',
       }}
     >
-      <SessionCardContent session={session} colorVariant={colorVariant} />
+      <SessionCardContent session={session} colorTokens={colorTokens} />
     </div>
   )
 }
 
 function SessionCardContent({
   session,
-  colorVariant,
+  colorTokens,
 }: {
   session: SchedulableSession
-  colorVariant: UnitColorVariant
+  colorTokens: UnitColorTokens
 }) {
   return (
     <>
       <div className="flex items-center justify-between gap-2">
         <span
           className="text-sm font-semibold"
-          style={{ color: BORDER_MAP[colorVariant] }}
+          style={{ color: colorTokens.text }}
         >
           {SESSION_TYPE_LABEL[session.session_type] ?? session.session_type}
         </span>

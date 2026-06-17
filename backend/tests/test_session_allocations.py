@@ -18,7 +18,7 @@ from models.lecturer import AvailabilityDay, AvailabilitySlot, Lecturer, Lecture
 from models.room import Room, RoomType
 from models.session import Session, SessionType
 from models.session_allocation import SessionStudentAllocation
-from models.student import Student, StudentTitle
+from models.student import Student
 from schemas.assignment import AssignmentItem, AssignmentSaveRequest
 from schemas.session import SessionCreate, SessionUpdate
 from schemas.student import StudentCreate
@@ -56,7 +56,6 @@ def make_students(db, count, year_level=1, prefix="s") -> list[str]:
         db.add(
             Student(
                 id=sid,
-                title=StudentTitle.MX,
                 first_name="Stu",
                 last_name=sid,
                 year_level=year_level,
@@ -275,7 +274,7 @@ def test_create_student_joins_lectures_and_one_tutorial(db):
 
     # A new year-1 student auto-enrols into the matching-year unit.
     new = create_student(
-        db, StudentCreate(title=StudentTitle.MX, first_name="New", last_name="Comer", year_level=1)
+        db, StudentCreate(first_name="New", last_name="Comer", year_level=1)
     )
     assert new.id in alloc_ids(db, lecture.id)  # in the lecture
     tut = tutorial_map(db, unit.id)

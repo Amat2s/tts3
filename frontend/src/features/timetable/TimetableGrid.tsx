@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react'
 import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
 import { GridCell } from './GridCell'
+import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
 
 export interface RoomColumn {
@@ -13,9 +15,13 @@ interface TimetableGridProps {
   pendingSessionId?: string | null
   warningSessionIds?: Set<string>
   editingDisabled?: boolean
+  // Set of "day:roomId:slotId" keys to highlight (valid hover proposals only).
+  hoverHighlightKeys?: Set<string>
   onCellClick?: (day: string, slotId: string, roomId: string) => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
+  // Called with measured grid cell dimensions; recomputed on container resize.
+  onMetricsChange?: (metrics: TimetableGridMetrics) => void
 }
 
 const TIME_COL_W = '6rem'
@@ -76,17 +82,48 @@ export function TimetableGrid({
   pendingSessionId,
   warningSessionIds,
   editingDisabled = false,
+  hoverHighlightKeys,
   onCellClick,
   onUnschedule,
   onMoveSelect,
+  onMetricsChange,
 }: TimetableGridProps) {
   if (rooms.length === 0) return null
 
   const assignmentMap = buildAssignmentMap(assignments)
   const coveredSet = buildCoveredSet(assignments)
 
+  // Measure the first grid cell and report dimensions to the parent.
+  // Uses a ResizeObserver on the container so metrics update on layout changes.
+  const containerRef = useRef<HTMLDivElement>(null)
+  const onMetricsChangeRef = useRef(onMetricsChange)
+  useEffect(() => {
+    onMetricsChangeRef.current = onMetricsChange
+  })
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    function measure() {
+      const cell = container!.querySelector<HTMLElement>('[data-grid-cell]')
+      if (cell && onMetricsChangeRef.current) {
+        onMetricsChangeRef.current({
+          cellWidth: cell.offsetWidth,
+          rowHeight: cell.offsetHeight,
+        })
+      }
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, []) // ResizeObserver handles layout-driven changes; callback accessed via ref
+
   return (
     <div
+      ref={containerRef}
       className="w-full border rounded-none"
       style={{ borderColor: 'var(--grid-line-strong)' }}
     >
@@ -168,6 +205,7 @@ export function TimetableGrid({
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}
@@ -235,6 +273,7 @@ export function TimetableGrid({
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}

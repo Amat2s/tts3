@@ -75,7 +75,7 @@ export function makeAssignmentResponse(
 export function makeLecturer(overrides: Partial<Lecturer> = {}): Lecturer {
   return {
     id: 'lec-1',
-    title: 'Dr.',
+    title: 'Dr',
     first_name: 'Ada',
     last_name: 'Lovelace',
     unavailable_slots: [],
@@ -126,7 +126,6 @@ export function makeSolverStatus(
 export function makeStudent(overrides: Partial<Student> = {}): Student {
   return {
     id: 'student-1',
-    title: 'Mx.',
     first_name: 'Sam',
     last_name: 'Carter',
     year_level: 1,

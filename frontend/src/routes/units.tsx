@@ -54,7 +54,12 @@ import {
   deleteSession as apiDeleteSession,
 } from '@/lib/api/sessions'
 import type { Session, SessionType } from '@/lib/api/sessions'
-import { parseUnitYearLevel } from '@/features/units/yearLevel'
+import {
+  parseUnitCode,
+  SUBJECTS,
+  SUBJECT_PREFIXES,
+} from '@/lib/unit-code-parser'
+import type { SubjectPrefix } from '@/lib/unit-code-parser'
 import {
   EMPTY_UNIT_FILTERS,
   filterUnits,
@@ -115,7 +120,7 @@ function sessionLecturerInvalid(session: ShellSession, teamIds: string[]): boole
 }
 
 function isFormValid(f: UnitFormState): boolean {
-  if (!parseUnitYearLevel(f.code).ok) return false
+  if (!parseUnitCode(f.code).valid) return false
   if (f.name.trim().length === 0) return false
   if (f.lecturer_ids.length === 0) return false
   if (f.sessions.some((s) => sessionLecturerInvalid(s, f.lecturer_ids))) return false
@@ -150,7 +155,7 @@ function lecturerLabel(l: Pick<Lecturer, 'title' | 'first_name' | 'last_name'>):
 }
 
 function studentLabel(s: Student): string {
-  return `${s.title} ${s.first_name} ${s.last_name}`
+  return `${s.first_name} ${s.last_name}`
 }
 
 function DurationStepper({
@@ -401,8 +406,8 @@ function UnitFormFields({
   const [studentSearch, setStudentSearch] = useState('')
   const [yearFilter, setYearFilter] = useState<string>('all')
 
-  const yearParse = parseUnitYearLevel(values.code)
-  const derivedYear: YearLevel | null = yearParse.ok ? yearParse.year : null
+  const parseResult = parseUnitCode(values.code)
+  const derivedYear: YearLevel | null = parseResult.valid ? parseResult.yearLevel : null
 
   const teamLecturers = useMemo(
     () => lecturers.filter((l) => values.lecturer_ids.includes(l.id)),
@@ -414,19 +419,20 @@ function UnitFormFields({
     return students.filter((s) => {
       if (yearFilter !== 'all' && String(s.year_level) !== yearFilter) return false
       if (q.length === 0) return true
-      return `${s.first_name} ${s.last_name} ${s.title}`.toLowerCase().includes(q)
+      return `${s.first_name} ${s.last_name}`.toLowerCase().includes(q)
     })
   }, [students, studentSearch, yearFilter])
 
-  function handleCodeChange(code: string) {
+  function handleCodeChange(raw: string) {
+    const code = raw.toUpperCase()
     onChange((prev) => {
       const next = { ...prev, code }
       // On create, keep the default student selection in sync with the derived
       // year until the admin manually edits the selection.
       if (mode === 'create' && !prev.studentSelectionTouched) {
-        const parsed = parseUnitYearLevel(code)
-        next.student_ids = parsed.ok
-          ? students.filter((s) => s.year_level === parsed.year).map((s) => s.id)
+        const parsed = parseUnitCode(code)
+        next.student_ids = parsed.valid
+          ? students.filter((s) => s.year_level === parsed.yearLevel).map((s) => s.id)
           : []
       }
       return next
@@ -501,20 +507,19 @@ function UnitFormFields({
               placeholder="e.g. HIS101"
               autoComplete="off"
             />
-            {derivedYear !== null ? (
+            {parseResult.valid ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Derived year level:{' '}
-                <span style={{ color: 'var(--text-secondary)' }}>Year {derivedYear}</span>
+                {parseResult.subjectName} · {parseResult.colourName} · Year {parseResult.yearLevel}
               </p>
-            ) : (
+            ) : values.code.trim().length > 0 ? (
               <p
                 className="text-xs flex items-center gap-1"
                 style={{ color: 'var(--state-error)' }}
               >
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {yearParse.ok ? '' : yearParse.error}
+                Invalid unit code. Use three letters and three numbers, e.g. HIS101, with a supported subject prefix and year 1–3.
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="grid gap-1.5">
@@ -769,6 +774,23 @@ export default function UnitsPage() {
     ],
     [lecturers]
   )
+
+  // Subject filter options derived from loaded units. Only valid subject codes
+  // appear — units with unknown or structurally invalid codes are ignored.
+  const subjectFilterOptions = useMemo(() => {
+    const seen = new Set<SubjectPrefix>()
+    for (const u of unitsQuery.data ?? []) {
+      const r = parseUnitCode(u.code)
+      if (r.valid) seen.add(r.prefix)
+    }
+    return [
+      { value: 'all', label: 'All subjects' },
+      ...SUBJECT_PREFIXES.filter((p) => seen.has(p)).map((p) => ({
+        value: p as string,
+        label: SUBJECTS[p].subjectName,
+      })),
+    ]
+  }, [unitsQuery.data])
 
   const filteredUnits = useMemo(
     () => filterUnits(unitsQuery.data ?? [], filters),
@@ -1075,6 +1097,12 @@ export default function UnitsPage() {
             onChange={(lecturerId) => setFilters((f) => ({ ...f, lecturerId }))}
             options={lecturerFilterOptions}
             label="Filter by teaching lecturer"
+          />
+          <FilterSelect
+            value={filters.subject}
+            onChange={(subject) => setFilters((f) => ({ ...f, subject }))}
+            options={subjectFilterOptions}
+            label="Filter by subject"
           />
         </FilterBar>
       )}

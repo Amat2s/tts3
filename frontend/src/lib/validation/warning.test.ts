@@ -87,7 +87,7 @@ describe('checkDraftForWarnings — warning rules allow placement but flag it', 
   it('flags a lecturer availability conflict using the session-level lecturer id', () => {
     const lecturer = makeLecturer({
       id: 'lec-1',
-      title: 'Dr.',
+      title: 'Dr',
       first_name: 'Ada',
       last_name: 'Lovelace',
       unavailable_slots: [{ day: 'Monday', slot: 's1' }],

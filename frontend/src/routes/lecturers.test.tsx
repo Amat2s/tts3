@@ -73,6 +73,60 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+describe('LecturersPage — title selector (Unit 72/73/75)', () => {
+  it('create form title selector offers exactly the final product title list', async () => {
+    const user = userEvent.setup()
+    mockListLecturers.mockResolvedValue([])
+    renderLecturers()
+    await user.click(await screen.findByRole('button', { name: /Add lecturer/ }))
+    const dialog = await screen.findByRole('dialog')
+
+    // Open the Title select.
+    await user.click(within(dialog).getByText('Select a title'))
+
+    const expected = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'A/Prof.', 'Prof.']
+    for (const title of expected) {
+      expect(await screen.findByRole('option', { name: title })).toBeInTheDocument()
+    }
+  })
+})
+
+describe('LecturersPage — subject and year filters', () => {
+  it('subject filter options are derived from valid unit codes only', async () => {
+    const user = userEvent.setup()
+    const teaching = makeLecturer({ id: 'lec-1' })
+    mockListLecturers.mockResolvedValue([teaching])
+    mockListUnits.mockResolvedValue([
+      makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
+      // ENG is not a supported prefix.
+      makeUnit({ id: 'u2', code: 'ENG102', name: 'Unsupported', lecturers: [lecturerSummary(teaching)] }),
+    ])
+
+    renderLecturers()
+    // Wait for lecturer data to load (FilterBar renders after data arrives).
+    await screen.findByText('Lovelace')
+
+    // Open the subject filter.
+    await user.click(screen.getByLabelText('Filter by subject'))
+    expect(await screen.findByRole('option', { name: 'History' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /ENG/ })).toBeNull()
+  })
+
+  it('year filter select is rendered when lecturers are loaded', async () => {
+    const teaching = makeLecturer({ id: 'lec-1' })
+    mockListLecturers.mockResolvedValue([teaching])
+    mockListUnits.mockResolvedValue([
+      makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
+    ])
+
+    renderLecturers()
+    await screen.findByText('Lovelace')
+
+    // The year filter select label should be present.
+    expect(screen.getByLabelText('Filter by year')).toBeInTheDocument()
+  })
+})
+
 describe('LecturersPage — taught units column', () => {
   it('shows taught units by code and a clear empty state', async () => {
     const teaching = makeLecturer({ id: 'lec-1', first_name: 'Ada', last_name: 'Lovelace' })
@@ -117,7 +171,7 @@ describe('LecturersPage — taught units column', () => {
 describe('LecturersPage — edit modal is read-only for teaching', () => {
   it('shows a read-only taught-units summary with helper text and no edit controls', async () => {
     const user = userEvent.setup()
-    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     mockListLecturers.mockResolvedValue([teaching])
     mockListUnits.mockResolvedValue([
       makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
@@ -140,7 +194,7 @@ describe('LecturersPage — edit modal is read-only for teaching', () => {
 
   it('does not send any unit IDs when saving a lecturer edit', async () => {
     const user = userEvent.setup()
-    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    const teaching = makeLecturer({ id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     mockListLecturers.mockResolvedValue([teaching])
     mockListUnits.mockResolvedValue([
       makeUnit({ id: 'u1', code: 'HIS101', name: 'Ancient History', lecturers: [lecturerSummary(teaching)] }),
@@ -156,7 +210,7 @@ describe('LecturersPage — edit modal is read-only for teaching', () => {
 
     await waitFor(() => expect(mockUpdateLecturer).toHaveBeenCalledTimes(1))
     const [, payload] = mockUpdateLecturer.mock.calls[0]
-    expect(payload).toEqual({ title: 'Dr.', first_name: 'Ada', last_name: 'Lovelace' })
+    expect(payload).toEqual({ title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     // Defensive: no unit-related key is ever submitted from the lecturer modal.
     expect(Object.keys(payload).some((k) => k.includes('unit'))).toBe(false)
   })

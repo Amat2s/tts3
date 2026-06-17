@@ -1,7 +1,5 @@
 import { apiRequest, ApiRequestError } from '@/lib/api/client'
 
-export type StudentTitle = 'Mr.' | 'Ms.' | 'Mx.'
-
 // Post-v1 (Unit 58): the product operates over three year levels only. This is
 // the single source of truth for the year-level union, reused by unit DTOs.
 export type YearLevel = 1 | 2 | 3
@@ -18,7 +16,6 @@ export interface UnitSummary {
 
 export interface Student {
   id: string
-  title: StudentTitle
   first_name: string
   last_name: string
   year_level: YearLevel
@@ -29,17 +26,15 @@ export interface Student {
 }
 
 export interface StudentCreate {
-  title: StudentTitle
   first_name: string
   last_name: string
-  year_level: number
+  year_level: YearLevel
 }
 
 export interface StudentUpdate {
-  title?: StudentTitle
   first_name?: string
   last_name?: string
-  year_level?: number
+  year_level?: YearLevel
 }
 
 function parseStudentError(err: unknown): never {

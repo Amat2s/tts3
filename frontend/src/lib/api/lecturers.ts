@@ -1,6 +1,8 @@
 import { apiRequest, ApiRequestError } from '@/lib/api/client'
 
-export type LecturerTitle = 'Dr.' | 'Prof.' | 'A/Prof.' | 'Mr.' | 'Ms.'
+// Unit 72/73: title set restricted to match the backend `LecturerTitle` enum.
+// Punctuation is retained only for the two professor titles.
+export type LecturerTitle = 'Mr' | 'Ms' | 'Mrs' | 'Dr' | 'Fr' | 'A/Prof.' | 'Prof.'
 export type AvailabilityDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday'
 export type AvailabilitySlot = 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7'
 
