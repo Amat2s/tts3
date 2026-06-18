@@ -361,7 +361,7 @@ type SessionScheduleState =
 - `frontend/src/routes/` — route-level pages such as `/timetable`, `/units`, `/lecturers`, `/students`, and `/rooms`.
 - `frontend/src/components/` — reusable UI components that are not route-specific.
 - `frontend/src/components/ui/` — shadcn/ui generated and wrapped components.
-- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks.
+- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft) and `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
 - `frontend/src/features/units/` — unit and session management UI.
 - `frontend/src/features/lecturers/` — lecturer management and availability UI.
 - `frontend/src/features/students/` — student management UI.
@@ -369,6 +369,7 @@ type SessionScheduleState =
 - `frontend/src/lib/api/` — API client functions and TanStack Query hooks.
 - `frontend/src/lib/types/` — frontend-facing shared types and DTO imports.
 - `frontend/src/lib/validation/` — frontend-safe validation helpers and constraint display helpers.
+- `frontend/src/lib/unit-code-parser.ts` — frontend-only unit-code parser deriving subject, colour tokens, and year level from the `AAA999` code for display, filtering, and validation UX.
 - `frontend/src/stores/` — Zustand stores for UI-only state.
 - `backend/` — FastAPI backend application.
 - `backend/api/` — FastAPI routers and request/response boundaries.
