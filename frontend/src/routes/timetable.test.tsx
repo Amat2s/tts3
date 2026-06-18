@@ -93,7 +93,7 @@ function saveButton(): HTMLElement {
 
 function runSolverButton(): HTMLElement {
   return screen.getByRole('button', {
-    name: /^(Generate Timetable|Solving\.\.\.)$/,
+    name: /^(Generate Timetable|Generating…)$/,
   })
 }
 
@@ -129,7 +129,19 @@ describe('TimetablePage — no-room state', () => {
   it('renders the grid when rooms exist', async () => {
     renderTimetable()
     expect(await screen.findByText('Monday')).toBeInTheDocument()
-    expect(screen.getByText('Lunch')).toBeInTheDocument()
+    expect(screen.getByText('Lunch/Mass')).toBeInTheDocument()
+  })
+
+  it('does not render a visible page header or description, but keeps an sr-only heading', async () => {
+    renderTimetable()
+    await screen.findByText('Monday')
+    // The descriptive paragraph is gone entirely.
+    expect(
+      screen.queryByText(/Weekly scheduling workspace/i)
+    ).not.toBeInTheDocument()
+    // The accessible page heading remains (sr-only) and is the only H1.
+    const heading = screen.getByRole('heading', { level: 1, name: 'Timetable' })
+    expect(heading).toHaveClass('sr-only')
   })
 })
 

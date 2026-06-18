@@ -41,9 +41,9 @@ All components must use these tokens. Do not hardcode hex values directly in com
 | State info background      | `--state-info-bg`          | `#E7EEF7` |
 | Disabled background        | `--disabled-bg`            | `#E9E2D8` |
 | Disabled text              | `--disabled-text`          | `#9A8F88` |
-| Timetable grid line        | `--grid-line`              | `#E5DED2` |
-| Timetable grid strong line | `--grid-line-strong`       | `#CFC4B4` |
-| Timetable grid border emphasis | `--grid-border-emphasis` | `#B8AA95` |
+| Timetable grid line        | `--grid-line`              | `#D3C9B8` |
+| Timetable grid strong line | `--grid-line-strong`       | `#A99A80` |
+| Timetable grid border emphasis | `--grid-border-emphasis` | `#8A7B61` |
 | Timetable lunch background | `--grid-lunch-bg`          | `#F6F1EA` |
 | Timetable lunch/mass background | `--grid-lunch-mass-bg`    | `#7A1F2B` |
 | Timetable lunch/mass text  | `--grid-lunch-mass-text`   | `#F7F0D8` |

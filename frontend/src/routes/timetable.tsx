@@ -14,7 +14,6 @@ import { CalendarDays } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
@@ -617,10 +616,10 @@ export default function TimetablePage() {
 
   return (
     <AppFrame>
-      <PageHeader
-        title="Timetable"
-        description="Weekly scheduling workspace. Assign sessions to rooms and time slots, or run the constraint solver."
-      />
+      {/* Visible page header/description intentionally removed (Unit 81); the
+          sticky action bar is the first major element below the navbar. An
+          sr-only heading preserves the page landmark for assistive tech. */}
+      <h1 className="sr-only">Timetable</h1>
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}

@@ -127,7 +127,7 @@ export function TimetableGrid({
     <div
       ref={containerRef}
       className="w-full border rounded-none"
-      style={{ borderColor: 'var(--grid-line-strong)' }}
+      style={{ borderColor: 'var(--grid-border-emphasis)' }}
     >
       {/* Day header row */}
       <div
@@ -218,20 +218,20 @@ export function TimetableGrid({
         </div>
       ))}
 
-      {/* Lunch divider */}
+      {/* Lunch/Mass divider */}
       <div
-        className="flex border-b"
+        className="flex border-y"
         style={{
-          borderColor: 'var(--grid-line-strong)',
-          backgroundColor: 'var(--grid-lunch-bg)',
+          borderColor: 'var(--grid-lunch-mass-border)',
+          backgroundColor: 'var(--grid-lunch-mass-bg)',
         }}
       >
         <div
           className="shrink-0 flex items-center justify-end pr-3 border-r text-xs font-mono"
           style={{
             width: TIME_COL_W,
-            borderColor: 'var(--grid-line-strong)',
-            color: 'var(--text-muted)',
+            borderColor: 'var(--grid-lunch-mass-border)',
+            color: 'var(--grid-lunch-mass-text)',
             ...noSelectStyle,
           }}
           onContextMenu={preventDefault}
@@ -239,11 +239,11 @@ export function TimetableGrid({
           {LUNCH_LABEL}
         </div>
         <div
-          className="flex-1 flex items-center justify-center py-2 text-xs tracking-wide select-none"
-          style={{ color: 'var(--text-muted)' }}
+          className="flex-1 flex items-center justify-center py-2 text-xs font-medium tracking-wide select-none"
+          style={{ color: 'var(--grid-lunch-mass-text)' }}
           onContextMenu={preventDefault}
         >
-          Lunch
+          Lunch/Mass
         </div>
       </div>
 
