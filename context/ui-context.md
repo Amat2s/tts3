@@ -41,15 +41,28 @@ All components must use these tokens. Do not hardcode hex values directly in com
 | State info background      | `--state-info-bg`          | `#E7EEF7` |
 | Disabled background        | `--disabled-bg`            | `#E9E2D8` |
 | Disabled text              | `--disabled-text`          | `#9A8F88` |
-| Timetable grid line        | `--grid-line`              | `#E5DED2` |
-| Timetable grid strong line | `--grid-line-strong`       | `#CFC4B4` |
+| Timetable grid line        | `--grid-line`              | `#D3C9B8` |
+| Timetable grid strong line | `--grid-line-strong`       | `#A99A80` |
+| Timetable grid border emphasis | `--grid-border-emphasis` | `#8A7B61` |
 | Timetable lunch background | `--grid-lunch-bg`          | `#F6F1EA` |
+| Timetable lunch/mass background | `--grid-lunch-mass-bg`    | `#7A1F2B` |
+| Timetable lunch/mass text  | `--grid-lunch-mass-text`   | `#F7F0D8` |
+| Timetable lunch/mass border | `--grid-lunch-mass-border` | `#C9A646` |
 | Timetable hover cell       | `--grid-cell-hover`        | `#F7F0D8` |
 | Timetable invalid cell     | `--grid-cell-invalid`      | `#FCE8EA` |
 
+Timetable grid borders use the stronger grid-line/`--grid-border-emphasis` tokens for
+a darker, clearer grid while preserving the light academic theme. The lunch row is a
+`Lunch/Mass` divider styled with the dedicated lunch/mass tokens (do not reuse error
+colours for it).
+
 ## Unit / Session Card Colors
 
-Use muted academic colors for unit-based timetable cards. These should be assigned deterministically by unit ID or unit order.
+Unit-based timetable cards take their colour from the unit's subject (see **Subject
+Colors** below), derived from the unit-code prefix by the frontend parser. The muted
+academic palette below is retained as a deterministic fallback for invalid or legacy
+unit codes that do not parse to a supported subject (the stone variant is the default
+fallback).
 
 | Role                   | CSS Variable           | Value     |
 | ---------------------- | ---------------------- | --------- |
@@ -134,7 +147,7 @@ Typography rules:
 
 | Context          | Font                            | Rule                                     |
 | ---------------- | ------------------------------- | ---------------------------------------- |
-| App navigation   | `--font-sans`                   | Use medium weight, compact sizing        |
+| App navigation   | `--font-sans`                   | Use medium weight, compact sizing (the `Campion - Timetable` brand text is an intentional exception: title/serif font, bold, current brand colour) |
 | Forms            | `--font-sans`                   | Prioritize readability and clarity       |
 | Tables           | `--font-sans`                   | Use compact row text                     |
 | Timetable grid   | `--font-sans`                   | Do not use serif fonts inside grid cells |
@@ -225,16 +238,16 @@ Recommended shadcn/ui components:
 | Pattern              | Rule                                                                   |
 | -------------------- | ---------------------------------------------------------------------- |
 | App shell            | Top navbar, main content area, no permanent sidebar in v1              |
-| Navbar               | Horizontal top bar with warm surface background and bottom border      |
-| Page header          | Title, short description, primary action on the right                  |
+| Navbar               | Horizontal top bar with warm surface background and bottom border; left-corner `Campion - Timetable` brand in title font, centered nav links |
+| Page header          | Title, short description, primary action on the right (the `/timetable` page omits this header between the navbar and the sticky action bar) |
 | Management pages     | Table-first layout with create/edit via modal or side sheet            |
-| Timetable page       | Main grid on top, unscheduled session pool underneath                  |
-| Timetable action bar | Validation status, solver button, solver state, summary counts         |
+| Timetable page       | Sticky action bar first, main grid below, unscheduled session pool underneath |
+| Timetable action bar | One sticky bar holding save state, solver button/state, blocking/warning messages, and validation details; it has a stable min-height and must not shift the page when messages change |
 | Timetable grid       | Monday–Friday columns, rooms nested under each day, time slots as rows |
-| Lunch divider        | Warm muted horizontal divider between AM and PM slots                  |
-| Unscheduled pool     | Group sessions by unit; use compact draggable cards                    |
-| Constraint details   | Use popover, alert, or side panel depending on available space         |
-| Modals               | Centered overlay with conservative shadow                              |
+| Lunch divider        | Red/gold `Lunch/Mass` divider between AM and PM slots, using the lunch/mass tokens |
+| Unscheduled pool     | Group sessions by unit in fixed-width boxes that wrap across the page (height may grow); use compact draggable cards |
+| Constraint details   | Open as an anchored overlay/dropdown from the sticky action bar; do not insert a panel that pushes the timetable down |
+| Modals               | Centered overlay with conservative shadow; the unit modal uses a two-column layout (identity/teaching team/students on one side, sessions on the other) that stacks on narrow screens |
 | Side sheets          | Right-side sheet for editing entity details                            |
 | Delete confirmation  | Always require confirmation for destructive actions                    |
 | Empty states         | Centered text with one clear action where appropriate                  |
@@ -268,8 +281,8 @@ Icon rules:
 | Hover                  | Slight warm background or border emphasis           |
 | Focus                  | Visible maroon focus ring using `--focus-ring`      |
 | Selected               | Maroon border or subtle maroon background           |
-| Dragging               | Slight shadow and lifted opacity                    |
-| Drop target            | Muted gold background                               |
+| Dragging               | Drag preview matches the scheduled-card shape using live grid cell width, row height, and session duration; centred width-wise on the pointer and aligned around the first slot |
+| Drop target            | Muted gold highlight covering every grid cell the session would occupy; if the session cannot be placed in the hovered cell, no cells highlight and no reason is shown until after the drop is attempted |
 | Invalid placement      | Danger border, danger background, warning icon      |
 | Disabled               | Muted background and muted text                     |
 | Solver running         | Solver accent soft background and loading indicator |

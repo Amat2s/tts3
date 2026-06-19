@@ -81,12 +81,21 @@
   --disabled-bg: #E9E2D8;
   --disabled-text: #9A8F88;
 
-  /* Timetable grid */
-  --grid-line: #E5DED2;
-  --grid-line-strong: #CFC4B4;
+  /* Timetable grid — darker, clearer lines while staying within the light
+     academic theme. --grid-line is the internal cell line, --grid-line-strong
+     the structural separators, --grid-border-emphasis the outer frame. */
+  --grid-line: #D3C9B8;
+  --grid-line-strong: #A99A80;
+  --grid-border-emphasis: #8A7B61;
   --grid-lunch-bg: #F6F1EA;
   --grid-cell-hover: #F7F0D8;
   --grid-cell-invalid: #FCE8EA;
+
+  /* Lunch / Mass divider (Unit 81) — a deliberate red/gold band, distinct from
+     the error palette. Components reference these tokens, never the hex values. */
+  --grid-lunch-mass-bg: #7A1F2B;
+  --grid-lunch-mass-text: #F7F0D8;
+  --grid-lunch-mass-border: #C9A646;
 
   /* Unit card colors */
   --unit-maroon-bg: #F5E9EB;

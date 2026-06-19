@@ -57,6 +57,11 @@ describe('filterUnits', () => {
     // HIS filter returns only HIS units, not ENG202.
     const his = filterUnits(units, { ...EMPTY_UNIT_FILTERS, subject: 'HIS' })
     expect(his.map((u) => u.id)).not.toContain('u2')
+
+    // Filtering by the invalid prefix itself matches nothing — ENG is never
+    // treated as a valid subject, so ENG202 is not returned.
+    const eng = filterUnits(units, { ...EMPTY_UNIT_FILTERS, subject: 'ENG' })
+    expect(eng).toHaveLength(0)
   })
 
   it('combines search, year, and lecturer filters', () => {

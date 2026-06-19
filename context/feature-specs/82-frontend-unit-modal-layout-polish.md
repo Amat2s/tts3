@@ -2,7 +2,7 @@
 
 ## Goal
 
-Clean up the unit create/edit modal layout for the richer post-v1 unit model. The modal should use a two-column structure with unit identity, teaching team, and students on one side, and sessions on the other side. Fresh unit creation should show a clear no-sessions message, and student selection should include a clear-all action beside the select-year-students action.
+Clean up the unit create/edit modal layout for the richer post-v1 unit model. The modal should use a two-column structure with unit identity, teaching team, and students on one side, and sessions on the other side. Both the create and edit modals support live session management in the sessions column, and student selection should include a clear-all action beside the select-year-students action.
 
 ## Design
 
@@ -11,8 +11,8 @@ Clean up the unit create/edit modal layout for the richer post-v1 unit model. Th
 - Do not change unit/session persistence behavior.
 - Do not add separate session dialogs.
 - Apply the same two-column layout to both create and edit modals.
-- The create modal's sessions column should show a `No sessions yet` style message because sessions require an existing unit.
-- The edit modal's sessions column should show live session management.
+- Both the create and edit modals' sessions column should show live session management on the right side.
+- When no sessions have been added yet, the sessions column shows a `No sessions yet` style empty state with an add-session action.
 - Keep modal wide enough for two columns.
 - Stack columns on narrow screens.
 - Do not modify protected shadcn UI primitives.
@@ -34,8 +34,9 @@ Left column:
 Right column:
 
 - Sessions heading.
-- Create mode: no-sessions message explaining sessions can be added after the unit is created.
-- Edit mode: existing inline session management.
+- Both modes: inline session management (add/edit/remove sessions, session type, per-session lecturer from the teaching team, and duration).
+- When the unit has no sessions yet, show a `No sessions yet` empty state with an add-session action.
+- Create mode persists the added sessions after the unit is created, exactly as before this layout change.
 
 Suggested layout:
 
@@ -69,10 +70,11 @@ Improve hierarchy without adding decoration:
 
 In create mode:
 
-- Sessions column shows no live session list.
-- Message should say sessions can be added after creating the unit.
-- Create save remains disabled until required unit fields pass validation.
-- No fake session records.
+- Sessions column shows live session management on the right side, exactly as before this layout change.
+- Added sessions are held in form state and persisted after the unit is created on save.
+- When no sessions have been added, the column shows a `No sessions yet` empty state with an add-session action.
+- Create save remains disabled until required unit fields pass validation (including any added session having a valid teaching-team lecturer).
+- No fake/persisted session records are created before the unit itself is saved.
 
 ### Edit modal behavior
 
@@ -88,7 +90,8 @@ Add/update tests for:
 
 - create modal renders two conceptual columns;
 - edit modal renders sessions on the sessions side;
-- create modal shows no-sessions message;
+- create modal supports adding sessions on the sessions side;
+- the sessions column shows a no-sessions empty state until a session is added;
 - clear-all clears selected students only;
 - select-year-students still works;
 - unit code parser feedback remains visible;
@@ -103,8 +106,8 @@ No new dependencies expected.
 - Unit modal is wide and uses two-column structure.
 - Unit code/name/teaching team/students are grouped together.
 - Sessions are grouped on the other side.
-- Create modal shows no-sessions message.
-- Edit modal keeps inline session management.
+- Create and edit modals both keep inline session management on the sessions side.
+- The sessions column shows a no-sessions empty state until a session is added.
 - Student `Clear All` clears only student selection.
 - `Select Year X Students` remains available and parser-driven.
 - Layout uses tokens and responsive behavior.

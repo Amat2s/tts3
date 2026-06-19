@@ -23,16 +23,16 @@ describe('TimetableGrid — room-created grid rendering', () => {
     renderGrid(<TimetableGrid rooms={[]} />)
     // TimetableGrid returns null for an empty room list — no day headers render.
     expect(screen.queryByText('Monday')).not.toBeInTheDocument()
-    expect(screen.queryByText('Lunch')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lunch/Mass')).not.toBeInTheDocument()
   })
 
-  it('renders the weekday headers, room columns, and lunch divider', () => {
+  it('renders the weekday headers, room columns, and Lunch/Mass divider', () => {
     renderGrid(<TimetableGrid rooms={rooms} />)
     expect(screen.getByText('Monday')).toBeInTheDocument()
     expect(screen.getByText('Friday')).toBeInTheDocument()
     // Each room column header repeats per weekday (5 days).
     expect(screen.getAllByText('Room A')).toHaveLength(5)
-    expect(screen.getByText('Lunch')).toBeInTheDocument()
+    expect(screen.getByText('Lunch/Mass')).toBeInTheDocument()
   })
 
   it('renders a scheduled session card from assignment data', () => {

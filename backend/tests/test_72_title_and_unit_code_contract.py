@@ -62,8 +62,10 @@ def test_student_schemas_have_no_title_field():
 
 def test_student_create_does_not_accept_title():
     # `title` is no longer a field; pydantic ignores unknown input by default so
-    # the supplied value never lands on the model.
-    student = StudentCreate(first_name="Ada", last_name="Byron", year_level=1)
+    # the supplied value never lands on the model. Pass one explicitly to prove it.
+    student = StudentCreate(
+        first_name="Ada", last_name="Byron", year_level=1, title="Unknown"
+    )
     assert not hasattr(student, "title")
 
 

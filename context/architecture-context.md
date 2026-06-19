@@ -48,6 +48,7 @@
   - unit teaching teams (`unit_lecturers`)
   - hidden session-student allocations
   - session assignments (locked + scheduled state)
+- **Browser localStorage (frontend draft only)**: the current unsaved timetable draft is persisted client-side under a schema-versioned key. It stores only the unsaved draft plus minimal metadata (schema version, saved-assignment fingerprint, timestamp), never server-owned query data, and is cleared after a successful save. No version history; stale or malformed stored drafts are discarded on load.
 - **No blob storage in v1**: file uploads not required yet (future: CSV imports, exports, reports)
 - **Future object storage (Supabase Storage or Vercel Blob)**: for timetable exports and bulk imports
 
@@ -85,3 +86,6 @@
 21. Clear All changes only the frontend draft until the explicit save operation persists the empty assignment set.
 22. Management search and filters are frontend-only and do not add backend query parameters.
 23. Duration remains an integer slot count in persistence and solver input, while the frontend labels it in hours.
+24. Unit codes are exactly three letters followed by three numbers (`AAA999`), trimmed and uppercased, and unique. Subject and year are derived from the code; the subject parser (supported prefixes HIS, PHI, THE, LIT, LAN, GRE, SCI) is frontend-only for display, filtering, and colour. The backend defensively validates the structural format and keeps year derivation authoritative.
+25. The unsaved timetable draft may be persisted in versioned browser storage; it is cleared after a successful save, and restored drafts remain subject to the blocking auto-unschedule rules. Saving an empty draft persists an empty assignment set.
+26. Students have no title. Lecturer titles are restricted to `Mr`, `Ms`, `Mrs`, `Dr`, `Fr`, `A/Prof.`, `Prof.`.

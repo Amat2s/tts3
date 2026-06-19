@@ -27,7 +27,7 @@ export function TopNav() {
           className="text-xl font-bold shrink-0"
           style={{ color: 'var(--accent-primary)', fontFamily: 'var(--font-serif)' }}
         >
-          Timetable Scheduler
+          Campion - Timetable
         </span>
 
         <nav

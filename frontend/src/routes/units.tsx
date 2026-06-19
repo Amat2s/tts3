@@ -448,6 +448,16 @@ function UnitFormFields({
     }))
   }
 
+  // Clears the student selection only. Teaching team, sessions, and every other
+  // form field are left untouched (Unit 82).
+  function clearAllStudents() {
+    onChange((prev) => ({
+      ...prev,
+      student_ids: [],
+      studentSelectionTouched: true,
+    }))
+  }
+
   function toggleStudent(studentId: string) {
     onChange((prev) => {
       const ids = prev.student_ids.includes(studentId)
@@ -495,8 +505,8 @@ function UnitFormFields({
         </p>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2">
-        {/* Left column: unit identity and teaching team */}
+      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]">
+        {/* Left column: unit identity, teaching team, and students */}
         <div className="grid gap-4 content-start">
           <div className="grid gap-1.5">
             <Label htmlFor="unit-code">Unit code</Label>
@@ -580,10 +590,7 @@ function UnitFormFields({
               </p>
             )}
           </div>
-        </div>
 
-        {/* Right column: student selection and sessions */}
-        <div className="grid gap-4 content-start">
           <div className="grid gap-1.5">
             <div className="flex items-center justify-between">
               <Label>Students</Label>
@@ -666,72 +673,89 @@ function UnitFormFields({
                     ))
                   )}
                 </div>
-                {derivedYear !== null && (
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    className="text-xs text-left w-fit underline-offset-2 hover:underline disabled:no-underline disabled:cursor-not-allowed"
+                    style={{
+                      color:
+                        derivedYear === null
+                          ? 'var(--disabled-text)'
+                          : 'var(--accent-primary)',
+                    }}
+                    onClick={selectAllInDerivedYear}
+                    disabled={derivedYear === null}
+                  >
+                    {derivedYear !== null
+                      ? `Select Year ${derivedYear} Students`
+                      : 'Select Year Students'}
+                  </button>
                   <button
                     type="button"
                     className="text-xs text-left w-fit underline-offset-2 hover:underline"
-                    style={{ color: 'var(--accent-primary)' }}
-                    onClick={selectAllInDerivedYear}
+                    style={{ color: 'var(--text-secondary)' }}
+                    onClick={clearAllStudents}
                   >
-                    Select all Year {derivedYear} students
+                    Clear All
                   </button>
-                )}
+                </div>
               </>
             )}
           </div>
+        </div>
 
-          <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }} />
-
-          <div className="grid gap-3">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                  Sessions
+        {/* Right column: live session management in both create and edit
+            modals (Unit 82). Created sessions are persisted right after the unit
+            on save. */}
+        <div className="grid gap-3 content-start">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                Sessions
+              </p>
+              {sessionsLoading && (
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  Loading sessions…
                 </p>
-                {sessionsLoading && (
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                    Loading sessions…
-                  </p>
-                )}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={addSession}
-                disabled={sessionsLoading}
-              >
-                <Plus className="h-4 w-4" />
-                Add session
-              </Button>
+              )}
             </div>
-
-            {!sessionsLoading && values.sessions.length === 0 && (
-              <div
-                className="rounded-md border border-dashed py-6 text-center"
-                style={{ borderColor: 'var(--border-default)' }}
-              >
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                  No sessions yet. Add a session to schedule this unit.
-                </p>
-              </div>
-            )}
-
-            {values.sessions.length > 0 && (
-              <div className="grid gap-2">
-                {values.sessions.map((session) => (
-                  <SessionBox
-                    key={session.id}
-                    session={session}
-                    teamLecturers={teamLecturers}
-                    onUpdate={updateSession}
-                    onDelete={removeSession}
-                  />
-                ))}
-              </div>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={addSession}
+              disabled={sessionsLoading}
+            >
+              <Plus className="h-4 w-4" />
+              Add session
+            </Button>
           </div>
+
+          {!sessionsLoading && values.sessions.length === 0 && (
+            <div
+              className="rounded-md border border-dashed py-6 text-center"
+              style={{ borderColor: 'var(--border-default)' }}
+            >
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                No sessions yet. Add a session to schedule this unit.
+              </p>
+            </div>
+          )}
+
+          {values.sessions.length > 0 && (
+            <div className="grid gap-2">
+              {values.sessions.map((session) => (
+                <SessionBox
+                  key={session.id}
+                  session={session}
+                  teamLecturers={teamLecturers}
+                  onUpdate={updateSession}
+                  onDelete={removeSession}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -809,6 +833,8 @@ export default function UnitsPage() {
   }
 
   const createMutation = useMutation({
+    // The create modal supports inline session management (Unit 82): sessions are
+    // held in form state and persisted right after the unit itself is created.
     mutationFn: async (form: UnitFormState) => {
       const unit = await createUnit({
         code: form.code,
@@ -1136,7 +1162,7 @@ export default function UnitsPage() {
           if (!open) setCreateOpen(false)
         }}
       >
-        <DialogContent className="sm:max-w-4xl overflow-y-auto max-h-[90vh]">
+        <DialogContent className="sm:max-w-5xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Create unit</DialogTitle>
             <DialogDescription>
@@ -1169,7 +1195,7 @@ export default function UnitsPage() {
           if (!open) setEditOpen(false)
         }}
       >
-        <DialogContent className="sm:max-w-4xl overflow-y-auto max-h-[90vh]">
+        <DialogContent className="sm:max-w-5xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Edit unit</DialogTitle>
             <DialogDescription>

@@ -44,12 +44,19 @@ import { listLecturers } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
 import { startSolverRun, getSolverRunStatus } from '@/lib/api/solver'
 import {
+  makeAssignment,
   makeAssignmentResponse,
   makeLecturer,
   makeRoom,
   makeSchedulableSession,
   makeSolverStatus,
 } from '@/test/fixtures'
+import {
+  computeSavedAssignmentFingerprint,
+  saveStoredDraft,
+} from '@/features/timetable/draftStorage'
+
+const DRAFT_STORAGE_KEY = 'tts3.timetable.draft.v1'
 
 const mockListRooms = vi.mocked(listRooms)
 const mockListSchedulable = vi.mocked(listSchedulableSessions)
@@ -86,7 +93,7 @@ function saveButton(): HTMLElement {
 
 function runSolverButton(): HTMLElement {
   return screen.getByRole('button', {
-    name: /^(Generate Timetable|Solving\.\.\.)$/,
+    name: /^(Generate Timetable|Generating…)$/,
   })
 }
 
@@ -95,6 +102,7 @@ function clearAllButton(): HTMLElement {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   mockListRooms.mockResolvedValue([makeRoom({ id: 'room-1', capacity: 30 })])
   mockListSchedulable.mockResolvedValue([])
   mockListAssignments.mockResolvedValue([])
@@ -108,6 +116,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
 })
 
 describe('TimetablePage — no-room state', () => {
@@ -120,7 +129,19 @@ describe('TimetablePage — no-room state', () => {
   it('renders the grid when rooms exist', async () => {
     renderTimetable()
     expect(await screen.findByText('Monday')).toBeInTheDocument()
-    expect(screen.getByText('Lunch')).toBeInTheDocument()
+    expect(screen.getByText('Lunch/Mass')).toBeInTheDocument()
+  })
+
+  it('does not render a visible page header or description, but keeps an sr-only heading', async () => {
+    renderTimetable()
+    await screen.findByText('Monday')
+    // The descriptive paragraph is gone entirely.
+    expect(
+      screen.queryByText(/Weekly scheduling workspace/i)
+    ).not.toBeInTheDocument()
+    // The accessible page heading remains (sr-only) and is the only H1.
+    const heading = screen.getByRole('heading', { level: 1, name: 'Timetable' })
+    expect(heading).toHaveClass('sr-only')
   })
 })
 
@@ -463,6 +484,11 @@ describe('TimetablePage — consolidated action bar (Unit 77)', () => {
     expect(bar).toContainElement(errorText)
     // Exactly one copy — no duplicate outside the bar
     expect(screen.getAllByText('Database unavailable.')).toHaveLength(1)
+
+    // While the saved baseline is unavailable, save/clear must stay disabled so
+    // an incomplete draft can never overwrite the unknown saved timetable.
+    expect(screen.getByRole('button', { name: /Save|Saved/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Clear all/ })).toBeDisabled()
   })
 
   it('details open as overlay inside the action bar without adding a layout sibling', async () => {
@@ -594,5 +620,361 @@ describe('TimetablePage — Unit 78: drag preview and hover highlighting', () =>
       '[data-day="Monday"][data-room="room-1"][data-slot="s1"]'
     ) as HTMLElement
     expect(cell).toBeInTheDocument()
+  })
+})
+
+describe('TimetablePage — Unit 79: local draft persistence', () => {
+  async function placeFirstSession(container: HTMLElement) {
+    await screen.findAllByText('Ancient History')
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    const cell = container.querySelector(
+      '[data-day="Monday"][data-room="room-1"][data-slot="s1"]'
+    ) as HTMLElement
+    fireEvent.click(cell)
+    await screen.findByText('HIS101')
+  }
+
+  it('writes a dirty draft to storage when a session is placed', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+
+    const { container } = renderTimetable()
+    await placeFirstSession(container)
+
+    await waitFor(() => {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
+      expect(raw).not.toBeNull()
+      const parsed = JSON.parse(raw as string)
+      expect(parsed.schemaVersion).toBe(1)
+      expect(parsed.assignments).toHaveLength(1)
+      expect(parsed.assignments[0].session_id).toBe('sess-1')
+    })
+  })
+
+  it('restores a persisted draft on remount and shows the restored notice', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+
+    const first = renderTimetable()
+    await placeFirstSession(first.container)
+    await waitFor(() =>
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull()
+    )
+    first.unmount()
+
+    // Remount with the same (empty) saved state — the stored draft restores.
+    renderTimetable()
+    expect(await screen.findByText('HIS101')).toBeInTheDocument()
+    expect(screen.queryByText('Ancient History')).not.toBeInTheDocument()
+    expect(screen.getByText('Unsaved draft restored.')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(saveButton()).toBeEnabled()
+  })
+
+  it('restores a refresh-seeded draft and marks it dirty', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+    // Saved state is empty; seed a stored draft whose fingerprint matches it.
+    saveStoredDraft(
+      [makeAssignment({ session_id: 'sess-1', student_count: 10 })],
+      computeSavedAssignmentFingerprint([])
+    )
+
+    renderTimetable()
+
+    expect(await screen.findByText('HIS101')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved draft restored.')).toBeInTheDocument()
+    expect(saveButton()).toBeEnabled()
+  })
+
+  it('clears storage after a successful save', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+    mockSaveAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ])
+
+    const { container } = renderTimetable()
+    await placeFirstSession(container)
+    await waitFor(() =>
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull()
+    )
+
+    // After a successful save the assignments refetch returns the saved row.
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ])
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockSaveAssignments).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull()
+    )
+  })
+
+  it('persists an empty dirty draft after Clear all until saved', async () => {
+    const user = userEvent.setup()
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+
+    renderTimetable()
+    expect(
+      await screen.findByText('All schedulable sessions are scheduled.')
+    ).toBeInTheDocument()
+
+    await user.click(clearAllButton())
+    await user.click(screen.getByRole('button', { name: 'Clear timetable' }))
+
+    await waitFor(() => {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
+      expect(raw).not.toBeNull()
+      const parsed = JSON.parse(raw as string)
+      expect(parsed.assignments).toEqual([])
+    })
+  })
+
+  it('discards a stored draft when saved timetable data changed', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    // Saved state now has a placement that did not exist when the draft was stored.
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+    // Seed a draft fingerprinted against an out-of-date (empty) saved state.
+    saveStoredDraft(
+      [makeAssignment({ session_id: 'sess-1', start_slot: 's5' })],
+      'stale-fingerprint'
+    )
+
+    renderTimetable()
+
+    expect(
+      await screen.findByText(
+        'Old unsaved draft was discarded because saved timetable data changed.'
+      )
+    ).toBeInTheDocument()
+    // The stale draft did not override the saved state; storage is cleared.
+    expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull()
+    // The saved placement is on the grid (draft initialized from saved state).
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Saved')
+  })
+
+  it('runs restored assignments through the auto-unschedule cleanup on data change', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+    // Restore a valid draft (fits the 30-capacity room) from storage.
+    saveStoredDraft(
+      [makeAssignment({ session_id: 'sess-1', student_count: 10 })],
+      computeSavedAssignmentFingerprint([])
+    )
+
+    const { queryClient } = renderTimetable()
+    expect(await screen.findByText('HIS101')).toBeInTheDocument()
+    expect(screen.queryByText('Ancient History')).not.toBeInTheDocument()
+
+    // Data change makes the restored assignment exceed room capacity.
+    await act(async () => {
+      queryClient.setQueryData(
+        ['schedulable-sessions'],
+        [
+          makeSchedulableSession({
+            session_id: 'sess-1',
+            unit_code: 'HIS101',
+            unit_name: 'Ancient History',
+            student_count: 50,
+          }),
+        ]
+      )
+    })
+
+    // The restored assignment is auto-unscheduled back into the pool.
+    expect(
+      (await screen.findAllByText('Ancient History')).length
+    ).toBeGreaterThan(0)
+  })
+
+  it('does not resurrect a stored draft after saved assignments refetch', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        student_count: 10,
+      }),
+    ])
+    mockSaveAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ])
+
+    const { container, queryClient } = renderTimetable()
+    await placeFirstSession(container)
+
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ])
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Saved'))
+
+    // A subsequent assignments refetch must not restore the (now cleared) draft.
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['assignments'] })
+    })
+    expect(saveButton()).toHaveTextContent('Saved')
+    expect(screen.queryByText('Unsaved draft restored.')).not.toBeInTheDocument()
+  })
+})
+
+describe('TimetablePage — Unit 80: empty-draft save and clear', () => {
+  it('restores an empty dirty draft from storage (Clear all survives a refresh)', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    // Saved backend state has one placement; the stored draft is empty (the user
+    // cleared everything) but fingerprinted against that same saved state.
+    const saved = [
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ]
+    mockListAssignments.mockResolvedValue(saved)
+    saveStoredDraft([], computeSavedAssignmentFingerprint(saved))
+
+    renderTimetable()
+
+    // The empty dirty draft restores: the session returns to the unscheduled
+    // pool (its pool-only unit name is visible) and the dirty restored state is
+    // surfaced rather than the saved placement being shown as clean.
+    expect(
+      (await screen.findAllByText('Ancient History')).length
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('Unsaved draft restored.')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(saveButton()).toBeEnabled()
+  })
+
+  it('keeps the solver blocked while an empty draft is dirty after Clear all', async () => {
+    const user = userEvent.setup()
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+    ])
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+
+    renderTimetable()
+
+    // Clean and fully scheduled → solver is enabled.
+    await waitFor(() => expect(runSolverButton()).toBeEnabled())
+
+    await user.click(clearAllButton())
+    await user.click(screen.getByRole('button', { name: 'Clear timetable' }))
+
+    // The empty draft is dirty; the solver runs from saved state, so it must be
+    // blocked until the empty timetable is saved.
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    await waitFor(() => expect(runSolverButton()).toBeDisabled())
+    expect(runSolverButton()).toHaveAttribute(
+      'title',
+      expect.stringMatching(/Save your timetable changes/)
+    )
+    expect(mockStartSolverRun).not.toHaveBeenCalled()
   })
 })
