@@ -121,6 +121,42 @@ palette above.
 | `--subject-science-border`    | `#244D73` |
 | `--subject-science-text`      | `#1E3A56` |
 
+## Timetable Block Colors
+
+Timetable blocks reserve room-specific `day + slot + room` cells and must read as
+distinct from scheduled session cards. Block colour tokens are **separate from the
+subject tokens** above and must not be reused for sessions. Unnamed blocks use the
+grey/disabled `--block-empty-*` set; named blocks use one of three allowed colours
+(`gold`, `light_blue`, `light_pink`). Components must reference these tokens and never
+inline the hex values.
+
+| Role                 | CSS Variable          | Value     |
+| -------------------- | --------------------- | --------- |
+| Block empty bg       | `--block-empty-bg`    | `#E9E2D8` |
+| Block empty border   | `--block-empty-border`| `#CFC4B4` |
+| Block empty text     | `--block-empty-text`  | `#8A7E78` |
+| Block gold bg        | `--block-gold-bg`     | `#F7F0D8` |
+| Block gold border    | `--block-gold-border` | `#C9A646` |
+| Block gold text      | `--block-gold-text`   | `#7A4B16` |
+| Block blue bg        | `--block-blue-bg`     | `#E7EEF7` |
+| Block blue border    | `--block-blue-border` | `#2F5F8F` |
+| Block blue text      | `--block-blue-text`   | `#234766` |
+| Block pink bg        | `--block-pink-bg`     | `#F6E7EF` |
+| Block pink border    | `--block-pink-border` | `#A5527D` |
+| Block pink text      | `--block-pink-text`   | `#67304C` |
+
+Rendering rules:
+
+- Unnamed blocks render grey/disabled with a lock icon and no label, using the
+  `--block-empty-*` tokens.
+- Named blocks render with a lock icon, the block name, and the selected colour
+  (`gold` → blue/pink map to the `--block-gold-*` / `--block-blue-*` / `--block-pink-*`
+  sets).
+- Fall back to the grey `--block-empty-*` set if a colour is missing or unknown.
+- Block cells live in the timetable grid, never in the unscheduled pool, and must stay
+  visually distinct from session cards. During block-selection mode, selected cells use
+  temporary token-based styling.
+
 ## AI / Solver Accent Variants
 
 Use these only for solver-related UI, not general branding. The solver should feel helpful and technical, but not futuristic or flashy.
@@ -304,3 +340,4 @@ Icon rules:
 | 8   | Do not rely on color alone for status or constraint violations.                            |
 | 9   | The UI should feel academic and institutional, not playful.                                |
 | 10  | All styling should use tokens or Tailwind theme values, not repeated hardcoded hex values. |
+| 11  | Timetable blocks must be visually distinct from scheduled session cards and empty cells; do not rely on colour alone — always show the lock icon (and the name for named blocks). |

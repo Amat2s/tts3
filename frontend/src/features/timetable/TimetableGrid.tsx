@@ -3,6 +3,7 @@ import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
 import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
+import type { BlockedCell } from './blocks'
 
 export interface RoomColumn {
   id: string
@@ -12,6 +13,10 @@ export interface RoomColumn {
 interface TimetableGridProps {
   rooms: RoomColumn[]
   assignments?: TimetableAssignment[]
+  // Unit 85: reserved cells keyed by "day:roomId:slotId" (see buildBlockedCellMap).
+  blockedCells?: Map<string, BlockedCell>
+  isBlockInteractive?: boolean
+  onBlockClick?: (blockId: string) => void
   pendingSessionId?: string | null
   warningSessionIds?: Set<string>
   editingDisabled?: boolean
@@ -79,6 +84,9 @@ function TimeLabel({ label }: { label: string }) {
 export function TimetableGrid({
   rooms,
   assignments = [],
+  blockedCells,
+  isBlockInteractive = false,
+  onBlockClick,
   pendingSessionId,
   warningSessionIds,
   editingDisabled = false,
@@ -203,6 +211,9 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  blockedCell={blockedCells?.get(`${day}:${room.id}:${slot.id}`) ?? null}
+                  isBlockInteractive={isBlockInteractive}
+                  onBlockClick={onBlockClick}
                   isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
@@ -271,6 +282,9 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  blockedCell={blockedCells?.get(`${day}:${room.id}:${slot.id}`) ?? null}
+                  isBlockInteractive={isBlockInteractive}
+                  onBlockClick={onBlockClick}
                   isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}

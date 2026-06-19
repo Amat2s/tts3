@@ -136,6 +136,23 @@
   --subject-science-border: #244D73;
   --subject-science-text: #1E3A56;
 
+  /* Timetable block colours (Unit 85) — reserved room-specific cells. These are
+     deliberately SEPARATE from the subject tokens and must not be reused for
+     sessions. Unnamed blocks use the grey `--block-empty-*` set; named blocks use
+     one of three allowed colours (gold / light_blue / light_pink). */
+  --block-empty-bg: #E9E2D8;
+  --block-empty-border: #CFC4B4;
+  --block-empty-text: #8A7E78;
+  --block-gold-bg: #F7F0D8;
+  --block-gold-border: #C9A646;
+  --block-gold-text: #7A4B16;
+  --block-blue-bg: #E7EEF7;
+  --block-blue-border: #2F5F8F;
+  --block-blue-text: #234766;
+  --block-pink-bg: #F6E7EF;
+  --block-pink-border: #A5527D;
+  --block-pink-text: #67304C;
+
   /* Solver accents */
   --solver-accent: #2F5F8F;
   --solver-accent-hover: #264D73;

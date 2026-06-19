@@ -16,6 +16,7 @@ This application is a university timetable scheduling system for administrators.
 8. Allow warning-level conflicts to remain visible while blocking solver execution.
 9. Use the solver to schedule as many unscheduled sessions as possible while respecting all locked scheduled sessions.
 10. Keep v1 focused on hard constraints only, with soft constraints deferred to v2.
+11. Allow the admin to reserve room-specific timetable cells as hard blocks (e.g. chapel, mass, staff meeting, maintenance) that no session may occupy manually or via the solver.
 
 ## Core User Flow
 
@@ -158,6 +159,24 @@ This application is a university timetable scheduling system for administrators.
 - Solver execution is blocked while any frontend validation issue exists.
 
 
+### Timetable Blocks
+
+- The admin can reserve room-specific timetable cells as **blocks** — hard constraints that reserve a `day + slot + room` cell so no session can occupy it (e.g. chapel, mass, staff meeting, maintenance).
+- Blocks are **not sessions**: they never appear in the unscheduled pool, are never scheduled by the solver, and never count as scheduled sessions.
+- Every blocked cell is room-specific (`day + slot + room_id`); there is no all-rooms block abstraction.
+- A block group covers one or more cells and may be unnamed or named:
+  - **Unnamed block**: no name and no colour; renders grey/disabled with a lock icon.
+  - **Named block**: a name plus one of three colours — `gold`, `light_blue`, or `light_pink` — and renders with a lock icon, the name, and its colour.
+- Blocks are created from a block-selection mode in the sticky timetable action bar: the admin selects a same-day rectangular range of adjacent cells across slots and visible room columns, optionally names it, picks a colour when named, and saves. Selected cells are saved individually as `{ day, slot, room_id }`.
+- Blocks persist immediately through the backend block API, independently of the timetable draft Save. Because they persist immediately, block create/edit/delete is disabled while the timetable draft is dirty (the admin must save or discard timetable changes first).
+- Blocks are a hard constraint everywhere:
+  - the frontend rejects manual placement (click and drag/drop) into any blocked cell, and an invalid hover over a blocked target shows no highlight and no pre-drop reason;
+  - draft restoration and data-change cleanup automatically unschedule any assignment overlapping a block;
+  - the backend defensively rejects saving an assignment whose occupied cells overlap a block;
+  - the solver never generates an assignment occupying a blocked cell and may return a partial result when blocks make some sessions impossible.
+- Creating or updating a block over saved assignments intentionally unschedules those assignments and returns the affected session IDs to the unscheduled pool.
+- Deleting a block makes its cells usable again but does not reschedule anything.
+
 ### Frontend Validation Model
 
 The frontend owns all user-facing validation in v1. Validation is split into two severities:
@@ -170,7 +189,8 @@ Blocking rules are:
 - room duplication / room double-booking;
 - room capacity too small;
 - session crossing lunch;
-- session running off the timetable.
+- session running off the timetable;
+- placement into a cell reserved by a timetable block (`timetable_slot_blocked`).
 
 Warning rules are:
 
@@ -234,6 +254,9 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Removing scheduled sessions back to the unscheduled pool.
 - Frontend unit-code parser deriving subject, colour, and year for display, filtering, and validation UX.
 - Browser-persisted unsaved timetable draft with schema versioning, cleared after a successful save.
+- Room-specific timetable blocks as hard constraints (unnamed grey blocks; named gold/light-blue/light-pink blocks).
+- Block-selection mode for reserving adjacent room-specific cells, with immediate block persistence and a dirty-draft editing guard.
+- Blocks enforced as a hard constraint in frontend placement, defensive backend save validation, and the solver model.
 - Hard constraint evaluation.
 - Constraint violation highlighting.
 - Solver button gating based on frontend validation issues.
@@ -256,6 +279,8 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Multi-tenant organizations.
 - Role-based access control beyond the admin.
 - User-defined custom constraint rules.
+- All-rooms or non-room-specific timetable blocks.
+- Timetable blocks modeled as sessions or as soft constraints.
 - Soft constraints in v1.
 - Preference optimization, such as minimizing gaps or preferring mornings.
 - Comparing multiple generated timetables.
@@ -292,3 +317,5 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 20. The UI shows a warning when the solver produces a partial result.
 21. Editing is disabled while the solver is running.
 22. The application does not require file upload, export, soft constraints, version history, or student/lecturer views to be considered complete for v1.
+23. The admin can reserve room-specific cells as blocks; unnamed blocks render grey with a lock icon and named blocks render with a label and an allowed colour (`gold`, `light_blue`, `light_pink`).
+24. Sessions cannot be placed into blocked cells manually or by the solver, blocks never appear in the unscheduled pool or count as sessions, and deleting a block makes its cells usable again.

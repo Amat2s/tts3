@@ -14,6 +14,7 @@ import type { Lecturer } from '@/lib/api/lecturers'
 import type { SolverRunStatusResponse } from '@/lib/api/solver'
 import type { Student } from '@/lib/api/students'
 import type { Unit } from '@/lib/api/units'
+import type { TimetableBlock } from '@/lib/api/timetableBlocks'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
 
 const ISO = '2026-06-13T00:00:00.000Z'
@@ -131,6 +132,22 @@ export function makeStudent(overrides: Partial<Student> = {}): Student {
     year_level: 1,
     units: [],
     unit_count: 0,
+    created_at: ISO,
+    updated_at: ISO,
+    ...overrides,
+  }
+}
+
+export function makeTimetableBlock(
+  overrides: Partial<TimetableBlock> = {}
+): TimetableBlock {
+  return {
+    id: 'block-1',
+    name: null,
+    colour: null,
+    cells: [
+      { id: 'cell-1', day: 'Monday', slot: 's1', room_id: 'room-1' },
+    ],
     created_at: ISO,
     updated_at: ISO,
     ...overrides,

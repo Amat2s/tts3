@@ -47,6 +47,12 @@ interface TimetableActionBarProps {
   // Assignment load error
   assignmentsError?: string | null
   onRetryAssignments?: () => void
+  // Timetable block load error (Unit 85)
+  blocksError?: string | null
+  onRetryBlocks?: () => void
+  // One-time notice after a block edit/delete (e.g. unscheduled-session count)
+  blockNotice?: string | null
+  onDismissBlockNotice?: () => void
   // Local draft-persistence notice (Unit 79)
   draftNotice?: 'restored' | 'discarded' | null
   onDismissDraftNotice?: () => void
@@ -61,6 +67,8 @@ interface MessageState {
   retryable: boolean
   // Optional override for the dismiss action; defaults to onDismissSolver.
   onDismiss?: () => void
+  // Optional override for the retry action; defaults to onRetryAssignments.
+  onRetry?: () => void
 }
 
 function sessionLabel(count: number): string {
@@ -89,6 +97,10 @@ export function TimetableActionBar({
   onDismissSolver,
   assignmentsError,
   onRetryAssignments,
+  blocksError,
+  onRetryBlocks,
+  blockNotice = null,
+  onDismissBlockNotice,
   draftNotice = null,
   onDismissDraftNotice,
 }: TimetableActionBarProps) {
@@ -136,6 +148,17 @@ export function TimetableActionBar({
         isAlert: true,
         dismissible: false,
         retryable: false,
+      }
+    }
+    if (blocksError) {
+      return {
+        text: blocksError,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: true,
+        onRetry: onRetryBlocks,
       }
     }
 
@@ -217,6 +240,19 @@ export function TimetableActionBar({
         isAlert: false,
         dismissible: true,
         retryable: false,
+      }
+    }
+
+    // Priority 2.5: block edit/delete notice (dismissible, one-time)
+    if (blockNotice) {
+      return {
+        text: blockNotice,
+        color: 'var(--state-info)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+        onDismiss: onDismissBlockNotice,
       }
     }
 
@@ -361,12 +397,12 @@ export function TimetableActionBar({
               >
                 {msgState.icon}
                 <span className="min-w-0">{msgState.text}</span>
-                {msgState.retryable && onRetryAssignments && (
+                {msgState.retryable && (msgState.onRetry ?? onRetryAssignments) && (
                   <button
                     type="button"
                     className="ml-1 shrink-0 text-xs underline"
                     style={{ color: msgState.color }}
-                    onClick={onRetryAssignments}
+                    onClick={msgState.onRetry ?? onRetryAssignments}
                   >
                     Try again
                   </button>

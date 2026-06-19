@@ -1,6 +1,8 @@
 import { useDroppable } from '@dnd-kit/core'
 import { useState } from 'react'
 import type { TimetableAssignment } from './assignment'
+import type { BlockedCell } from './blocks'
+import { BlockCellCard } from './BlockCellCard'
 import { ScheduledSessionCard } from './ScheduledSessionCard'
 import { getSubjectTokens } from './unitColors'
 
@@ -10,6 +12,11 @@ interface GridCellProps {
   roomId: string
   isDayBoundary?: boolean
   assignment?: TimetableAssignment
+  // Unit 85: a reserved (blocked) cell. Rendered passively below the session
+  // layer; placement validation against blocks is a later unit.
+  blockedCell?: BlockedCell | null
+  isBlockInteractive?: boolean
+  onBlockClick?: (blockId: string) => void
   isOccupied?: boolean
   pendingSessionId?: string | null
   hasWarning?: boolean
@@ -26,6 +33,9 @@ export function GridCell({
   roomId,
   isDayBoundary = false,
   assignment,
+  blockedCell,
+  isBlockInteractive = false,
+  onBlockClick,
   isOccupied = !!assignment,
   pendingSessionId,
   hasWarning = false,
@@ -78,6 +88,15 @@ export function GridCell({
       onMouseLeave={() => setHovered(false)}
       onClick={handleClick}
     >
+      {/* Blocked cell renders below the session layer; a session card (if any)
+          stays visually on top via its own higher stacking. */}
+      {blockedCell && !assignment && (
+        <BlockCellCard
+          block={blockedCell}
+          interactive={isBlockInteractive}
+          onClick={onBlockClick}
+        />
+      )}
       {assignment && (
         <ScheduledSessionCard
           assignment={assignment}

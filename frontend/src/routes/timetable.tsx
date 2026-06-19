@@ -43,6 +43,15 @@ import {
   listSchedulableSessions,
 } from '@/lib/api/sessions'
 import {
+  type TimetableBlock,
+  type TimetableBlockColour,
+  deleteTimetableBlock,
+  listTimetableBlocks,
+  updateTimetableBlock,
+} from '@/lib/api/timetableBlocks'
+import { buildBlockedCellMap } from '@/features/timetable/blocks'
+import { BlockEditDialog } from '@/features/timetable/BlockEditDialog'
+import {
   checkDraftForBlockingViolations,
   checkProposedPlacement,
   getBlockingViolatorIds,
@@ -155,6 +164,16 @@ export default function TimetablePage() {
     queryFn: listUnits,
   })
 
+  const {
+    data: blocks,
+    isError: blocksIsError,
+    error: blocksError,
+    refetch: refetchBlocks,
+  } = useQuery({
+    queryKey: ['timetable-blocks'],
+    queryFn: listTimetableBlocks,
+  })
+
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -169,6 +188,11 @@ export default function TimetablePage() {
   const [draftNotice, setDraftNotice] = useState<'restored' | 'discarded' | null>(
     null
   )
+  // Existing-block edit/delete (Unit 85).
+  const [editingBlock, setEditingBlock] = useState<TimetableBlock | null>(null)
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false)
+  const [blockMutationError, setBlockMutationError] = useState<string | null>(null)
+  const [blockNotice, setBlockNotice] = useState<string | null>(null)
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -285,6 +309,76 @@ export default function TimetablePage() {
     },
   })
 
+  // Flatten block groups into a `day:roomId:slot` lookup for passive rendering.
+  const blockedCellMap = useMemo(
+    () => buildBlockedCellMap(blocks ?? []),
+    [blocks]
+  )
+
+  const updateBlockMutation = useMutation({
+    mutationFn: (input: {
+      blockId: string
+      name: string | null
+      colour: TimetableBlockColour | null
+      cells: TimetableBlock['cells']
+    }) =>
+      updateTimetableBlock(input.blockId, {
+        name: input.name,
+        colour: input.colour,
+        // Cell re-selection is not offered in this unit; preserve saved cells.
+        cells: input.cells.map((c) => ({
+          day: c.day,
+          slot: c.slot,
+          room_id: c.room_id,
+        })),
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setBlockDialogOpen(false)
+      setEditingBlock(null)
+      surfaceUnscheduledNotice(result.unscheduled_session_ids.length)
+    },
+    onError: (err: unknown) => {
+      setBlockMutationError(
+        getErrorMessage(err, 'The block could not be updated. Please try again.')
+      )
+    },
+  })
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: (blockId: string) => deleteTimetableBlock(blockId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setBlockDialogOpen(false)
+      setEditingBlock(null)
+    },
+    onError: (err: unknown) => {
+      setBlockMutationError(
+        getErrorMessage(err, 'The block could not be deleted. Please try again.')
+      )
+    },
+  })
+
+  function surfaceUnscheduledNotice(count: number) {
+    if (count > 0) {
+      setBlockNotice(
+        `Block saved — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`
+      )
+    }
+  }
+
+  function handleBlockClick(blockId: string) {
+    if (blockEditingDisabled) return
+    const block = blocks?.find((b) => b.id === blockId)
+    if (!block) return
+    setBlockMutationError(null)
+    setBlockNotice(null)
+    setEditingBlock(block)
+    setBlockDialogOpen(true)
+  }
+
   // Async solver run lifecycle. The solver runs against the *saved* timetable
   // state; on success we refetch saved assignments + the schedulable pool, which
   // resets the draft from the latest saved data (savedAssignments effect above).
@@ -298,6 +392,11 @@ export default function TimetablePage() {
 
   // Editing and saving are locked while a run is starting or active.
   const editingDisabled = solver.isStarting || solver.isActive
+
+  // Block edit/delete persists immediately and is independent of the timetable
+  // draft Save. Because it mutates saved state, it is disabled while the draft is
+  // dirty (the admin must save or clear timetable changes first) or mid-solver.
+  const blockEditingDisabled = isDirty || editingDisabled
 
   // Sessions not currently placed in the draft.
   const scheduledIds = new Set(draft.map((a) => a.session_id))
@@ -590,6 +689,9 @@ export default function TimetablePage() {
         <TimetableGrid
           rooms={rooms}
           assignments={draft}
+          blockedCells={blockedCellMap}
+          isBlockInteractive={!blockEditingDisabled}
+          onBlockClick={handleBlockClick}
           pendingSessionId={pendingSessionId}
           warningSessionIds={warningSessionIds}
           editingDisabled={editingDisabled}
@@ -657,6 +759,17 @@ export default function TimetablePage() {
                 : null
             }
             onRetryAssignments={() => refetchAssignments()}
+            blocksError={
+              blocksIsError
+                ? getErrorMessage(
+                    blocksError,
+                    'Timetable blocks could not be loaded.'
+                  )
+                : null
+            }
+            onRetryBlocks={() => refetchBlocks()}
+            blockNotice={blockNotice}
+            onDismissBlockNotice={() => setBlockNotice(null)}
             draftNotice={draftNotice}
             onDismissDraftNotice={() => setDraftNotice(null)}
           />
@@ -668,6 +781,36 @@ export default function TimetablePage() {
           ) : null}
         </DragOverlay>
       </DndContext>
+      <BlockEditDialog
+        key={editingBlock?.id ?? 'none'}
+        block={editingBlock}
+        open={blockDialogOpen}
+        onOpenChange={(open) => {
+          setBlockDialogOpen(open)
+          if (!open) {
+            setEditingBlock(null)
+            setBlockMutationError(null)
+          }
+        }}
+        onSave={({ name, colour }) => {
+          if (!editingBlock) return
+          setBlockMutationError(null)
+          updateBlockMutation.mutate({
+            blockId: editingBlock.id,
+            name,
+            colour,
+            cells: editingBlock.cells,
+          })
+        }}
+        onDelete={() => {
+          if (!editingBlock) return
+          setBlockMutationError(null)
+          deleteBlockMutation.mutate(editingBlock.id)
+        }}
+        isSaving={updateBlockMutation.isPending}
+        isDeleting={deleteBlockMutation.isPending}
+        error={blockMutationError}
+      />
     </AppFrame>
   )
 }
