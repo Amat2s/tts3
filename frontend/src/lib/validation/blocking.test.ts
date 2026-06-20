@@ -4,7 +4,8 @@ import {
   checkDraftForBlockingViolations,
   getBlockingViolatorIds,
 } from './blocking'
-import { makeAssignment, makeRoom } from '@/test/fixtures'
+import { buildBlockedCellMap } from '@/features/timetable/blocks'
+import { makeAssignment, makeRoom, makeTimetableBlock } from '@/test/fixtures'
 
 // Blocking rules (code-standards): room double-booking, room capacity too small,
 // session crossing lunch, session running off the timetable. These placements
@@ -127,5 +128,106 @@ describe('checkDraftForBlockingViolations / getBlockingViolatorIds — automatic
     const violators = getBlockingViolatorIds(draft, rooms)
     expect(violators.has('sess-1')).toBe(true)
     expect(violators.has('sess-2')).toBe(true)
+  })
+})
+
+// Unit 86: the timetable_slot_blocked rule rejects any placement whose occupied
+// cells intersect a reserved (blocked) day + slot + room cell.
+describe('timetable_slot_blocked — placements over reserved cells', () => {
+  const namedBlocks = buildBlockedCellMap([
+    makeTimetableBlock({
+      id: 'b1',
+      name: 'Chapel',
+      colour: 'gold',
+      cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+    }),
+  ])
+  const unnamedBlocks = buildBlockedCellMap([
+    makeTimetableBlock({
+      id: 'b2',
+      name: null,
+      colour: null,
+      cells: [{ id: 'c1', day: 'Monday', slot: 's4', room_id: 'room-1' }],
+    }),
+  ])
+
+  it('rejects a proposed placement directly on a blocked cell with the block name', () => {
+    const proposed = makeAssignment({
+      session_id: 'sess-new',
+      day: 'Monday',
+      start_slot: 's1',
+      duration: 1,
+      room_id: 'room-1',
+    })
+    const issues = checkProposedPlacement(proposed, [], rooms, namedBlocks)
+    expect(issues).toHaveLength(1)
+    expect(issues[0].type).toBe('timetable_slot_blocked')
+    expect(issues[0].severity).toBe('blocking')
+    expect(issues[0].message).toBe('This time is blocked by Chapel.')
+  })
+
+  it('uses the generic message for an unnamed block', () => {
+    const proposed = makeAssignment({
+      day: 'Monday',
+      start_slot: 's4',
+      duration: 1,
+      room_id: 'room-1',
+    })
+    const issues = checkProposedPlacement(proposed, [], rooms, unnamedBlocks)
+    expect(issues.map((i) => i.type)).toContain('timetable_slot_blocked')
+    const blocked = issues.find((i) => i.type === 'timetable_slot_blocked')
+    expect(blocked?.message).toBe('This time is blocked.')
+  })
+
+  it('rejects when a multi-slot session spans into a blocked cell', () => {
+    // Session starts on the free s5 but a duration of... use s3 block instead.
+    const blocks = buildBlockedCellMap([
+      makeTimetableBlock({
+        id: 'b3',
+        name: 'Staff',
+        colour: 'light_blue',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's2', room_id: 'room-1' }],
+      }),
+    ])
+    const proposed = makeAssignment({
+      day: 'Monday',
+      start_slot: 's1',
+      duration: 2, // occupies s1, s2 — s2 is blocked
+      room_id: 'room-1',
+    })
+    const issues = checkProposedPlacement(proposed, [], rooms, blocks)
+    expect(issues.map((i) => i.type)).toContain('timetable_slot_blocked')
+  })
+
+  it('does not flag a placement in a different room or day', () => {
+    const proposed = makeAssignment({
+      day: 'Tuesday',
+      start_slot: 's1',
+      duration: 1,
+      room_id: 'room-1',
+    })
+    expect(checkProposedPlacement(proposed, [], rooms, namedBlocks)).toEqual([])
+  })
+
+  it('detects and unschedules a draft assignment overlapping a block', () => {
+    const draft = [
+      makeAssignment({
+        session_id: 'sess-1',
+        day: 'Monday',
+        start_slot: 's1',
+        duration: 1,
+        room_id: 'room-1',
+      }),
+    ]
+    const issues = checkDraftForBlockingViolations(draft, rooms, namedBlocks)
+    expect(issues.map((i) => i.type)).toContain('timetable_slot_blocked')
+    expect(getBlockingViolatorIds(draft, rooms, namedBlocks).has('sess-1')).toBe(
+      true
+    )
+  })
+
+  it('passes through unchanged when no blocked cells are supplied', () => {
+    const proposed = makeAssignment({ day: 'Monday', start_slot: 's1', room_id: 'room-1' })
+    expect(checkProposedPlacement(proposed, [], rooms)).toEqual([])
   })
 })

@@ -19,6 +19,7 @@ from solver.types import (
     SESSION_TYPE_ORDER,
     TIMETABLE_CONSTANTS,
     AvailabilitySnapshot,
+    BlockedCellSnapshot,
     LockedAssignment,
     RoomSnapshot,
     SessionSnapshot,
@@ -77,8 +78,15 @@ def _validate_saved_assignments(
     assignments: list[LockedAssignment],
     session_map: dict[str, SessionSnapshot],
     room_map: dict[str, RoomSnapshot],
+    blocked_cell_keys: set[tuple[str, str, str]],
 ) -> None:
-    """Raise SnapshotIntegrityError for any impossible saved assignment shape."""
+    """Raise SnapshotIntegrityError for any impossible saved assignment shape.
+
+    Unit 87: a saved locked assignment overlapping a timetable block must never
+    be valid solver input — it fails integrity safely here so the solver-start
+    path rejects the run rather than scheduling around a stale block.
+    ``blocked_cell_keys`` are normalized ``(day, slot, room_id)`` tuples.
+    """
     for a in assignments:
         if a.session_id not in session_map:
             raise SnapshotIntegrityError(
@@ -109,6 +117,13 @@ def _validate_saved_assignments(
                 f"Assignment for session {a.session_id!r} in room {a.room_id!r}: "
                 f"room capacity {room.capacity} < student count {session.student_count}"
             )
+        if blocked_cell_keys:
+            for slot in _occupied_slots(a.start_slot, a.duration):
+                if (a.day, slot, a.room_id) in blocked_cell_keys:
+                    raise SnapshotIntegrityError(
+                        f"Assignment for session {a.session_id!r} overlaps a timetable "
+                        f"block at room {a.room_id!r} on {a.day} slot {slot!r}"
+                    )
 
     # Check room double-booking: no two assignments may occupy the same
     # (day, room, slot) cell.
@@ -178,16 +193,23 @@ def build_snapshot_from_data(
     sessions: list[SessionSnapshot],
     availability: list[AvailabilitySnapshot],
     saved_assignments: list[LockedAssignment],
+    blocked_cells: list[BlockedCellSnapshot] | None = None,
 ) -> SolverInputSnapshot:
     """Build a deterministic solver input snapshot from ORM-detached input data.
 
     Raises SnapshotIntegrityError if any saved assignment violates blocking
-    integrity rules. Does not create or modify assignments.
+    integrity rules (including overlapping a timetable block). Does not create
+    or modify assignments.
     """
     room_map = {r.room_id: r for r in rooms}
     session_map = {s.session_id: s for s in sessions}
 
-    _validate_saved_assignments(saved_assignments, session_map, room_map)
+    blocked_cells = blocked_cells or []
+    blocked_cell_keys = {(b.day, b.slot, b.room_id) for b in blocked_cells}
+
+    _validate_saved_assignments(
+        saved_assignments, session_map, room_map, blocked_cell_keys
+    )
 
     # Build conflict graph using Unit 40 structural derivation.
     constraint_sessions = [
@@ -222,6 +244,10 @@ def build_snapshot_from_data(
             a.session_id,
         ),
     )
+    sorted_blocked_cells = sorted(
+        blocked_cells,
+        key=lambda b: (_day_index(b.day), b.room_id, _slot_index(b.slot)),
+    )
 
     return SolverInputSnapshot(
         rooms=sorted_rooms,
@@ -233,6 +259,7 @@ def build_snapshot_from_data(
         student_conflict_pairs=student_pairs,
         unit_session_conflict_pairs=unit_pairs,
         timetable_constants=TIMETABLE_CONSTANTS,
+        blocked_cells=sorted_blocked_cells,
     )
 
 
@@ -259,6 +286,7 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
     from models.session import Session
     from models.session_allocation import SessionStudentAllocation
     from models.assignment import TimetableAssignment
+    from models.timetable_block import TimetableBlockCell
 
     # --- rooms ---
     rooms_orm = db.execute(select(Room)).scalars().all()
@@ -366,4 +394,27 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
             )
         )
 
-    return build_snapshot_from_data(rooms, sessions, availability, saved_assignments)
+    # --- blocked cells: load all block cells with owning group names ---
+    block_cells_orm = (
+        db.execute(
+            select(TimetableBlockCell).options(
+                selectinload(TimetableBlockCell.block_group)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    blocked_cells = [
+        BlockedCellSnapshot(
+            day=c.day.value,
+            slot=c.slot.value,
+            room_id=c.room_id,
+            block_group_id=c.block_group_id,
+            block_name=c.block_group.name if c.block_group is not None else None,
+        )
+        for c in block_cells_orm
+    ]
+
+    return build_snapshot_from_data(
+        rooms, sessions, availability, saved_assignments, blocked_cells
+    )

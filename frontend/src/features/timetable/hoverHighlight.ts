@@ -3,6 +3,7 @@ import type { Room } from '@/lib/api/rooms'
 import { checkProposedPlacement } from '@/lib/validation/blocking'
 import { ALL_SLOTS, SLOT_INDEX } from '@/lib/validation/slot-helpers'
 import type { SlotId, TimetableAssignment } from './assignment'
+import type { BlockedCell } from './blocks'
 
 export type TimetableGridMetrics = {
   cellWidth: number
@@ -27,7 +28,7 @@ export function computePreviewHeight(duration: number, rowHeightPx: number): num
  *
  * Returns an empty set when:
  * - any input is missing / unparseable
- * - the proposed placement is invalid (blocking violation)
+ * - the proposed placement is invalid (blocking violation, incl. a blocked cell)
  * - the slot range would extend past available slots
  */
 export function computeHoverHighlightKeys(
@@ -35,7 +36,8 @@ export function computeHoverHighlightKeys(
   draggingSessionId: string | null,
   schedulableSessions: SchedulableSession[],
   draft: TimetableAssignment[],
-  rooms: Room[]
+  rooms: Room[],
+  blockedCells?: Map<string, BlockedCell>
 ): Set<string> {
   if (!hoverKey || !draggingSessionId) return new Set()
 
@@ -63,7 +65,7 @@ export function computeHoverHighlightKeys(
     room_id: roomId,
   }
 
-  const issues = checkProposedPlacement(proposed, draft, rooms)
+  const issues = checkProposedPlacement(proposed, draft, rooms, blockedCells)
   if (issues.length > 0) return new Set()
 
   const startIdx = SLOT_INDEX[slotId as SlotId]

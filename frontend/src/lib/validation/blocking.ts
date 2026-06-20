@@ -1,5 +1,6 @@
 import type { Day } from '@/features/timetable/slots'
 import type { SlotId, TimetableAssignment } from '@/features/timetable/assignment'
+import type { BlockedCell } from '@/features/timetable/blocks'
 import type { Room } from '@/lib/api/rooms'
 import { SLOT_INDEX, ALL_SLOTS, rangesOverlap } from './slot-helpers'
 
@@ -8,6 +9,7 @@ export type BlockingIssueType =
   | 'room_capacity_too_small'
   | 'session_crossing_lunch'
   | 'session_off_timetable'
+  | 'timetable_slot_blocked'
 
 export interface BlockingIssue {
   type: BlockingIssueType
@@ -33,12 +35,56 @@ function crossesLunch(startSlot: SlotId, duration: number): boolean {
   return start <= LAST_AM_INDEX && end >= FIRST_PM_INDEX
 }
 
+// Returns the first blocked cell intersected by an assignment's occupied cells,
+// or null when no occupied cell is reserved by a timetable block. Occupied cells
+// are the contiguous slots the session spans in its day + room.
+function findBlockedOverlap(
+  assignment: TimetableAssignment,
+  blockedCells: Map<string, BlockedCell>
+): BlockedCell | null {
+  const startIdx = SLOT_INDEX[assignment.start_slot]
+  if (startIdx === undefined) return null
+  for (let i = 0; i < assignment.duration; i++) {
+    const slot = ALL_SLOTS[startIdx + i]
+    if (!slot) continue
+    const blocked = blockedCells.get(
+      `${assignment.day}:${assignment.room_id}:${slot}`
+    )
+    if (blocked) return blocked
+  }
+  return null
+}
+
+// Block name appears in the message when present; otherwise a generic form is
+// used. Messages never expose raw slot IDs.
+function blockedMessage(blocked: BlockedCell): string {
+  return blocked.name
+    ? `This time is blocked by ${blocked.name}.`
+    : 'This time is blocked.'
+}
+
 export function checkProposedPlacement(
   proposed: TimetableAssignment,
   existingDraft: TimetableAssignment[],
-  rooms: Room[]
+  rooms: Room[],
+  blockedCells?: Map<string, BlockedCell>
 ): BlockingIssue[] {
   const issues: BlockingIssue[] = []
+
+  if (blockedCells && blockedCells.size > 0) {
+    const blocked = findBlockedOverlap(proposed, blockedCells)
+    if (blocked) {
+      issues.push({
+        type: 'timetable_slot_blocked',
+        severity: 'blocking',
+        affected_session_ids: [proposed.session_id],
+        affected_room_id: proposed.room_id,
+        affected_day: proposed.day,
+        affected_slot: blocked.slot,
+        message: blockedMessage(blocked),
+      })
+    }
+  }
 
   if (isOffTimetable(proposed.start_slot, proposed.duration)) {
     issues.push({
@@ -98,12 +144,28 @@ export function checkProposedPlacement(
 
 export function checkDraftForBlockingViolations(
   draft: TimetableAssignment[],
-  rooms: Room[]
+  rooms: Room[],
+  blockedCells?: Map<string, BlockedCell>
 ): BlockingIssue[] {
   const issues: BlockingIssue[] = []
   const roomMap = new Map(rooms.map((r) => [r.id, r]))
 
   for (const a of draft) {
+    if (blockedCells && blockedCells.size > 0) {
+      const blocked = findBlockedOverlap(a, blockedCells)
+      if (blocked) {
+        issues.push({
+          type: 'timetable_slot_blocked',
+          severity: 'blocking',
+          affected_session_ids: [a.session_id],
+          affected_room_id: a.room_id,
+          affected_day: a.day,
+          affected_slot: blocked.slot,
+          message: blockedMessage(blocked),
+        })
+      }
+    }
+
     if (isOffTimetable(a.start_slot, a.duration)) {
       issues.push({
         type: 'session_off_timetable',
@@ -164,9 +226,10 @@ export function checkDraftForBlockingViolations(
 
 export function getBlockingViolatorIds(
   draft: TimetableAssignment[],
-  rooms: Room[]
+  rooms: Room[],
+  blockedCells?: Map<string, BlockedCell>
 ): Set<string> {
-  const issues = checkDraftForBlockingViolations(draft, rooms)
+  const issues = checkDraftForBlockingViolations(draft, rooms, blockedCells)
   const ids = new Set<string>()
   for (const issue of issues) {
     for (const id of issue.affected_session_ids) {

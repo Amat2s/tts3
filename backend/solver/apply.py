@@ -30,6 +30,7 @@ from models.lecturer import AvailabilityDay, AvailabilitySlot
 from models.room import Room
 from models.session import Session
 from models.session_allocation import SessionStudentAllocation
+from models.timetable_block import TimetableBlockCell
 from solver.types import (
     AM_PM_BOUNDARY_INDEX,
     ORDERED_DAYS,
@@ -147,6 +148,23 @@ def _load_locked_state(
     return locked_session_ids, locked_room_cells
 
 
+def _load_blocked_cells(db: DBSession) -> set[tuple[str, str, int]]:
+    """Return the set of currently reserved (blocked) room cells.
+
+    Each entry is ``(day, room_id, slot_index)`` so it can be compared directly
+    against the occupied slot indices of a generated placement. Blocks are read
+    from the live database at apply time, so a block added after the snapshot was
+    built still defends the persisted state.
+    """
+    blocked: set[tuple[str, str, int]] = set()
+    for cell in db.query(TimetableBlockCell).all():
+        slot = cell.slot.value
+        if slot not in ORDERED_SLOTS:
+            continue
+        blocked.add((cell.day.value, cell.room_id, _slot_index(slot)))
+    return blocked
+
+
 # ---------------------------------------------------------------------------
 # Defensive validation of generated placements.
 # ---------------------------------------------------------------------------
@@ -175,6 +193,9 @@ def _validate_generated(
 
     if not generated:
         return
+
+    # Unit 87: reject any generated placement overlapping a timetable block.
+    blocked_cells = _load_blocked_cells(db)
 
     gen_session_ids = {g.session_id for g in generated}
     gen_room_ids = {g.room_id for g in generated}
@@ -265,6 +286,17 @@ def _validate_generated(
                     f"allocation count ({student_count})."
                 ),
             )
+
+        for t in _occupied_slot_indices(g.start_slot, duration):
+            if (g.day, g.room_id, t) in blocked_cells:
+                raise SolverResultApplicationError(
+                    "assignment_overlaps_timetable_block",
+                    (
+                        f"Generated placement for session {g.session_id!r} occupies a "
+                        f"timetable-blocked cell in room {g.room_id!r} on {g.day} "
+                        f"slot {ORDERED_SLOTS[t]!r}."
+                    ),
+                )
 
     # Room no-overlap: generated placements must not collide with locked cells
     # or with each other.

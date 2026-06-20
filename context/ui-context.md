@@ -121,6 +121,48 @@ palette above.
 | `--subject-science-border`    | `#244D73` |
 | `--subject-science-text`      | `#1E3A56` |
 
+## Timetable Block Colors
+
+Timetable blocks reserve room-specific `day + slot + room` cells and must read as
+distinct from scheduled session cards. Block colour tokens are **separate from the
+subject tokens** above and must not be reused for sessions. Unnamed blocks use the
+grey/disabled `--block-empty-*` set; named blocks use one of three allowed colours
+(`gold`, `light_blue`, `light_pink`). Components must reference these tokens and never
+inline the hex values.
+
+| Role                 | CSS Variable          | Value     |
+| -------------------- | --------------------- | --------- |
+| Block empty bg       | `--block-empty-bg`    | `#E9E2D8` |
+| Block empty border   | `--block-empty-border`| `#CFC4B4` |
+| Block empty text     | `--block-empty-text`  | `#8A7E78` |
+| Block gold bg        | `--block-gold-bg`     | `#F7F0D8` |
+| Block gold border    | `--block-gold-border` | `#C9A646` |
+| Block gold text      | `--block-gold-text`   | `#7A4B16` |
+| Block blue bg        | `--block-blue-bg`     | `#E7EEF7` |
+| Block blue border    | `--block-blue-border` | `#2F5F8F` |
+| Block blue text      | `--block-blue-text`   | `#234766` |
+| Block pink bg        | `--block-pink-bg`     | `#F6E7EF` |
+| Block pink border    | `--block-pink-border` | `#A5527D` |
+| Block pink text      | `--block-pink-text`   | `#67304C` |
+
+Rendering rules:
+
+- Unnamed blocks render grey/disabled with no label, using the `--block-empty-*` tokens.
+- Named blocks render the block name, selected colour (`gold` → `--block-gold-*`,
+  `light_blue` → `--block-blue-*`, `light_pink` → `--block-pink-*` sets), and a lock icon.
+- Block cells have no left-border accent; this is the visual distinction from session cards
+  (which always carry a coloured left border).
+- Fall back to the grey `--block-empty-*` set if a colour is missing or unknown.
+- **Rectangle merging**: contiguous cells of the same block group that form a rectangular
+  region (consecutive room columns × consecutive slot rows) are merged into a single card.
+  The top-left cell is the anchor; it renders the card with `width = N_rooms × cell width`
+  and `height = N_slots × 3.5rem`. All other cells in the rectangle render no card visually
+  but remain functionally blocked. Non-rectangular or gapped block groups produce multiple
+  independent rectangles, each with its own anchor.
+- Block cells live in the timetable grid, never in the unscheduled pool, and must stay
+  visually distinct from session cards. During block-selection mode, selected cells use
+  temporary token-based styling.
+
 ## AI / Solver Accent Variants
 
 Use these only for solver-related UI, not general branding. The solver should feel helpful and technical, but not futuristic or flashy.
@@ -304,3 +346,4 @@ Icon rules:
 | 8   | Do not rely on color alone for status or constraint violations.                            |
 | 9   | The UI should feel academic and institutional, not playful.                                |
 | 10  | All styling should use tokens or Tailwind theme values, not repeated hardcoded hex values. |
+| 11  | Timetable blocks must be visually distinct from scheduled session cards and empty cells; do not rely on colour alone — always show the lock icon (and the name for named blocks). |

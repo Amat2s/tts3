@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -26,6 +26,12 @@ vi.mock('@/lib/api/assignments', () => ({
 }))
 vi.mock('@/lib/api/lecturers', () => ({ listLecturers: vi.fn() }))
 vi.mock('@/lib/api/units', () => ({ listUnits: vi.fn() }))
+vi.mock('@/lib/api/timetableBlocks', () => ({
+  listTimetableBlocks: vi.fn(),
+  createTimetableBlock: vi.fn(),
+  updateTimetableBlock: vi.fn(),
+  deleteTimetableBlock: vi.fn(),
+}))
 vi.mock('@/lib/api/solver', () => ({
   startSolverRun: vi.fn(),
   getSolverRunStatus: vi.fn(),
@@ -42,6 +48,12 @@ import {
 } from '@/lib/api/assignments'
 import { listLecturers } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
+import {
+  listTimetableBlocks,
+  createTimetableBlock,
+  updateTimetableBlock,
+  deleteTimetableBlock,
+} from '@/lib/api/timetableBlocks'
 import { startSolverRun, getSolverRunStatus } from '@/lib/api/solver'
 import {
   makeAssignment,
@@ -50,6 +62,7 @@ import {
   makeRoom,
   makeSchedulableSession,
   makeSolverStatus,
+  makeTimetableBlock,
 } from '@/test/fixtures'
 import {
   computeSavedAssignmentFingerprint,
@@ -67,6 +80,10 @@ const mockListLecturers = vi.mocked(listLecturers)
 const mockListUnits = vi.mocked(listUnits)
 const mockStartSolverRun = vi.mocked(startSolverRun)
 const mockGetSolverRunStatus = vi.mocked(getSolverRunStatus)
+const mockListTimetableBlocks = vi.mocked(listTimetableBlocks)
+const mockCreateTimetableBlock = vi.mocked(createTimetableBlock)
+const mockUpdateTimetableBlock = vi.mocked(updateTimetableBlock)
+const mockDeleteTimetableBlock = vi.mocked(deleteTimetableBlock)
 
 function renderTimetable() {
   const queryClient = new QueryClient({
@@ -112,6 +129,16 @@ beforeEach(() => {
   mockClearAssignments.mockResolvedValue()
   mockStartSolverRun.mockResolvedValue(makeSolverStatus({ status: 'running' }))
   mockGetSolverRunStatus.mockResolvedValue(makeSolverStatus({ status: 'running' }))
+  mockListTimetableBlocks.mockResolvedValue([])
+  mockCreateTimetableBlock.mockResolvedValue({
+    block: makeTimetableBlock(),
+    unscheduled_session_ids: [],
+  })
+  mockUpdateTimetableBlock.mockResolvedValue({
+    block: makeTimetableBlock(),
+    unscheduled_session_ids: [],
+  })
+  mockDeleteTimetableBlock.mockResolvedValue()
 })
 
 afterEach(() => {
@@ -976,5 +1003,350 @@ describe('TimetablePage — Unit 80: empty-draft save and clear', () => {
       expect.stringMatching(/Save your timetable changes/)
     )
     expect(mockStartSolverRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('TimetablePage — Unit 85: timetable block rendering', () => {
+  it('renders a named block with its name and colour', async () => {
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
+    ])
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    // Named label is visible only because the block has a name.
+    expect(await screen.findByText('Chapel')).toBeInTheDocument()
+    // The block cell element is present.
+    const blockCell = document.querySelector('[data-block-cell="true"]')
+    expect(blockCell).not.toBeNull()
+  })
+
+  it('renders an unnamed block with an accessible-only label and no visible text', async () => {
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b2',
+        name: null,
+        colour: null,
+        cells: [{ id: 'c1', day: 'Tuesday', slot: 's4', room_id: 'room-1' }],
+      }),
+    ])
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    const blockCell = await waitFor(() => {
+      const el = document.querySelector('[data-block-cell="true"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    // Grey/disabled unnamed block: accessible label present, no visible text.
+    expect(blockCell).toHaveTextContent('Blocked')
+    expect(blockCell.querySelector('.sr-only')).not.toBeNull()
+  })
+
+  it('renders blocks only in the grid, never as an unscheduled-pool card', async () => {
+    mockListSchedulable.mockResolvedValue([])
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({ id: 'b1', name: 'Staff Meeting', colour: 'light_blue' }),
+    ])
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    // The block label is present, but only inside a grid block cell — it is never
+    // turned into a draggable pool card.
+    const label = await screen.findByText('Staff Meeting')
+    expect(label.closest('[data-block-cell="true"]')).not.toBeNull()
+  })
+
+  it('surfaces a concise error in the sticky bar when block loading fails', async () => {
+    // A failure that carries no readable message exercises the concise fallback.
+    mockListTimetableBlocks.mockRejectedValue(new Error())
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    expect(
+      await screen.findByText('Timetable blocks could not be loaded.')
+    ).toBeInTheDocument()
+  })
+
+  it('opens the edit dialog on block click and saves name/colour changes', async () => {
+    const user = userEvent.setup()
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
+    ])
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    await user.click(await screen.findByText('Chapel'))
+
+    // Dialog opens with the block name seeded.
+    const nameInput = await screen.findByLabelText('Name')
+    expect(nameInput).toHaveValue('Chapel')
+
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Mass')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(mockUpdateTimetableBlock).toHaveBeenCalledWith('b1', {
+        name: 'Mass',
+        colour: 'gold',
+        cells: [{ day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      })
+    )
+  })
+
+  it('deletes a block from the edit dialog', async () => {
+    const user = userEvent.setup()
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({ id: 'b1', name: 'Chapel', colour: 'gold' }),
+    ])
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    await user.click(await screen.findByText('Chapel'))
+    await user.click(await screen.findByRole('button', { name: /Delete block/ }))
+
+    await waitFor(() =>
+      expect(mockDeleteTimetableBlock).toHaveBeenCalledWith('b1')
+    )
+  })
+
+  it('does not open the edit dialog while the timetable draft is dirty', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        duration: 1,
+      }),
+    ])
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's2', room_id: 'room-1' }],
+      }),
+    ])
+    const { container } = renderTimetable()
+
+    await screen.findAllByText('Ancient History')
+    // Make the draft dirty: select the session, then place it in an empty cell.
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    const cell = container.querySelector(
+      '[data-day="Monday"][data-room="room-1"][data-slot="s1"]'
+    ) as HTMLElement
+    fireEvent.click(cell)
+    await screen.findByText('HIS101')
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+
+    // Clicking the block now does nothing — block edits are guarded while dirty.
+    fireEvent.click(screen.getByText('Chapel'))
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+  })
+})
+
+describe('TimetablePage — Unit 86: block-selection mode and validation', () => {
+  function cellAt(
+    container: HTMLElement,
+    day: string,
+    roomId: string,
+    slot: string
+  ): HTMLElement {
+    return container.querySelector(
+      `[data-day="${day}"][data-room="${roomId}"][data-slot="${slot}"]`
+    ) as HTMLElement
+  }
+
+  it('renders an Add block action in the sticky bar', async () => {
+    renderTimetable()
+    await screen.findByText('Monday')
+    expect(
+      await screen.findByRole('button', { name: 'Add block' })
+    ).toBeEnabled()
+  })
+
+  it('disables Add block while the timetable draft is dirty with the documented reason', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        duration: 1,
+      }),
+    ])
+    const { container } = renderTimetable()
+
+    await screen.findAllByText('Ancient History')
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    await screen.findByText('HIS101')
+
+    const addBlock = screen.getByRole('button', { name: 'Add block' })
+    expect(addBlock).toBeDisabled()
+    expect(addBlock).toHaveAttribute(
+      'title',
+      'Save or discard timetable changes before editing blocked slots.'
+    )
+  })
+
+  it('selects a rectangle of cells and creates a named block', async () => {
+    const user = userEvent.setup()
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    // Block mode instructions appear.
+    expect(screen.getByText(/Block mode/)).toBeInTheDocument()
+
+    // Anchor + extend across two slots in the same room.
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's2'))
+
+    // Two cells are now visibly selected.
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(2)
+
+    // Open the create dialog from the action bar, name it, and submit.
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Name'), 'Chapel')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+
+    await waitFor(() => expect(mockCreateTimetableBlock).toHaveBeenCalledTimes(1))
+    const arg = mockCreateTimetableBlock.mock.calls[0][0]
+    expect(arg.name).toBe('Chapel')
+    expect(arg.colour).toBe('gold')
+    expect(arg.cells).toEqual(
+      expect.arrayContaining([
+        { day: 'Monday', slot: 's1', room_id: 'room-1' },
+        { day: 'Monday', slot: 's2', room_id: 'room-1' },
+      ])
+    )
+    expect(arg.cells).toHaveLength(2)
+  })
+
+  it('creates an unnamed, colourless block when the name is left blank', async () => {
+    const user = userEvent.setup()
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    // No name typed → no colour selector shown.
+    expect(within(dialog).queryByText('Colour')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+
+    await waitFor(() => expect(mockCreateTimetableBlock).toHaveBeenCalledTimes(1))
+    expect(mockCreateTimetableBlock.mock.calls[0][0]).toEqual({
+      name: null,
+      colour: null,
+      cells: [{ day: 'Monday', slot: 's1', room_id: 'room-1' }],
+    })
+  })
+
+  it('cancelling block mode clears the selection and restores normal controls', async () => {
+    const user = userEvent.setup()
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(1)
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText(/Block mode/)).not.toBeInTheDocument()
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(0)
+    expect(screen.getByRole('button', { name: 'Add block' })).toBeInTheDocument()
+  })
+
+  it('rejects manual click placement onto a blocked cell with a reason', async () => {
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        duration: 1,
+      }),
+    ])
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
+    ])
+    const { container } = renderTimetable()
+
+    await screen.findAllByText('Ancient History')
+    // Select the session, then attempt to place it on the blocked cell.
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+
+    // The blocked reason is surfaced and the session was not placed: no scheduled
+    // card exists on the grid (its Unschedule control would otherwise be present).
+    expect(
+      await screen.findByText(/This time is blocked by Chapel\./)
+    ).toBeInTheDocument()
+    expect(screen.queryByTitle('Unschedule')).not.toBeInTheDocument()
+  })
+
+  it('cleans up a restored draft assignment that overlaps a block', async () => {
+    // A persisted draft places sess-1 on Monday/room-1/s1; a block now reserves
+    // that exact cell, so the restored draft must auto-unschedule it.
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        duration: 1,
+      }),
+    ])
+    mockListTimetableBlocks.mockResolvedValue([
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
+    ])
+    // Saved assignments are empty, so the stored-draft fingerprint matches.
+    const fingerprint = computeSavedAssignmentFingerprint([])
+    saveStoredDraft(
+      [
+        makeAssignment({
+          session_id: 'sess-1',
+          unit_code: 'HIS101',
+          day: 'Monday',
+          start_slot: 's1',
+          room_id: 'room-1',
+          duration: 1,
+        }),
+      ],
+      fingerprint
+    )
+
+    renderTimetable()
+
+    await screen.findByText('Monday')
+    // The overlapping session is removed from the grid (its scheduled card and
+    // Unschedule control disappear) and returns to the unscheduled pool.
+    await waitFor(() => {
+      expect(screen.queryByTitle('Unschedule')).not.toBeInTheDocument()
+    })
+    expect((await screen.findAllByText('Ancient History')).length).toBeGreaterThan(0)
   })
 })

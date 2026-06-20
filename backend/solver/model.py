@@ -85,6 +85,15 @@ def solve_timetable(
     locked = list(snapshot.locked_assignments)
     locked_ids = {a.session_id for a in locked}
 
+    # Unit 87: cells reserved by timetable blocks. A candidate occupying any of
+    # these (day, room, slot) cells is never created — blocks are a hard
+    # cell-feasibility constraint that composes with the checks below.
+    blocked_room_cells: set[tuple[str, str, int]] = set()
+    for bc in snapshot.blocked_cells:
+        if bc.slot not in slots:
+            continue
+        blocked_room_cells.add((bc.day, bc.room_id, slots.index(bc.slot)))
+
     # Fixed occupancy from locked assignments: room cells block any candidate
     # in the same room, time cells block conflict partners in any room.
     locked_room_cells: set[tuple[str, str, int]] = set()
@@ -157,6 +166,8 @@ def solve_timetable(
                     if room.capacity < session.student_count:
                         continue
                     if any((day, room.room_id, t) in locked_room_cells for t in occupied):
+                        continue
+                    if any((day, room.room_id, t) in blocked_room_cells for t in occupied):
                         continue
                     var = model.NewBoolVar(
                         f"x[{session_id},{day},{slots[start]},{room.room_id}]"

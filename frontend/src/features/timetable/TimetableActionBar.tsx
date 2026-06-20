@@ -6,6 +6,8 @@ import {
   ChevronUp,
   Cpu,
   Loader2,
+  Lock,
+  Plus,
   Save,
   Trash2,
   X,
@@ -38,6 +40,14 @@ interface TimetableActionBarProps {
   onSave: () => void
   onRunSolver?: () => void
   isPendingPlacement?: boolean
+  // Block-selection mode (Unit 86)
+  blockMode?: boolean
+  canAddBlock?: boolean
+  addBlockDisabledReason?: string | null
+  hasBlockSelection?: boolean
+  onStartBlockMode?: () => void
+  onCancelBlockMode?: () => void
+  onCreateBlock?: () => void
   // Solver lifecycle (merged from SolverStatusPanel)
   solverRunStatus: SolverRunStatusResponse | null
   isSolverStarting: boolean
@@ -47,6 +57,12 @@ interface TimetableActionBarProps {
   // Assignment load error
   assignmentsError?: string | null
   onRetryAssignments?: () => void
+  // Timetable block load error (Unit 85)
+  blocksError?: string | null
+  onRetryBlocks?: () => void
+  // One-time notice after a block edit/delete (e.g. unscheduled-session count)
+  blockNotice?: string | null
+  onDismissBlockNotice?: () => void
   // Local draft-persistence notice (Unit 79)
   draftNotice?: 'restored' | 'discarded' | null
   onDismissDraftNotice?: () => void
@@ -61,6 +77,8 @@ interface MessageState {
   retryable: boolean
   // Optional override for the dismiss action; defaults to onDismissSolver.
   onDismiss?: () => void
+  // Optional override for the retry action; defaults to onRetryAssignments.
+  onRetry?: () => void
 }
 
 function sessionLabel(count: number): string {
@@ -82,6 +100,13 @@ export function TimetableActionBar({
   onSave,
   onRunSolver,
   isPendingPlacement = false,
+  blockMode = false,
+  canAddBlock = false,
+  addBlockDisabledReason,
+  hasBlockSelection = false,
+  onStartBlockMode,
+  onCancelBlockMode,
+  onCreateBlock,
   solverRunStatus,
   isSolverStarting,
   solverStartError,
@@ -89,6 +114,10 @@ export function TimetableActionBar({
   onDismissSolver,
   assignmentsError,
   onRetryAssignments,
+  blocksError,
+  onRetryBlocks,
+  blockNotice = null,
+  onDismissBlockNotice,
   draftNotice = null,
   onDismissDraftNotice,
 }: TimetableActionBarProps) {
@@ -117,6 +146,20 @@ export function TimetableActionBar({
   }, [hasIssues])
 
   function getMessageState(): MessageState {
+    // Priority 0: block-selection mode instructions take over the bar entirely.
+    if (blockMode) {
+      return {
+        text: hasBlockSelection
+          ? 'Block mode — click another cell to extend the selection, then Create block to reserve it.'
+          : 'Block mode — click a cell, then click another to select a rectangle of slots to block. Already-blocked cells can’t be selected.',
+        color: 'var(--accent-primary)',
+        icon: <Lock className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: false,
+        retryable: false,
+      }
+    }
+
     // Priority 1: assignment-load / save system error
     if (assignmentsError) {
       return {
@@ -136,6 +179,17 @@ export function TimetableActionBar({
         isAlert: true,
         dismissible: false,
         retryable: false,
+      }
+    }
+    if (blocksError) {
+      return {
+        text: blocksError,
+        color: 'var(--state-error)',
+        icon: <XCircle className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: true,
+        dismissible: false,
+        retryable: true,
+        onRetry: onRetryBlocks,
       }
     }
 
@@ -217,6 +271,19 @@ export function TimetableActionBar({
         isAlert: false,
         dismissible: true,
         retryable: false,
+      }
+    }
+
+    // Priority 2.5: block edit/delete notice (dismissible, one-time)
+    if (blockNotice) {
+      return {
+        text: blockNotice,
+        color: 'var(--state-info)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+        onDismiss: onDismissBlockNotice,
       }
     }
 
@@ -361,12 +428,12 @@ export function TimetableActionBar({
               >
                 {msgState.icon}
                 <span className="min-w-0">{msgState.text}</span>
-                {msgState.retryable && onRetryAssignments && (
+                {msgState.retryable && (msgState.onRetry ?? onRetryAssignments) && (
                   <button
                     type="button"
                     className="ml-1 shrink-0 text-xs underline"
                     style={{ color: msgState.color }}
-                    onClick={onRetryAssignments}
+                    onClick={msgState.onRetry ?? onRetryAssignments}
                   >
                     Try again
                   </button>
@@ -404,7 +471,39 @@ export function TimetableActionBar({
             </div>
 
             {/* Right: action buttons */}
+            {blockMode ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onCancelBlockMode}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!hasBlockSelection}
+                  onClick={onCreateBlock}
+                  className="bg-[var(--accent-primary)] text-[var(--text-inverse)] hover:bg-[var(--accent-primary-hover)]"
+                >
+                  <Lock className="mr-1.5 h-3.5 w-3.5" />
+                  Create block
+                </Button>
+              </div>
+            ) : (
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!canAddBlock}
+                title={addBlockDisabledReason ?? undefined}
+                onClick={onStartBlockMode}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Add block
+              </Button>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -468,6 +567,7 @@ export function TimetableActionBar({
                 )}
               </Button>
             </div>
+            )}
           </div>
         </div>
 

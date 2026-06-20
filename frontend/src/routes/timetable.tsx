@@ -43,6 +43,24 @@ import {
   listSchedulableSessions,
 } from '@/lib/api/sessions'
 import {
+  type BlockCellInput,
+  type TimetableBlock,
+  type TimetableBlockColour,
+  createTimetableBlock,
+  deleteTimetableBlock,
+  listTimetableBlocks,
+  updateTimetableBlock,
+} from '@/lib/api/timetableBlocks'
+import { buildBlockedCellMap } from '@/features/timetable/blocks'
+import {
+  type SelectionCell,
+  computeRectangleSelection,
+  parseSelectionKey,
+  singleCellSelection,
+} from '@/features/timetable/blockSelection'
+import { BlockEditDialog } from '@/features/timetable/BlockEditDialog'
+import { BlockCreateDialog } from '@/features/timetable/BlockCreateDialog'
+import {
   checkDraftForBlockingViolations,
   checkProposedPlacement,
   getBlockingViolatorIds,
@@ -155,6 +173,16 @@ export default function TimetablePage() {
     queryFn: listUnits,
   })
 
+  const {
+    data: blocks,
+    isError: blocksIsError,
+    error: blocksError,
+    refetch: refetchBlocks,
+  } = useQuery({
+    queryKey: ['timetable-blocks'],
+    queryFn: listTimetableBlocks,
+  })
+
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -169,6 +197,20 @@ export default function TimetablePage() {
   const [draftNotice, setDraftNotice] = useState<'restored' | 'discarded' | null>(
     null
   )
+  // Existing-block edit/delete (Unit 85).
+  const [editingBlock, setEditingBlock] = useState<TimetableBlock | null>(null)
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false)
+  const [blockMutationError, setBlockMutationError] = useState<string | null>(null)
+  const [blockNotice, setBlockNotice] = useState<string | null>(null)
+  // Block-selection mode (Unit 86): anchor + the selected cell keys, plus the
+  // create dialog state.
+  const [blockMode, setBlockMode] = useState(false)
+  const [blockAnchor, setBlockAnchor] = useState<SelectionCell | null>(null)
+  const [blockSelectionKeys, setBlockSelectionKeys] = useState<Set<string>>(
+    new Set()
+  )
+  const [blockCreateOpen, setBlockCreateOpen] = useState(false)
+  const [blockCreateError, setBlockCreateError] = useState<string | null>(null)
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -238,8 +280,21 @@ export default function TimetablePage() {
     }
   }, [draft, isDirty, savedAssignments])
 
+  // Flatten block groups into a `day:roomId:slot` lookup for rendering and the
+  // `timetable_slot_blocked` validation rule. Only build the map when blocks
+  // data is actually available to prevent silent bypass of validation.
+  const blockedCellMap = useMemo(
+    () => (blocks ? buildBlockedCellMap(blocks) : undefined),
+    [blocks]
+  )
+
   // Auto-unschedule any draft assignments that now violate blocking rules after
-  // room or session data changes (e.g. room capacity reduced, student count increased).
+  // room, session, or block data changes (e.g. room capacity reduced, student
+  // count increased, or a new/loaded block now overlaps a draft assignment).
+  // Depends on `draft` as well so a freshly restored draft that overlaps a block
+  // is cleaned up immediately, not only on a later data change. The cleanup is
+  // idempotent and terminating: removing violators changes `draft`, the effect
+  // re-runs, finds none, and stops.
   useEffect(() => {
     const currentDraft = draftRef.current
     if (!rooms || currentDraft.length === 0) return
@@ -255,12 +310,12 @@ export default function TimetablePage() {
         })
       : currentDraft
 
-    const violators = getBlockingViolatorIds(validationDraft, rooms)
+    const violators = getBlockingViolatorIds(validationDraft, rooms, blockedCellMap)
     if (violators.size > 0) {
       setDraft((prev) => prev.filter((a) => !violators.has(a.session_id)))
       setIsDirty(true)
     }
-  }, [rooms, schedulableSessions])
+  }, [rooms, schedulableSessions, blockedCellMap, draft])
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -285,6 +340,187 @@ export default function TimetablePage() {
     },
   })
 
+  const updateBlockMutation = useMutation({
+    mutationFn: (input: {
+      blockId: string
+      name: string | null
+      colour: TimetableBlockColour | null
+      cells: TimetableBlock['cells']
+    }) =>
+      updateTimetableBlock(input.blockId, {
+        name: input.name,
+        colour: input.colour,
+        // Cell re-selection is not offered in this unit; preserve saved cells.
+        cells: input.cells.map((c) => ({
+          day: c.day,
+          slot: c.slot,
+          room_id: c.room_id,
+        })),
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setBlockDialogOpen(false)
+      setEditingBlock(null)
+      surfaceUnscheduledNotice(result.unscheduled_session_ids.length)
+    },
+    onError: (err: unknown) => {
+      setBlockMutationError(
+        getErrorMessage(err, 'The block could not be updated. Please try again.')
+      )
+    },
+  })
+
+  const deleteBlockMutation = useMutation({
+    mutationFn: (blockId: string) => deleteTimetableBlock(blockId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setBlockDialogOpen(false)
+      setEditingBlock(null)
+    },
+    onError: (err: unknown) => {
+      setBlockMutationError(
+        getErrorMessage(err, 'The block could not be deleted. Please try again.')
+      )
+    },
+  })
+
+  const createBlockMutation = useMutation({
+    mutationFn: (input: {
+      name: string | null
+      colour: TimetableBlockColour | null
+      cells: BlockCellInput[]
+    }) =>
+      createTimetableBlock({
+        name: input.name,
+        colour: input.colour,
+        cells: input.cells,
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      // Exit block mode and clear the selection on success.
+      exitBlockMode()
+      setBlockCreateOpen(false)
+      surfaceBlockCreatedNotice(result.unscheduled_session_ids.length)
+    },
+    onError: (err: unknown) => {
+      setBlockCreateError(
+        getErrorMessage(err, 'The block could not be created. Please try again.')
+      )
+    },
+  })
+
+  function surfaceUnscheduledNotice(count: number) {
+    if (count > 0) {
+      setBlockNotice(
+        `Block saved — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`
+      )
+    }
+  }
+
+  function surfaceBlockCreatedNotice(count: number) {
+    setBlockNotice(
+      count > 0
+        ? `Block created — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`
+        : 'Block created.'
+    )
+  }
+
+  function handleBlockClick(blockId: string) {
+    if (blockEditingDisabled) return
+    const block = blocks?.find((b) => b.id === blockId)
+    if (!block) return
+    setBlockMutationError(null)
+    setBlockNotice(null)
+    setEditingBlock(block)
+    setBlockDialogOpen(true)
+  }
+
+  // --- Block-selection mode (Unit 86) ----------------------------------------
+
+  function exitBlockMode() {
+    setBlockMode(false)
+    setBlockAnchor(null)
+    setBlockSelectionKeys(new Set())
+    setBlockCreateError(null)
+  }
+
+  function handleStartBlockMode() {
+    if (!canAddBlock) return
+    // Starting block mode disables normal placement and clears any pending
+    // session selection so the two interaction modes never overlap.
+    setPendingSessionId(null)
+    setBlockingError(null)
+    setBlockNotice(null)
+    setBlockAnchor(null)
+    setBlockSelectionKeys(new Set())
+    setBlockCreateError(null)
+    setBlockMode(true)
+  }
+
+  function handleCancelBlockMode() {
+    exitBlockMode()
+  }
+
+  function handleBlockCellSelect(day: string, slotId: string, roomId: string) {
+    if (!blockMode || !blockedCellMap) return
+    const cell: SelectionCell = {
+      day: day as SelectionCell['day'],
+      slot: slotId as SelectionCell['slot'],
+      roomId,
+    }
+
+    // No anchor yet: this click sets the anchor (single-cell selection).
+    if (!blockAnchor) {
+      const single = singleCellSelection(cell, blockedCellMap)
+      if (single.size === 0) return // anchor landed on an already-blocked cell
+      setBlockAnchor(cell)
+      setBlockSelectionKeys(single)
+      return
+    }
+
+    // Clicking a different day re-anchors there.
+    if (blockAnchor.day !== cell.day) {
+      const single = singleCellSelection(cell, blockedCellMap)
+      if (single.size === 0) return
+      setBlockAnchor(cell)
+      setBlockSelectionKeys(single)
+      return
+    }
+
+    // Same day: extend the rectangle from the anchor to this cell.
+    setBlockSelectionKeys(
+      computeRectangleSelection(blockAnchor, cell, rooms ?? [], blockedCellMap)
+    )
+  }
+
+  function handleOpenCreateBlock() {
+    if (blockSelectionKeys.size === 0) return
+    setBlockCreateError(null)
+    setBlockCreateOpen(true)
+  }
+
+  function handleCreateBlock(input: {
+    name: string | null
+    colour: TimetableBlockColour | null
+  }) {
+    if (blockSelectionKeys.size === 0) return
+    setBlockCreateError(null)
+    createBlockMutation.mutate({
+      name: input.name,
+      colour: input.colour,
+      cells: [...blockSelectionKeys].map(parseSelectionKey),
+    })
+  }
+
+  // Selected cells parsed into persistable cell inputs, for the create dialog
+  // summary (day/time/room).
+  const blockSelectionCells: BlockCellInput[] = [...blockSelectionKeys].map(
+    parseSelectionKey
+  )
+
   // Async solver run lifecycle. The solver runs against the *saved* timetable
   // state; on success we refetch saved assignments + the schedulable pool, which
   // resets the draft from the latest saved data (savedAssignments effect above).
@@ -299,6 +535,25 @@ export default function TimetablePage() {
   // Editing and saving are locked while a run is starting or active.
   const editingDisabled = solver.isStarting || solver.isActive
 
+  // Block edit/delete persists immediately and is independent of the timetable
+  // draft Save. Because it mutates saved state, it is disabled while the draft is
+  // dirty (the admin must save or clear timetable changes first) or mid-solver.
+  const blockEditingDisabled = isDirty || editingDisabled
+
+  // "Add block" gating (Unit 86). Block creation persists immediately, so it is
+  // disabled while the draft is dirty, mid-solver, before data is ready, when
+  // blocks failed to load, or when there are no rooms to block.
+  const addBlockDisabledReason: string | null = (() => {
+    if (editingDisabled) return 'A solver run is in progress.'
+    if (blocksIsError) return 'Timetable blocks could not be loaded.'
+    if (rooms === undefined || blocks === undefined)
+      return 'Timetable data is still loading.'
+    if (rooms.length === 0) return 'Add at least one room before blocking slots.'
+    if (isDirty) return 'Save or discard timetable changes before editing blocked slots.'
+    return null
+  })()
+  const canAddBlock = addBlockDisabledReason === null
+
   // Sessions not currently placed in the draft.
   const scheduledIds = new Set(draft.map((a) => a.session_id))
   const unscheduledSessions = schedulableSessions?.filter(
@@ -309,7 +564,9 @@ export default function TimetablePage() {
   const warningSessionIds = new Set(
     warningIssues.flatMap((i) => i.affected_session_ids)
   )
-  const blockingViolations = rooms ? checkDraftForBlockingViolations(draft, rooms) : []
+  const blockingViolations = rooms
+    ? checkDraftForBlockingViolations(draft, rooms, blockedCellMap)
+    : []
 
   // Solver start gating. The solver button is enabled only when there is nothing
   // blocking a run; the reason is surfaced to the admin when it is disabled.
@@ -356,9 +613,10 @@ export default function TimetablePage() {
         activeSessionId,
         schedulableSessions ?? [],
         draft,
-        rooms ?? []
+        rooms ?? [],
+        blockedCellMap
       ),
-    [activeHoverKey, activeSessionId, schedulableSessions, draft, rooms]
+    [activeHoverKey, activeSessionId, schedulableSessions, draft, rooms, blockedCellMap]
   )
 
   // Stable metrics change handler — avoids causing the measurement effect to
@@ -374,12 +632,14 @@ export default function TimetablePage() {
   )
 
   function handleSelectSession(sessionId: string) {
-    if (editingDisabled) return
+    if (editingDisabled || blockMode) return
     setBlockingError(null)
     setPendingSessionId((prev) => (prev === sessionId ? null : sessionId))
   }
 
   function handleCellClick(day: string, slotId: string, roomId: string) {
+    // Normal session placement is disabled while in block-selection mode.
+    if (blockMode) return
     // Block placement when the saved baseline could not be loaded — otherwise the
     // user could save a draft on top of an unknown saved timetable.
     if (editingDisabled || assignmentsIsError) return
@@ -406,7 +666,7 @@ export default function TimetablePage() {
       room_id: roomId,
     }
 
-    const issues = checkProposedPlacement(proposed, draft, rooms ?? [])
+    const issues = checkProposedPlacement(proposed, draft, rooms ?? [], blockedCellMap)
     if (issues.length > 0) {
       setBlockingError(issues[0].message)
       return
@@ -447,7 +707,7 @@ export default function TimetablePage() {
   }
 
   function handleDragStart(event: DragStartEvent) {
-    if (editingDisabled) return
+    if (editingDisabled || blockMode) return
     const sessionId = event.active.id as string
     setActiveSessionId(sessionId)
     setActiveHoverKey(null)
@@ -495,7 +755,7 @@ export default function TimetablePage() {
       room_id: roomId,
     }
 
-    const issues = checkProposedPlacement(proposed, draft, rooms ?? [])
+    const issues = checkProposedPlacement(proposed, draft, rooms ?? [], blockedCellMap)
     if (issues.length > 0) {
       setBlockingError(issues[0].message)
       return
@@ -590,10 +850,16 @@ export default function TimetablePage() {
         <TimetableGrid
           rooms={rooms}
           assignments={draft}
+          blockedCells={blockedCellMap}
+          isBlockInteractive={!blockEditingDisabled && !blockMode}
+          onBlockClick={handleBlockClick}
           pendingSessionId={pendingSessionId}
           warningSessionIds={warningSessionIds}
           editingDisabled={editingDisabled}
           hoverHighlightKeys={hoverHighlightKeys}
+          blockSelectionMode={blockMode}
+          blockSelectionKeys={blockSelectionKeys}
+          onBlockCellSelect={handleBlockCellSelect}
           onCellClick={handleCellClick}
           onUnschedule={handleUnschedule}
           onMoveSelect={handleSelectSession}
@@ -643,6 +909,13 @@ export default function TimetablePage() {
             onSave={handleSave}
             onRunSolver={handleRunSolver}
             isPendingPlacement={!!pendingSessionId}
+            blockMode={blockMode}
+            canAddBlock={canAddBlock}
+            addBlockDisabledReason={addBlockDisabledReason}
+            hasBlockSelection={blockSelectionKeys.size > 0}
+            onStartBlockMode={handleStartBlockMode}
+            onCancelBlockMode={handleCancelBlockMode}
+            onCreateBlock={handleOpenCreateBlock}
             solverRunStatus={solver.runStatus}
             isSolverStarting={solver.isStarting}
             solverStartError={solver.startError}
@@ -657,6 +930,17 @@ export default function TimetablePage() {
                 : null
             }
             onRetryAssignments={() => refetchAssignments()}
+            blocksError={
+              blocksIsError
+                ? getErrorMessage(
+                    blocksError,
+                    'Timetable blocks could not be loaded.'
+                  )
+                : null
+            }
+            onRetryBlocks={() => refetchBlocks()}
+            blockNotice={blockNotice}
+            onDismissBlockNotice={() => setBlockNotice(null)}
             draftNotice={draftNotice}
             onDismissDraftNotice={() => setDraftNotice(null)}
           />
@@ -668,6 +952,50 @@ export default function TimetablePage() {
           ) : null}
         </DragOverlay>
       </DndContext>
+      <BlockEditDialog
+        key={editingBlock?.id ?? 'none'}
+        block={editingBlock}
+        open={blockDialogOpen}
+        onOpenChange={(open) => {
+          setBlockDialogOpen(open)
+          if (!open) {
+            setEditingBlock(null)
+            setBlockMutationError(null)
+          }
+        }}
+        onSave={({ name, colour }) => {
+          if (!editingBlock) return
+          setBlockMutationError(null)
+          updateBlockMutation.mutate({
+            blockId: editingBlock.id,
+            name,
+            colour,
+            cells: editingBlock.cells,
+          })
+        }}
+        onDelete={() => {
+          if (!editingBlock) return
+          setBlockMutationError(null)
+          deleteBlockMutation.mutate(editingBlock.id)
+        }}
+        isSaving={updateBlockMutation.isPending}
+        isDeleting={deleteBlockMutation.isPending}
+        error={blockMutationError}
+      />
+      <BlockCreateDialog
+        // Remount per distinct selection so name/colour reset between blocks.
+        key={[...blockSelectionKeys].sort().join('|') || 'none'}
+        open={blockCreateOpen}
+        cells={blockSelectionCells}
+        rooms={rooms ?? []}
+        onOpenChange={(open) => {
+          setBlockCreateOpen(open)
+          if (!open) setBlockCreateError(null)
+        }}
+        onCreate={handleCreateBlock}
+        isSaving={createBlockMutation.isPending}
+        error={blockCreateError}
+      />
     </AppFrame>
   )
 }

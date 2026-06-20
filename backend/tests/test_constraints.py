@@ -145,7 +145,9 @@ def test_constraint_type_values():
     assert ConstraintType.UNIT_SESSION_OVERLAP == "unit_session_overlap"
     # Value matches the frontend WarningIssueType naming (lecturer_unavailable).
     assert ConstraintType.LECTURER_AVAILABILITY == "lecturer_unavailable"
-    assert len(ConstraintType) == 8
+    # Unit 87: timetable blocks mirrored as a hard cell-feasibility constraint.
+    assert ConstraintType.TIMETABLE_SLOT_BLOCKED == "timetable_slot_blocked"
+    assert len(ConstraintType) == 9
 
 
 def test_constraint_severity_values():
@@ -161,6 +163,7 @@ def test_severity_map_blocking_types():
         ConstraintType.ROOM_CAPACITY,
         ConstraintType.LUNCH_CROSSING,
         ConstraintType.OFF_TIMETABLE,
+        ConstraintType.TIMETABLE_SLOT_BLOCKED,
     }
 
 

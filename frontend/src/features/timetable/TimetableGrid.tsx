@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
 import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
+import { buildBlockAnchorData, type BlockedCell } from './blocks'
 
 export interface RoomColumn {
   id: string
@@ -12,11 +13,19 @@ export interface RoomColumn {
 interface TimetableGridProps {
   rooms: RoomColumn[]
   assignments?: TimetableAssignment[]
+  // Unit 85: reserved cells keyed by "day:roomId:slotId" (see buildBlockedCellMap).
+  blockedCells?: Map<string, BlockedCell>
+  isBlockInteractive?: boolean
+  onBlockClick?: (blockId: string) => void
   pendingSessionId?: string | null
   warningSessionIds?: Set<string>
   editingDisabled?: boolean
   // Set of "day:roomId:slotId" keys to highlight (valid hover proposals only).
   hoverHighlightKeys?: Set<string>
+  // Unit 86: block-selection mode and the currently selected cell keys.
+  blockSelectionMode?: boolean
+  blockSelectionKeys?: Set<string>
+  onBlockCellSelect?: (day: string, slotId: string, roomId: string) => void
   onCellClick?: (day: string, slotId: string, roomId: string) => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
@@ -79,10 +88,16 @@ function TimeLabel({ label }: { label: string }) {
 export function TimetableGrid({
   rooms,
   assignments = [],
+  blockedCells,
+  isBlockInteractive = false,
+  onBlockClick,
   pendingSessionId,
   warningSessionIds,
   editingDisabled = false,
   hoverHighlightKeys,
+  blockSelectionMode = false,
+  blockSelectionKeys,
+  onBlockCellSelect,
   onCellClick,
   onUnschedule,
   onMoveSelect,
@@ -117,6 +132,21 @@ export function TimetableGrid({
     ro.observe(container)
     return () => ro.disconnect()
   }, []) // ResizeObserver handles layout-driven changes; callback accessed via ref
+
+  // Compute merged-block anchor data: for each block group/slot that spans
+  // multiple adjacent room columns, identify the leftmost "anchor" cell (which
+  // renders a merged card spanning N columns) and the covered non-anchor cells
+  // (which render no visual card but remain functionally blocked).
+  const { anchorMap, suppressSet } = useMemo(
+    () =>
+      blockedCells
+        ? buildBlockAnchorData(blockedCells, rooms)
+        : {
+            anchorMap: new Map<string, { roomSpan: number; slotSpan: number }>(),
+            suppressSet: new Set<string>(),
+          },
+    [blockedCells, rooms]
+  )
 
   if (rooms.length === 0) return null
 
@@ -194,7 +224,8 @@ export function TimetableGrid({
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
             rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              const cellKey = `${day}:${room.id}:${slot.id}`
+              const a = assignmentMap.get(cellKey)
               return (
                 <GridCell
                   key={`${day}-${room.id}-${slot.id}`}
@@ -203,11 +234,20 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
+                  blockedCell={blockedCells?.get(cellKey) ?? null}
+                  blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
+                  blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
+                  suppressBlockVisual={suppressSet.has(cellKey)}
+                  isBlockInteractive={isBlockInteractive}
+                  onBlockClick={onBlockClick}
+                  isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
+                  blockSelectionMode={blockSelectionMode}
+                  isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}
+                  onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}
@@ -262,7 +302,8 @@ export function TimetableGrid({
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
             rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              const cellKey = `${day}:${room.id}:${slot.id}`
+              const a = assignmentMap.get(cellKey)
               return (
                 <GridCell
                   key={`${day}-${room.id}-${slot.id}`}
@@ -271,11 +312,20 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
+                  blockedCell={blockedCells?.get(cellKey) ?? null}
+                  blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
+                  blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
+                  suppressBlockVisual={suppressSet.has(cellKey)}
+                  isBlockInteractive={isBlockInteractive}
+                  onBlockClick={onBlockClick}
+                  isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
+                  blockSelectionMode={blockSelectionMode}
+                  isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}
+                  onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}

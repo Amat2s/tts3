@@ -31,8 +31,8 @@
 ## System Boundaries
 
 - `frontend/` — React application responsible for timetable UI, draft assignment state, drag/drop scheduling, user-facing validation, constraint visualization, solver gating, and admin interaction.
-- `backend/` — FastAPI service responsible for core data persistence, saved timetable assignment persistence, defensive save invariants, solver compilation, and API orchestration. It does not own user-facing timetable validation in v1.
-- `solver/` — OR-Tools integration layer inside backend responsible for converting saved sessions + mirrored solver constraints into a CP-SAT model.
+- `backend/` — FastAPI service responsible for core data persistence, saved timetable assignment persistence, defensive save invariants, solver compilation, and API orchestration. It does not own user-facing timetable validation in v1. It also owns timetable block persistence and protected block CRUD, unschedules saved assignments overlapping a created/updated block, and defensively rejects assignment saves that overlap blocks.
+- `solver/` — OR-Tools integration layer inside backend responsible for converting saved sessions + mirrored solver constraints into a CP-SAT model. It consumes blocked cells from the snapshot so the model never occupies a blocked `day + slot + room` cell.
 - `shared/` — Shared domain types (sessions, constraints, DTO schemas) used by both frontend and backend.
 - `jobs/` — Trigger.dev workflows for asynchronous solver execution and progress reporting.
 
@@ -48,6 +48,7 @@
   - unit teaching teams (`unit_lecturers`)
   - hidden session-student allocations
   - session assignments (locked + scheduled state)
+  - timetable block groups (`timetable_block_groups`) and room-specific block cells (`timetable_block_cells`)
 - **Browser localStorage (frontend draft only)**: the current unsaved timetable draft is persisted client-side under a schema-versioned key. It stores only the unsaved draft plus minimal metadata (schema version, saved-assignment fingerprint, timestamp), never server-owned query data, and is cleared after a successful save. No version history; stale or malformed stored drafts are discarded on load.
 - **No blob storage in v1**: file uploads not required yet (future: CSV imports, exports, reports)
 - **Future object storage (Supabase Storage or Vercel Blob)**: for timetable exports and bulk imports
@@ -69,7 +70,7 @@
 4. Manual scheduling actions update the frontend draft first. They are persisted only when the admin explicitly saves the timetable.
 5. User-facing validation is owned by the frontend in v1.
 6. Frontend validation has two severities: `blocking` and `warning`.
-7. Blocking placement rules reject a proposed placement before it enters the draft: room double-booking, room capacity too small, crossing lunch, and running off the timetable.
+7. Blocking placement rules reject a proposed placement before it enters the draft: room double-booking, room capacity too small, crossing lunch, running off the timetable, and placement into a cell reserved by a timetable block (`timetable_slot_blocked`).
 8. Warning rules allow the placement to remain visible but mark it as invalid/warning and block solver execution. Warning rules include session-level lecturer conflicts, allocated-student conflicts, lecturer availability conflicts, and other non-blocking conflicts represented by current data. Independent same-unit overlap is retired.
 9. If underlying data changes make an existing saved or draft assignment violate a blocking rule, the frontend must automatically unschedule that session and make the reason visible when relevant.
 10. Backend assignment save endpoints enforce defensive invariants for impossible persisted states, but these defensive rejections are not the normal user-facing validation path.
@@ -89,3 +90,6 @@
 24. Unit codes are exactly three letters followed by three numbers (`AAA999`), trimmed and uppercased, and unique. Subject and year are derived from the code; the subject parser (supported prefixes HIS, PHI, THE, LIT, LAN, GRE, SCI) is frontend-only for display, filtering, and colour. The backend defensively validates the structural format and keeps year derivation authoritative.
 25. The unsaved timetable draft may be persisted in versioned browser storage; it is cleared after a successful save, and restored drafts remain subject to the blocking auto-unschedule rules. Saving an empty draft persists an empty assignment set.
 26. Students have no title. Lecturer titles are restricted to `Mr`, `Ms`, `Mrs`, `Dr`, `Fr`, `A/Prof.`, `Prof.`.
+27. Timetable blocks are stored as block groups (`id`, nullable `name`, nullable `colour`, timestamps) and room-specific block cells (`day + slot + room_id`), with a unique `(day, slot, room_id)` so a cell can be blocked by at most one group and cells cascade when their group or room is removed. An unnamed block has `name = null` and `colour = null`; a named block requires a `name` and a `colour` of `gold`, `light_blue`, or `light_pink`. Blocks are not sessions and never appear in session/scheduling models or the unscheduled pool.
+28. Timetable blocks are a hard constraint, not a soft one. The frontend rejects manual placement into blocked cells and auto-unschedules draft/restored assignments overlapping blocks; the backend defensively rejects saving assignments that overlap blocks (`assignment_overlaps_timetable_block`); and the solver mirror loads blocked cells into the snapshot (`BlockedCellSnapshot`) so the CP-SAT model never occupies a blocked cell. The mirrored constraint type is `timetable_slot_blocked` with `blocking` severity (a cell-feasibility constraint, not a conflict-graph edge).
+29. Creating or updating a block over saved assignments unschedules those assignments in the same transaction and returns the affected session IDs; deleting a block frees its cells without rescheduling anything. A saved assignment overlapping a block must never be valid solver input (snapshot integrity fails safely if one is found).

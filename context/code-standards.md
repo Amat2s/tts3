@@ -131,6 +131,7 @@ type SessionScheduleState =
 - Keep migrations small and reversible where practical.
 - Use explicit relationships for core domain entities.
 - Store unit enrolment and teaching teams in explicit many-to-many tables. Store hidden session-student membership in `session_student_allocations`.
+- Store timetable blocks as `timetable_block_groups` (nullable `name`, nullable `colour` enum, timestamps) and `timetable_block_cells` (`block_group_id`, `day`, `slot`, `room_id`). Cascade cells when a block group is deleted, safely remove cells when a room is deleted, enforce a unique `(day, slot, room_id)` so a cell is blocked by at most one group, and index `block_group_id`, `room_id`, and `(day, slot, room_id)`.
 - Prefer database constraints for invariants that must never be violated at rest.
 - Enforce uniqueness where the product requires it, such as room names if room names are treated as unique.
 - Use nullable assignment fields only if the application and database constraints prevent invalid combinations.
@@ -178,7 +179,13 @@ type SessionScheduleState =
   - room double-booking;
   - room capacity too small;
   - session crossing lunch;
-  - session running off the timetable.
+  - session running off the timetable;
+  - placement into a cell reserved by a timetable block (`timetable_slot_blocked`).
+- The `timetable_slot_blocked` blocking rule rejects any proposed placement whose occupied
+  cells intersect a blocked `day + slot + room_id` cell; draft validation and the
+  auto-unschedule cleanup remove existing assignments overlapping blocks. Messages use the
+  block name when present (`This time is blocked by Chapel.`) and a generic form otherwise
+  (`This time is blocked.`), always with human time labels rather than raw slot IDs.
 - Warning validation allows the placement to remain visible but blocks solver execution.
 - Warning rules are:
   - session-level lecturer overlap conflict;
@@ -208,6 +215,10 @@ type SessionScheduleState =
 - Backend constraint definitions should mirror the frontend validation model closely enough that solver behavior matches the editor.
 - Backend assignment save endpoints may defensively reject impossible persisted states, but those checks should not replace frontend UX validation.
 - Do not add a user-facing validation API in v1 unless a later spec explicitly reintroduces it.
+- Timetable blocks are a hard constraint mirrored on the backend as `TIMETABLE_SLOT_BLOCKED = "timetable_slot_blocked"` with `blocking` severity — a cell-feasibility constraint, not a conflict-graph edge.
+- The solver snapshot must include blocked cells (`BlockedCellSnapshot(day, slot, room_id, block_group_id, block_name)` on `SolverInputSnapshot`). The snapshot builder loads all block cells with group names, builds deterministic blocked-cell data, and rejects saved locked assignments overlapping blocks with `SnapshotIntegrityError`.
+- The assignment save service must defensively reject any requested assignment whose occupied cells intersect a blocked cell, using the structured error code `assignment_overlaps_timetable_block` (defensive persistence validation, not normal UX validation).
+- Solver candidate generation must expand each candidate's occupied cells and reject any candidate overlapping a blocked cell before creating CP-SAT variables; this composes with the existing capacity, lunch, off-timetable, availability, and locked-occupancy feasibility checks. Result application must defensively reject generated assignments overlapping blocks, roll back on failure, preserve saved state, and report a structured integrity failure.
 
 ## Trigger.dev Jobs
 
@@ -263,6 +274,8 @@ type SessionScheduleState =
 - Do not silently cascade destructive changes without explicit product behavior.
 - Deleting a room must unschedule sessions assigned to that room.
 - Data changes that create blocking violations must automatically unschedule affected assignments; data changes that create warning violations must surface warnings without silently changing unrelated assignments.
+- Timetable block CRUD lives on its own protected resource routes (`GET/POST /timetable-blocks`, `PUT/DELETE /timetable-blocks/{block_group_id}`), separate from session/assignment endpoints. Handlers stay thin and return structured errors for invalid colour/name state, unknown rooms, empty cells, duplicate blocked cells, and missing block groups.
+- Creating or updating a block must intentionally unschedule overlapping saved assignments in the same transaction and return `unscheduled_session_ids`; deleting a block frees its cells without rescheduling. Block name is trimmed (blank becomes `null`); a named block requires an allowed colour and an unnamed block must carry no colour.
 
 ## Data and Storage
 
@@ -361,14 +374,14 @@ type SessionScheduleState =
 - `frontend/src/routes/` — route-level pages such as `/timetable`, `/units`, `/lecturers`, `/students`, and `/rooms`.
 - `frontend/src/components/` — reusable UI components that are not route-specific.
 - `frontend/src/components/ui/` — shadcn/ui generated and wrapped components.
-- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft) and `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
+- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft), `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens), and `blocks.ts` (`buildBlockedCellMap`, `buildBlockAnchorData`, `getBlockColorTokens` — block flattening and multi-room horizontal merging helpers). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
 - `frontend/src/features/units/` — unit and session management UI.
 - `frontend/src/features/lecturers/` — lecturer management and availability UI.
 - `frontend/src/features/students/` — student management UI.
 - `frontend/src/features/rooms/` — room management UI.
-- `frontend/src/lib/api/` — API client functions and TanStack Query hooks.
+- `frontend/src/lib/api/` — API client functions and TanStack Query hooks. Includes `timetableBlocks.ts` (block colour type, block group/cell DTOs, create/update input types, and `listTimetableBlocks` / `createTimetableBlock` / `updateTimetableBlock` / `deleteTimetableBlock` over the authenticated client). The timetable route loads blocks under the `['timetable-blocks']` query key.
 - `frontend/src/lib/types/` — frontend-facing shared types and DTO imports.
-- `frontend/src/lib/validation/` — frontend-safe validation helpers and constraint display helpers.
+- `frontend/src/lib/validation/` — frontend-safe validation helpers and constraint display helpers, including the `timetable_slot_blocked` blocking rule that rejects placements over blocked cells.
 - `frontend/src/lib/unit-code-parser.ts` — frontend-only unit-code parser deriving subject, colour tokens, and year level from the `AAA999` code for display, filtering, and validation UX.
 - `frontend/src/stores/` — Zustand stores for UI-only state.
 - `backend/` — FastAPI backend application.
@@ -376,8 +389,8 @@ type SessionScheduleState =
 - `backend/models/` — SQLAlchemy ORM models.
 - `backend/schemas/` — Pydantic request and response schemas.
 - `backend/services/` — application services for domain operations.
-- `backend/constraints/` — hard constraint definitions, conflict graph generation, and validation logic.
-- `backend/solver/` — OR-Tools model compilation and solver execution functions.
+- `backend/constraints/` — hard constraint definitions, conflict graph generation, and validation logic, including the `timetable_slot_blocked` constraint mirror.
+- `backend/solver/` — OR-Tools model compilation and solver execution functions. The snapshot builder, CP-SAT model, and result application all consume blocked cells so generated assignments never occupy a blocked cell.
 - `jobs/` — Trigger.dev job definitions and background orchestration. This is a standalone top-level Node/TypeScript project (Trigger.dev is Node-based) and therefore lives beside `backend/` rather than inside the Python `backend/` package, matching the `jobs/` boundary in `architecture-context.md`.
 - `backend/db/` — database session setup, migrations integration, and persistence utilities.
 - `backend/auth/` — authentication helpers and current-user dependencies.

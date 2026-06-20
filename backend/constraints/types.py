@@ -15,6 +15,9 @@ class ConstraintType(str, enum.Enum):
     # compile_assignment_violations diagnostics and pre-v2 test fixtures.
     UNIT_SESSION_OVERLAP = "unit_session_overlap"
     LECTURER_AVAILABILITY = "lecturer_unavailable"
+    # Unit 87: timetable blocks are a hard cell-feasibility constraint, not a
+    # conflict-graph edge. A blocked day+slot+room_id cell may never be occupied.
+    TIMETABLE_SLOT_BLOCKED = "timetable_slot_blocked"
 
 
 class ConstraintSeverity(str, enum.Enum):
@@ -32,6 +35,7 @@ CONSTRAINT_SEVERITY: dict[ConstraintType, ConstraintSeverity] = {
     ConstraintType.STUDENT_OVERLAP: ConstraintSeverity.WARNING,
     ConstraintType.UNIT_SESSION_OVERLAP: ConstraintSeverity.WARNING,
     ConstraintType.LECTURER_AVAILABILITY: ConstraintSeverity.WARNING,
+    ConstraintType.TIMETABLE_SLOT_BLOCKED: ConstraintSeverity.BLOCKING,
 }
 
 

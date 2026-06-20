@@ -12,8 +12,11 @@ import { defineConfig } from "@trigger.dev/sdk/v3";
  * internal execute endpoint over HTTP (SOLVER_EXECUTE_URL), never running
  * solver business logic itself. See docs/trigger-dev-deployment.md.
  */
+// proj_ref_main = "proj_kwgyhghrnimqdhmwqjrr";
+// proj_ref_dev = "proj_bmtqxqdddzxouqfewdiy";
+
 export default defineConfig({
-  project: "proj_kwgyhghrnimqdhmwqjrr",
+  project: "proj_bmtqxqdddzxouqfewdiy",
   runtime: "node",
   logLevel: "info",
   // v1 jobs are short orchestration wrappers; keep an explicit ceiling.
