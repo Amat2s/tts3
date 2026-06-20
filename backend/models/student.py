@@ -16,6 +16,12 @@ class Student(Base):
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
     )
+    # Canonical institutional identifier (Unit 89). Separate from the internal
+    # primary key `id`; required and unique (exactly 8 digits, enforced in the
+    # schema/service layer). Indexed unique constraint backs the uniqueness rule.
+    student_number: Mapped[str] = mapped_column(
+        String, nullable=False, unique=True, index=True
+    )
     first_name: Mapped[str] = mapped_column(String, nullable=False)
     last_name: Mapped[str] = mapped_column(String, nullable=False)
     year_level: Mapped[int] = mapped_column(Integer, nullable=False)

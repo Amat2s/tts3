@@ -6,6 +6,7 @@ trigger points (unit/student/session mutations), the schedulable + assignment
 DTO student counts deriving from allocation rows, and capacity defensive checks
 using allocated counts. Uses the in-memory SQLite ``db`` fixture from conftest.
 """
+import itertools
 import os
 import sys
 
@@ -49,6 +50,9 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
     return lec
 
 
+_student_numbers = itertools.count(10_000_000)
+
+
 def make_students(db, count, year_level=1, prefix="s") -> list[str]:
     ids = []
     for i in range(count):
@@ -56,6 +60,7 @@ def make_students(db, count, year_level=1, prefix="s") -> list[str]:
         db.add(
             Student(
                 id=sid,
+                student_number=str(next(_student_numbers)),
                 first_name="Stu",
                 last_name=sid,
                 year_level=year_level,
@@ -274,7 +279,10 @@ def test_create_student_joins_lectures_and_one_tutorial(db):
 
     # A new year-1 student auto-enrols into the matching-year unit.
     new = create_student(
-        db, StudentCreate(first_name="New", last_name="Comer", year_level=1)
+        db,
+        StudentCreate(
+            student_number="90000001", first_name="New", last_name="Comer", year_level=1
+        ),
     )
     assert new.id in alloc_ids(db, lecture.id)  # in the lecture
     tut = tutorial_map(db, unit.id)

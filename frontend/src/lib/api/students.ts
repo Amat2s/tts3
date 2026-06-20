@@ -16,6 +16,9 @@ export interface UnitSummary {
 
 export interface Student {
   id: string
+  // Unit 89: the canonical institutional identifier (exactly 8 digits),
+  // distinct from the internal `id`.
+  student_number: string
   first_name: string
   last_name: string
   year_level: YearLevel
@@ -26,15 +29,29 @@ export interface Student {
 }
 
 export interface StudentCreate {
+  student_number: string
   first_name: string
   last_name: string
   year_level: YearLevel
 }
 
 export interface StudentUpdate {
+  student_number?: string
   first_name?: string
   last_name?: string
   year_level?: YearLevel
+}
+
+// Unit 90/91: aggregate outcome of a student CSV import. Mirrors the backend
+// `StudentImportResult` — counts only, never student lists or raw rows.
+export interface StudentImportResult {
+  created_students: number
+  updated_students: number
+  added_enrolments: number
+  skipped_unknown_unit_rows: number
+  skipped_invalid_rows: number
+  skipped_past_census_rows: number
+  deduped_rows: number
 }
 
 function parseStudentError(err: unknown): never {
@@ -96,4 +113,22 @@ export async function updateStudent(studentId: string, data: StudentUpdate): Pro
 
 export async function deleteStudent(studentId: string): Promise<void> {
   return apiRequest<void>(`/students/${studentId}`, { method: 'DELETE' })
+}
+
+/**
+ * Upload a student-enrolment CSV to the protected backend import endpoint.
+ *
+ * Sends a multipart request through the authenticated API client (which omits
+ * the JSON `Content-Type` for `FormData` so the browser sets the multipart
+ * boundary). Structural backend errors arrive as structured `AppError`
+ * envelopes whose human message is already surfaced on `ApiRequestError.message`,
+ * so we let them propagate for the caller to display.
+ */
+export async function uploadStudentCsv(file: File): Promise<StudentImportResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiRequest<StudentImportResult>('/students/import-csv', {
+    method: 'POST',
+    body: formData,
+  })
 }

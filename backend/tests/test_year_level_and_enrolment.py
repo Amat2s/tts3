@@ -6,6 +6,7 @@ update preservation, schema/database year-level constraints, and the enriched
 student response shape. Uses the in-memory SQLite ``db`` fixture from conftest so
 fixtures match production ORM models exactly.
 """
+import itertools
 import os
 import sys
 
@@ -29,6 +30,10 @@ from services.year_level import InvalidUnitCodeError, parse_unit_year_level
 # Fixture builders
 # ---------------------------------------------------------------------------
 
+# Unit 89: student numbers are required and unique. A monotonic counter yields a
+# fresh 8-digit number per built student so fixtures never collide.
+_student_numbers = itertools.count(10_000_000)
+
 
 def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
     lec = Lecturer(
@@ -42,6 +47,7 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
 def make_student(db, student_id, year_level) -> Student:
     s = Student(
         id=student_id,
+        student_number=str(next(_student_numbers)),
         first_name="Stu",
         last_name=student_id,
         year_level=year_level,
@@ -194,7 +200,9 @@ def test_create_student_auto_enrols_in_matching_year_units(db):
 
     student = create_student(
         db,
-        StudentCreate(first_name="New", last_name="Stu", year_level=2),
+        StudentCreate(
+            student_number="20000001", first_name="New", last_name="Stu", year_level=2
+        ),
     )
 
     enrolled_unit_ids = {u.id for u in student.units}
@@ -259,8 +267,9 @@ def test_unit_enrolment_edit_updates_student_side_of_same_relationship(db):
 @pytest.mark.parametrize("year", [4, 5, 0])
 def test_student_create_schema_rejects_out_of_range_year(year):
     with pytest.raises(ValidationError):
+        # A valid student number isolates the year-level rule as the only failure.
         StudentCreate(
-            first_name="A", last_name="B", year_level=year
+            student_number="30000000", first_name="A", last_name="B", year_level=year
         )
 
 
@@ -274,6 +283,7 @@ def test_student_year_level_database_constraint(db):
     db.add(
         Student(
             id="bad",
+            student_number="40000000",
             first_name="A",
             last_name="B",
             year_level=4,
@@ -302,7 +312,9 @@ def test_student_response_includes_units_and_unit_count(db):
     create_unit(db, UnitCreate(code="THE203", name="Theology", lecturer_ids=["lec1"]))
     student = create_student(
         db,
-        StudentCreate(first_name="New", last_name="Stu", year_level=2),
+        StudentCreate(
+            student_number="20000002", first_name="New", last_name="Stu", year_level=2
+        ),
     )
 
     response = StudentResponse.model_validate(student)

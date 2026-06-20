@@ -123,10 +123,12 @@ This application is a university timetable scheduling system for administrators.
 - Admin can create students.
 - Students have no title.
 - Each student has:
+  - a required, unique `student_number` (the canonical institutional identifier, exactly 8 digits, separate from the internal record id)
   - first name
   - last name
   - year level restricted to 1-3
 - Creating a student automatically enrols them into existing units with the same derived year.
+- Admin can bulk-import students from a CSV via `POST /students/import-csv`. The upload is parsed in-memory and discarded (no file storage). Current rows (kept when `dest census date >= today` in Australia/Sydney) create or update students matched by `student_number` and additively enrol them into matching existing units; units are never created from the CSV and existing enrolments are never removed. Newly created students get an initial year level derived from their student number (future cohorts rejected, above 3 capped to 3); existing students keep their manually set year level but have their names updated. The response is aggregate counts only (created/updated students, added enrolments, and skipped/deduped row tallies).
 - Creating a unit without an explicit student list defaults to students in the unit's derived year.
 - Enrolment edits from the student and unit pages update the same `unit_students` relationship.
 - Hidden session allocations derive student-conflict warnings and solver conflicts.
@@ -270,8 +272,8 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 
 ### Out of Scope
 
-- File upload/import for v1.
-- CSV or Excel import templates.
+- General file upload/import beyond the backend student CSV import API (`POST /students/import-csv`, Unit 90), including a frontend upload UI.
+- Excel import templates.
 - Timetable export/download for v1.
 - Student-facing timetable views.
 - Lecturer-facing timetable views.

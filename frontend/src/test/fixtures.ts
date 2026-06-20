@@ -127,6 +127,7 @@ export function makeSolverStatus(
 export function makeStudent(overrides: Partial<Student> = {}): Student {
   return {
     id: 'student-1',
+    student_number: '20251234',
     first_name: 'Sam',
     last_name: 'Carter',
     year_level: 1,

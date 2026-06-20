@@ -301,6 +301,7 @@ def test_database_snapshot_uses_session_lecturers_and_allocation_rows(db):
             *[
                 Student(
                     id=f"stu-{i}",
+                    student_number=f"5000000{i}",
                     first_name="Student",
                     last_name=str(i),
                     year_level=1,

@@ -21,6 +21,7 @@ vi.mock('@/lib/api/students', () => ({
   createStudent: vi.fn(),
   updateStudent: vi.fn(),
   deleteStudent: vi.fn(),
+  uploadStudentCsv: vi.fn(),
 }))
 vi.mock('@/lib/api/units', () => ({
   listUnits: vi.fn(),
@@ -28,7 +29,13 @@ vi.mock('@/lib/api/units', () => ({
 }))
 
 import StudentsPage from './students'
-import { listStudents, createStudent, updateStudent } from '@/lib/api/students'
+import {
+  listStudents,
+  createStudent,
+  updateStudent,
+  uploadStudentCsv,
+} from '@/lib/api/students'
+import type { StudentImportResult } from '@/lib/api/students'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { StudentSummary } from '@/lib/api/units'
 import { makeStudent, makeUnit } from '@/test/fixtures'
@@ -36,8 +43,19 @@ import { makeStudent, makeUnit } from '@/test/fixtures'
 const mockListStudents = vi.mocked(listStudents)
 const mockCreateStudent = vi.mocked(createStudent)
 const mockUpdateStudent = vi.mocked(updateStudent)
+const mockUploadStudentCsv = vi.mocked(uploadStudentCsv)
 const mockListUnits = vi.mocked(listUnits)
 const mockUpdateUnit = vi.mocked(updateUnit)
+
+const EMPTY_IMPORT_RESULT: StudentImportResult = {
+  created_students: 0,
+  updated_students: 0,
+  added_enrolments: 0,
+  skipped_unknown_unit_rows: 0,
+  skipped_invalid_rows: 0,
+  skipped_past_census_rows: 0,
+  deduped_rows: 0,
+}
 
 function renderStudents() {
   const queryClient = new QueryClient({
@@ -71,6 +89,7 @@ beforeEach(() => {
   mockCreateStudent.mockImplementation(async (data) =>
     makeStudent({
       id: 'new-student',
+      student_number: data.student_number,
       first_name: data.first_name,
       last_name: data.last_name,
       year_level: data.year_level as 1 | 2 | 3,
@@ -78,6 +97,7 @@ beforeEach(() => {
   )
   mockUpdateStudent.mockImplementation(async (id) => makeStudent({ id }))
   mockUpdateUnit.mockImplementation(async (id) => makeUnit({ id }))
+  mockUploadStudentCsv.mockResolvedValue(EMPTY_IMPORT_RESULT)
 })
 
 afterEach(() => {
@@ -230,5 +250,266 @@ describe('StudentsPage — edit persists enrolment via the shared unit relations
     // relationship the /units page edits.
     expect(mockUpdateUnit).toHaveBeenCalledWith('u2', { student_ids: ['stu-1'] })
     expect(mockUpdateUnit).toHaveBeenCalledWith('u1', { student_ids: [] })
+  })
+})
+
+// --- Unit 91: student number field + CSV upload ---------------------------
+
+async function selectYear(
+  user: ReturnType<typeof userEvent.setup>,
+  dialog: HTMLElement,
+  year: number
+) {
+  await user.click(within(dialog).getByText('Select a year level'))
+  await user.click(await screen.findByRole('option', { name: `Year ${year}` }))
+}
+
+describe('StudentsPage — student number field (Unit 91)', () => {
+  it('shows the student number field in the create form', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    await user.click(await screen.findByRole('button', { name: /Add student/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Student number')).toBeInTheDocument()
+  })
+
+  it('initializes the edit form from the existing student number', async () => {
+    const user = userEvent.setup()
+    mockListStudents.mockResolvedValue([
+      makeStudent({ id: 'stu-1', first_name: 'Edith', student_number: '20240007' }),
+    ])
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: /Edit/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('Student number')).toHaveValue('20240007')
+  })
+
+  it('disables create until the student number is exactly 8 digits', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    await user.click(await screen.findByRole('button', { name: /Add student/ }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.type(within(dialog).getByLabelText('First name'), 'Alex')
+    await user.type(within(dialog).getByLabelText('Last name'), 'Johnson')
+    await selectYear(user, dialog, 1)
+
+    // An invalid (too short) student number keeps the button disabled and shows
+    // the inline format error.
+    await user.type(within(dialog).getByLabelText('Student number'), '123')
+    const submit = within(dialog).getByRole('button', { name: /Add student/ })
+    expect(submit).toBeDisabled()
+    expect(
+      within(dialog).getByText('Student number must be exactly 8 digits.')
+    ).toBeInTheDocument()
+
+    // A valid 8-digit number enables submission.
+    await user.clear(within(dialog).getByLabelText('Student number'))
+    await user.type(within(dialog).getByLabelText('Student number'), '20251234')
+    await waitFor(() => expect(submit).toBeEnabled())
+  })
+
+  it('submits a valid student number on create', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    await user.click(await screen.findByRole('button', { name: /Add student/ }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.type(within(dialog).getByLabelText('Student number'), '20251234')
+    await user.type(within(dialog).getByLabelText('First name'), 'Alex')
+    await user.type(within(dialog).getByLabelText('Last name'), 'Johnson')
+    await selectYear(user, dialog, 2)
+
+    const submit = within(dialog).getByRole('button', { name: /Add student/ })
+    await waitFor(() => expect(submit).toBeEnabled())
+    await user.click(submit)
+
+    await waitFor(() => expect(mockCreateStudent).toHaveBeenCalledTimes(1))
+    expect(mockCreateStudent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        student_number: '20251234',
+        first_name: 'Alex',
+        last_name: 'Johnson',
+        year_level: 2,
+      })
+    )
+  })
+
+  it('keeps year level manually editable and never derives it from the number', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    await user.click(await screen.findByRole('button', { name: /Add student/ }))
+    const dialog = await screen.findByRole('dialog')
+
+    // Typing a student number must not auto-fill the year level — the year
+    // selector stays on its placeholder until the admin chooses a value.
+    await user.type(within(dialog).getByLabelText('Student number'), '20251234')
+    expect(within(dialog).getByText('Select a year level')).toBeInTheDocument()
+
+    await selectYear(user, dialog, 3)
+    expect(within(dialog).getByText('Year 3')).toBeInTheDocument()
+  })
+
+  it('edit form shows the stored year level, not one derived from the number', async () => {
+    const user = userEvent.setup()
+    // Number derives to a different (capped) year; the stored Year 1 must win.
+    mockListStudents.mockResolvedValue([
+      makeStudent({ id: 'stu-1', first_name: 'Edith', student_number: '20231234', year_level: 1 }),
+    ])
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: /Edit/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Year 1')).toBeInTheDocument()
+  })
+
+  it('shows the student number column in the table', async () => {
+    mockListStudents.mockResolvedValue([
+      makeStudent({ id: 's1', first_name: 'Alice', student_number: '20240001' }),
+    ])
+    renderStudents()
+    await screen.findByText('Alice')
+    expect(
+      screen.getByRole('columnheader', { name: 'Student number' })
+    ).toBeInTheDocument()
+    expect(screen.getByText('20240001')).toBeInTheDocument()
+  })
+
+  it('search matches the student number', async () => {
+    const user = userEvent.setup()
+    mockListStudents.mockResolvedValue([
+      makeStudent({ id: 's1', first_name: 'Alice', student_number: '20240001' }),
+      makeStudent({ id: 's2', first_name: 'Bob', student_number: '20240002' }),
+    ])
+    renderStudents()
+    await screen.findByText('Alice')
+
+    await user.type(
+      screen.getByLabelText('Search students by name or student number'),
+      '20240002'
+    )
+
+    await waitFor(() => expect(screen.queryByText('Alice')).toBeNull())
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+  })
+})
+
+describe('StudentsPage — CSV upload (Unit 91)', () => {
+  function csvFile(name = 'students.csv') {
+    return new File(['Student number,first name'], name, { type: 'text/csv' })
+  }
+
+  async function openUploadDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(
+      await screen.findByRole('button', { name: /Upload student information/ })
+    )
+    return screen.findByRole('dialog')
+  }
+
+  it('opens the upload dialog and explains the expected format', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    const dialog = await openUploadDialog(user)
+
+    expect(within(dialog).getByText(/Expected CSV columns/)).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        /Student number, first name, last name, scheduled unit code, dest census date/
+      )
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText(/dd\/mm\/yyyy/)).toBeInTheDocument()
+  })
+
+  it('disables upload until a file is selected', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    const dialog = await openUploadDialog(user)
+
+    const uploadBtn = within(dialog).getByRole('button', { name: 'Upload' })
+    expect(uploadBtn).toBeDisabled()
+
+    await user.upload(within(dialog).getByLabelText('CSV file'), csvFile())
+    expect(uploadBtn).toBeEnabled()
+  })
+
+  it('sends the selected file through the API client', async () => {
+    const user = userEvent.setup()
+    renderStudents()
+    const dialog = await openUploadDialog(user)
+
+    const file = csvFile()
+    await user.upload(within(dialog).getByLabelText('CSV file'), file)
+    await user.click(within(dialog).getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(mockUploadStudentCsv).toHaveBeenCalledTimes(1))
+    expect(mockUploadStudentCsv).toHaveBeenCalledWith(file)
+  })
+
+  it('shows the aggregate summary on success without the past-census count', async () => {
+    const user = userEvent.setup()
+    mockUploadStudentCsv.mockResolvedValue({
+      created_students: 2,
+      updated_students: 1,
+      added_enrolments: 3,
+      skipped_unknown_unit_rows: 1,
+      skipped_invalid_rows: 0,
+      skipped_past_census_rows: 5,
+      deduped_rows: 0,
+    })
+    renderStudents()
+    const dialog = await openUploadDialog(user)
+
+    await user.upload(within(dialog).getByLabelText('CSV file'), csvFile())
+    await user.click(within(dialog).getByRole('button', { name: 'Upload' }))
+
+    expect(await within(dialog).findByText('Import complete')).toBeInTheDocument()
+    expect(within(dialog).getByText('Created students')).toBeInTheDocument()
+    expect(within(dialog).getByText('Updated students')).toBeInTheDocument()
+    expect(within(dialog).getByText('Added enrolments')).toBeInTheDocument()
+    expect(within(dialog).getByText('Skipped unknown-unit rows')).toBeInTheDocument()
+    // Zero invalid rows are not surfaced, and the past-census count never is
+    // (the "dest census date" header in the format help is unrelated copy).
+    expect(within(dialog).queryByText('Skipped invalid rows')).toBeNull()
+    expect(within(dialog).queryByText(/past[- ]census/i)).toBeNull()
+    expect(within(dialog).queryByText('5')).toBeNull()
+  })
+
+  it('surfaces a structural backend error clearly', async () => {
+    const user = userEvent.setup()
+    mockUploadStudentCsv.mockRejectedValue(
+      new Error(
+        'CSV header must contain exactly these columns (case- and spacing-tolerant): Student number, first name, last name, scheduled unit code, dest census date.'
+      )
+    )
+    renderStudents()
+    const dialog = await openUploadDialog(user)
+
+    await user.upload(within(dialog).getByLabelText('CSV file'), csvFile())
+    await user.click(within(dialog).getByRole('button', { name: 'Upload' }))
+
+    expect(
+      await within(dialog).findByText(/CSV header must contain exactly these columns/)
+    ).toBeInTheDocument()
+  })
+
+  it('invalidates dependent queries after a successful upload', async () => {
+    const user = userEvent.setup()
+    const { queryClient } = renderStudents()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const dialog = await openUploadDialog(user)
+    await user.upload(within(dialog).getByLabelText('CSV file'), csvFile())
+    await user.click(within(dialog).getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(mockUploadStudentCsv).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['students'] })
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['units'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['schedulable-sessions'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['assignments'] })
   })
 })

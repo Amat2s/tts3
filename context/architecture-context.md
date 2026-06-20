@@ -41,7 +41,7 @@
 - **Supabase PostgreSQL**: Stores all core domain data:
   - units and derived year levels
   - sessions
-  - students
+  - students (each with a required, unique `student_number` separate from the internal id)
   - lecturers
   - rooms
   - unit-student enrolments (`unit_students`)
@@ -50,7 +50,7 @@
   - session assignments (locked + scheduled state)
   - timetable block groups (`timetable_block_groups`) and room-specific block cells (`timetable_block_cells`)
 - **Browser localStorage (frontend draft only)**: the current unsaved timetable draft is persisted client-side under a schema-versioned key. It stores only the unsaved draft plus minimal metadata (schema version, saved-assignment fingerprint, timestamp), never server-owned query data, and is cleared after a successful save. No version history; stale or malformed stored drafts are discarded on load.
-- **No blob storage in v1**: file uploads not required yet (future: CSV imports, exports, reports)
+- **No blob storage in v1**: the student CSV import (`POST /students/import-csv`, Unit 90) parses the uploaded file in-memory and discards it — nothing is written to object storage. Other file flows (exports, reports, Excel templates) are still deferred.
 - **Future object storage (Supabase Storage or Vercel Blob)**: for timetable exports and bulk imports
 
 ## Auth and Access Model
@@ -93,3 +93,5 @@
 27. Timetable blocks are stored as block groups (`id`, nullable `name`, nullable `colour`, timestamps) and room-specific block cells (`day + slot + room_id`), with a unique `(day, slot, room_id)` so a cell can be blocked by at most one group and cells cascade when their group or room is removed. An unnamed block has `name = null` and `colour = null`; a named block requires a `name` and a `colour` of `gold`, `light_blue`, or `light_pink`. Blocks are not sessions and never appear in session/scheduling models or the unscheduled pool.
 28. Timetable blocks are a hard constraint, not a soft one. The frontend rejects manual placement into blocked cells and auto-unschedules draft/restored assignments overlapping blocks; the backend defensively rejects saving assignments that overlap blocks (`assignment_overlaps_timetable_block`); and the solver mirror loads blocked cells into the snapshot (`BlockedCellSnapshot`) so the CP-SAT model never occupies a blocked cell. The mirrored constraint type is `timetable_slot_blocked` with `blocking` severity (a cell-feasibility constraint, not a conflict-graph edge).
 29. Creating or updating a block over saved assignments unschedules those assignments in the same transaction and returns the affected session IDs; deleting a block frees its cells without rescheduling anything. A saved assignment overlapping a block must never be valid solver input (snapshot integrity fails safely if one is found).
+30. Students carry a required, unique `student_number` — the canonical institutional identifier — separate from the internal primary key `id` (which stays the record identity). It is exactly 8 digits (trimmed before validation/persistence) and enforced unique at rest by a unique index; uniqueness conflicts surface as a structured 409. Year level stays manually supplied and editable and is never derived from `student_number` (that derivation belongs only to the future CSV upload feature). Migration `0014` introduced this contract with a deliberate destructive reset of existing student rows, relying on the existing `unit_students` / `session_student_allocations` cascades to stay consistent.
+31. Student bulk import is a protected backend endpoint (`POST /students/import-csv`) that parses an uploaded `.csv` in-memory (no blob/object storage) and discards it. Structural file problems (missing file, wrong extension, bad encoding, empty file, missing/incorrect header, extra columns) reject the whole import; row-level problems skip and count individual rows without blocking valid rows. It keeps only current rows (`dest census date >= today` in Australia/Sydney), matches/creates students by `student_number`, updates existing student names but preserves their year level (newly created students derive an initial year from the student number — reject future cohorts where the derived year < 1, cap above 3 to 3), additively enrols students into matching existing units (never creates units, never removes enrolments), dedupes `(student_number, unit_code)` pairs, rebalances hidden `session_student_allocations` for affected units in the same transaction, commits atomically (rolling back on unexpected persistence failure), and returns aggregate counts only (never student lists or raw rows).

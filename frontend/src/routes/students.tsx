@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, Plus, Pencil, Trash2, Search } from 'lucide-react'
+import {
+  Users,
+  Plus,
+  Pencil,
+  Trash2,
+  Search,
+  Upload,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { FilterBar } from '@/components/filters/FilterBar'
@@ -37,8 +46,9 @@ import {
   createStudent,
   updateStudent,
   deleteStudent as deleteStudentApi,
+  uploadStudentCsv,
 } from '@/lib/api/students'
-import type { Student, YearLevel } from '@/lib/api/students'
+import type { Student, YearLevel, StudentImportResult } from '@/lib/api/students'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
 import {
@@ -64,7 +74,19 @@ const YEAR_FILTERS: { value: string; label: string }[] = [
   { value: '3', label: 'Year 3' },
 ]
 
+// Unit 89/91: the student number must be exactly 8 digits. Validated on the
+// frontend so create/save is disabled and an inline error is shown for invalid
+// values, mirroring the backend contract.
+const STUDENT_NUMBER_PATTERN = /^\d{8}$/
+const STUDENT_NUMBER_ERROR = 'Student number must be exactly 8 digits.'
+
+function isStudentNumberValid(value: string): boolean {
+  return STUDENT_NUMBER_PATTERN.test(value.trim())
+}
+
 interface StudentFormState {
+  // Unit 89/91: canonical institutional identifier (exactly 8 digits).
+  student_number: string
   first_name: string
   last_name: string
   year_level: string
@@ -78,6 +100,7 @@ interface StudentFormState {
 }
 
 const EMPTY_FORM: StudentFormState = {
+  student_number: '',
   first_name: '',
   last_name: '',
   year_level: '',
@@ -91,6 +114,7 @@ type FormUpdater =
 
 function isFormValid(f: StudentFormState): boolean {
   return (
+    isStudentNumberValid(f.student_number) &&
     f.first_name.trim().length > 0 &&
     f.last_name.trim().length > 0 &&
     YEAR_LEVELS.includes(Number(f.year_level))
@@ -103,6 +127,26 @@ function unitLabel(u: Pick<Unit, 'code' | 'name'>): string {
 
 function enrolledLabel(count: number): string {
   return `${count} unit${count === 1 ? '' : 's'}`
+}
+
+/**
+ * Aggregate counts shown in the CSV-import success summary. The past-census skip
+ * count is intentionally excluded from the primary summary (spec); invalid rows
+ * only appear when nonzero.
+ */
+function importSummaryItems(
+  r: StudentImportResult
+): { label: string; value: number }[] {
+  const items: { label: string; value: number }[] = [
+    { label: 'Created students', value: r.created_students },
+    { label: 'Updated students', value: r.updated_students },
+    { label: 'Added enrolments', value: r.added_enrolments },
+    { label: 'Skipped unknown-unit rows', value: r.skipped_unknown_unit_rows },
+  ]
+  if (r.skipped_invalid_rows > 0) {
+    items.push({ label: 'Skipped invalid rows', value: r.skipped_invalid_rows })
+  }
+  return items
 }
 
 /**
@@ -203,11 +247,35 @@ function StudentFormFields({
     }))
   }
 
+  // Show the inline format error only once the admin has typed something
+  // invalid, so an untouched empty field is not pre-flagged (the create/save
+  // button stays disabled regardless).
+  const studentNumberInvalid =
+    values.student_number.trim().length > 0 &&
+    !isStudentNumberValid(values.student_number)
+
   return (
     <div className="grid gap-4 py-2">
       {error && (
         <p className="text-sm" style={{ color: 'var(--state-error)' }}>{error}</p>
       )}
+      <div className="grid gap-1.5">
+        <Label htmlFor="student-number">Student number</Label>
+        <Input
+          id="student-number"
+          value={values.student_number}
+          onChange={(e) => onChange({ student_number: e.target.value })}
+          placeholder="e.g. 20251234"
+          inputMode="numeric"
+          autoComplete="off"
+          aria-invalid={studentNumberInvalid}
+        />
+        {studentNumberInvalid && (
+          <p className="text-xs" style={{ color: 'var(--state-error)' }}>
+            {STUDENT_NUMBER_ERROR}
+          </p>
+        )}
+      </div>
       <div className="grid gap-1.5">
         <Label htmlFor="student-first-name">First name</Label>
         <Input
@@ -361,6 +429,14 @@ export default function StudentsPage() {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadResult, setUploadResult] = useState<StudentImportResult | null>(null)
+  // Force-remount the native file input after a successful upload so its
+  // displayed filename clears (an input's value cannot be set programmatically).
+  const [fileInputKey, setFileInputKey] = useState(0)
+
   const [filters, setFilters] = useState<StudentFilters>(EMPTY_STUDENT_FILTERS)
 
   const {
@@ -423,6 +499,7 @@ export default function StudentsPage() {
       // The backend auto-enrols a new student into every matching-year unit; the
       // returned `units` is the actual starting enrolment we reconcile against.
       const created = await createStudent({
+        student_number: form.student_number.trim(),
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         year_level: Number(form.year_level) as YearLevel,
@@ -455,6 +532,7 @@ export default function StudentsPage() {
       form: StudentFormState
     }) => {
       await updateStudent(student.id, {
+        student_number: form.student_number.trim(),
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         year_level: Number(form.year_level) as YearLevel,
@@ -489,6 +567,24 @@ export default function StudentsPage() {
     },
   })
 
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadStudentCsv(file),
+    onSuccess: (result) => {
+      // A CSV import can create/update students, add enrolments, and rebalance
+      // hidden session allocations, so the same dependent queries the manual
+      // CRUD path refreshes must be invalidated.
+      invalidateDependentQueries()
+      setUploadResult(result)
+      setUploadError(null)
+      setUploadFile(null)
+      setFileInputKey((k) => k + 1)
+    },
+    onError: (err: Error) => {
+      setUploadError(err.message)
+      setUploadResult(null)
+    },
+  })
+
   function openCreate() {
     setCreateOpen(true)
     setCreateForm(EMPTY_FORM)
@@ -499,6 +595,7 @@ export default function StudentsPage() {
   function openEdit(student: Student) {
     setStudentToEdit(student)
     setEditForm({
+      student_number: student.student_number,
       first_name: student.first_name,
       last_name: student.last_name,
       year_level: String(student.year_level),
@@ -515,6 +612,24 @@ export default function StudentsPage() {
     setStudentToDelete(student)
     setDeleteError(null)
     deleteMutation.reset()
+  }
+
+  function resetUploadState() {
+    setUploadFile(null)
+    setUploadError(null)
+    setUploadResult(null)
+    uploadMutation.reset()
+  }
+
+  function openUpload() {
+    setUploadOpen(true)
+    resetUploadState()
+  }
+
+  function handleUpload() {
+    if (!uploadFile || uploadMutation.isPending) return
+    setUploadError(null)
+    uploadMutation.mutate(uploadFile)
   }
 
   function handleCreate() {
@@ -561,7 +676,7 @@ export default function StudentsPage() {
     if (isLoading) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               Loading students…
             </p>
@@ -573,7 +688,7 @@ export default function StudentsPage() {
     if (isError) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--state-error)' }}>
               {(listError as Error)?.message ?? 'Failed to load students.'}
             </p>
@@ -585,7 +700,7 @@ export default function StudentsPage() {
     if (!students || students.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <div className="flex flex-col items-center gap-3">
               <Users className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
               <div>
@@ -611,7 +726,7 @@ export default function StudentsPage() {
     if (filteredStudents.length === 0) {
       return (
         <TableRow className="border-0 hover:bg-transparent">
-          <TableCell colSpan={5} className="py-16 text-center">
+          <TableCell colSpan={6} className="py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
               No students match the current filters.
             </p>
@@ -622,6 +737,9 @@ export default function StudentsPage() {
 
     return filteredStudents.map((student) => (
       <TableRow key={student.id}>
+        <TableCell className="px-4 font-mono tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+          {student.student_number}
+        </TableCell>
         <TableCell className="px-4">{student.first_name}</TableCell>
         <TableCell className="px-4 font-medium">{student.last_name}</TableCell>
         <TableCell className="px-4">Year {student.year_level}</TableCell>
@@ -662,10 +780,16 @@ export default function StudentsPage() {
         title="Students"
         description="Manage students and their unit enrolments. Enrolments drive scheduling conflict constraints."
         action={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Add student
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={openUpload}>
+              <Upload className="h-4 w-4" />
+              Upload student information
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Add student
+            </Button>
+          </div>
         }
       />
 
@@ -677,7 +801,7 @@ export default function StudentsPage() {
           <SearchInput
             value={filters.search}
             onChange={(search) => setFilters((f) => ({ ...f, search }))}
-            label="Search students by name"
+            label="Search students by name or student number"
             placeholder="Search students"
           />
           <FilterSelect
@@ -712,6 +836,7 @@ export default function StudentsPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="px-4">Student number</TableHead>
               <TableHead className="px-4">First name</TableHead>
               <TableHead className="px-4">Last name</TableHead>
               <TableHead className="px-4">Year level</TableHead>
@@ -827,6 +952,123 @@ export default function StudentsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete student'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload student information dialog (Unit 91) */}
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open)
+          if (!open) resetUploadState()
+        }}
+      >
+        <DialogContent className="sm:max-w-lg overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>Upload student information</DialogTitle>
+            <DialogDescription>
+              Import current student-unit enrolments from a CSV file. Students are
+              matched or created by student number; only existing units are enrolled.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            <div
+              className="rounded-md border px-3 py-2.5 text-xs"
+              style={{
+                borderColor: 'var(--border-default)',
+                backgroundColor: 'var(--bg-muted)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <p className="font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+                Expected CSV columns
+              </p>
+              <p className="font-mono break-words">
+                Student number, first name, last name, scheduled unit code, dest census date
+              </p>
+              <p className="mt-1.5">
+                Dates use <span className="font-mono">dd/mm/yyyy</span> format.
+              </p>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label htmlFor="student-csv-file">CSV file</Label>
+              <Input
+                key={fileInputKey}
+                id="student-csv-file"
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  setUploadFile(e.target.files?.[0] ?? null)
+                  // Picking a new file clears any prior outcome so the summary
+                  // always reflects the most recent upload attempt.
+                  setUploadResult(null)
+                  setUploadError(null)
+                }}
+              />
+            </div>
+
+            {uploadError && (
+              <div
+                className="flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm"
+                style={{
+                  borderColor: 'var(--state-error)',
+                  backgroundColor: 'var(--state-error-bg)',
+                  color: 'var(--state-error)',
+                }}
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+
+            {uploadResult && (
+              <div
+                className="rounded-md border px-3 py-2.5"
+                style={{
+                  borderColor: 'var(--state-success)',
+                  backgroundColor: 'var(--state-success-bg)',
+                }}
+              >
+                <div
+                  className="flex items-center gap-2 mb-2 text-sm font-medium"
+                  style={{ color: 'var(--state-success)' }}
+                >
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>Import complete</span>
+                </div>
+                <dl
+                  className="grid gap-y-1 text-sm"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {importSummaryItems(uploadResult).map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center justify-between gap-4"
+                    >
+                      <dt>{item.label}</dt>
+                      <dd
+                        className="font-medium tabular-nums"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {item.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter showCloseButton>
+            <Button
+              onClick={handleUpload}
+              disabled={!uploadFile || uploadMutation.isPending}
+            >
+              {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
             </Button>
           </DialogFooter>
         </DialogContent>

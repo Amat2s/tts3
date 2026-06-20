@@ -1,12 +1,18 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from auth.deps import CurrentAdmin, get_current_admin
 from db.deps import get_db
-from schemas.student import StudentCreate, StudentResponse, StudentUpdate
+from schemas.student import (
+    StudentCreate,
+    StudentImportResult,
+    StudentResponse,
+    StudentUpdate,
+)
 import services.student as student_service
+import services.student_import as student_import_service
 
 router = APIRouter(prefix="/students", tags=["students"])
 
@@ -17,6 +23,22 @@ def list_students(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[StudentResponse]:
     return student_service.list_students(db)
+
+
+@router.post("/import-csv", response_model=StudentImportResult)
+async def import_students_csv(
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile | None, File()] = None,
+) -> StudentImportResult:
+    # Read the upload fully and hand the raw bytes to the service, which owns all
+    # structural and row-level validation. The CSV is processed in-memory and
+    # discarded; nothing is written to blob/object storage.
+    filename = file.filename if file is not None else None
+    content = await file.read() if file is not None else b""
+    return student_import_service.import_students_csv(
+        db, filename=filename, content=content
+    )
 
 
 @router.post("", response_model=StudentResponse, status_code=201)

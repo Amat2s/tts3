@@ -31,8 +31,13 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const token = await getAccessToken()
 
+  // For multipart uploads (FormData) the browser must set its own
+  // `Content-Type` including the boundary, so we never force JSON headers.
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
+
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   }
 

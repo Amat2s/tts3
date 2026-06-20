@@ -18,10 +18,15 @@ Design notes (per the Unit 51 spec):
 
 The required cases from the spec are each covered below and labelled inline.
 """
+import itertools
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+# Unit 89: student numbers are required and unique; a monotonic counter keeps
+# every seeded student distinct across helper calls within a test.
+_student_numbers = itertools.count(10_000_000)
 
 # --- Constraint mirror (Unit 40) -------------------------------------------
 from constraints.graph import (
@@ -614,6 +619,7 @@ def _seed_unit_with_session(
         unit.students.append(
             Student(
                 id=sid,
+                student_number=str(next(_student_numbers)),
                 first_name="Stu",
                 last_name=sid,
                 year_level=1,

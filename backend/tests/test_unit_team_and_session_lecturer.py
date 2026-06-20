@@ -6,6 +6,7 @@ and team-membership validation, schedulable-session exclusion of sessions
 without a lecturer, and assignment responses sourcing display data from the
 session lecturer. Uses the in-memory SQLite ``db`` fixture from conftest.
 """
+import itertools
 import os
 import sys
 
@@ -49,9 +50,13 @@ def make_lecturer(db, lecturer_id, last_name="Lovelace") -> Lecturer:
     return lec
 
 
+_student_numbers = itertools.count(10_000_000)
+
+
 def make_student(db, student_id, year_level=1) -> Student:
     s = Student(
         id=student_id,
+        student_number=str(next(_student_numbers)),
         first_name="Stu",
         last_name=student_id,
         year_level=year_level,

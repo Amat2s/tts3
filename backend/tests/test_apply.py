@@ -4,6 +4,7 @@ These use real ORM models persisted to an in-memory SQLite database (the
 ``db`` fixture from conftest) and real solver output DTOs, so the fixtures
 match production formats exactly.
 """
+import itertools
 import os
 import sys
 
@@ -43,9 +44,13 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
     return lec
 
 
+_student_numbers = itertools.count(10_000_000)
+
+
 def make_student(db, student_id) -> Student:
     s = Student(
         id=student_id,
+        student_number=str(next(_student_numbers)),
         first_name="Stu",
         last_name=student_id,
         year_level=1,
