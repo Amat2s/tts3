@@ -269,12 +269,13 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Supabase Postgres persistence.
 - Trigger.dev background solver execution.
 - No timetable version history in v1; the latest timetable state is the source of truth.
+- Backend timetable Excel export: a protected `GET /timetable/export.xlsx` API (Unit 93) that renders the saved timetable into a fixed, repo-owned Campion `.xlsx` template and streams it. Exports read saved state only, never mutate assignments, and are never persisted to the database or object storage.
 
 ### Out of Scope
 
 - General file upload/import beyond the backend student CSV import API (`POST /students/import-csv`, Unit 90), including a frontend upload UI.
-- Excel import templates.
-- Timetable export/download for v1.
+- Excel import templates (Excel *export* is in scope via Unit 93; import is not).
+- Frontend timetable export/download UI (later unit; the backend export API itself lands in Unit 93).
 - Student-facing timetable views.
 - Lecturer-facing timetable views.
 - Multi-admin collaboration.

@@ -287,6 +287,7 @@ type SessionScheduleState =
 - Do not use blob storage in v1.
 - Do not store large generated files in the database.
 - Future generated exports, uploaded imports, and large artifacts should use object storage.
+- Timetable Excel export (`GET /timetable/export.xlsx`, `services/timetable_excel_export.py`, Unit 93) renders the **saved** timetable into the fixed repo-owned template (`backend/export_templates/campion_timetable_export_template.xlsx`) using `openpyxl`, then streams it in-memory. It must read saved assignments/blocks only, never mutate assignment/block state, and never write the generated workbook to the database or object storage. The fixed day/room/slot mapping is explicit (constants in the service, mirrored by `build_template.py`) rather than inferred; room matching is by name against the fixed room order (`PDS, L1.05, Bromley, L1.08, Dawson, L1.10, L1.12, JTW`) and an unknown room fails with structured `export_room_not_in_template`. The export module keeps a small subject→fill map (derived from the unit-code prefix) purely to render class colours in the Excel artifact — this is the one scoped exception to the otherwise frontend-only subject-colour rule and must not grow into a general backend subject parser. Tutorial letters and the lecturer/tutor key are generated export-only; structured errors must not leak stack traces or filesystem paths.
 - Do not introduce Redis or caching infrastructure until there is a measured need.
 - Treat the database as the source of truth for persisted timetable state.
 - Treat the solver input model and conflict graph as derived data.
@@ -391,7 +392,8 @@ type SessionScheduleState =
 - `backend/api/` — FastAPI routers and request/response boundaries.
 - `backend/models/` — SQLAlchemy ORM models.
 - `backend/schemas/` — Pydantic request and response schemas.
-- `backend/services/` — application services for domain operations.
+- `backend/services/` — application services for domain operations, including `timetable_excel_export.py` (Unit 93 saved-timetable `.xlsx` rendering).
+- `backend/export_templates/` — the repo-owned static export template (`campion_timetable_export_template.xlsx`) and the one-off `build_template.py` that derives it from the uploaded source workbook. The uploaded source lives under `backend/assets/excel/`.
 - `backend/constraints/` — hard constraint definitions, conflict graph generation, and validation logic, including the `timetable_slot_blocked` constraint mirror.
 - `backend/solver/` — OR-Tools model compilation and solver execution functions. The snapshot builder, CP-SAT model, and result application all consume blocked cells so generated assignments never occupy a blocked cell.
 - `jobs/` — Trigger.dev job definitions and background orchestration. This is a standalone top-level Node/TypeScript project (Trigger.dev is Node-based) and therefore lives beside `backend/` rather than inside the Python `backend/` package, matching the `jobs/` boundary in `architecture-context.md`.
