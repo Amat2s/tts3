@@ -281,9 +281,10 @@ export default function TimetablePage() {
   }, [draft, isDirty, savedAssignments])
 
   // Flatten block groups into a `day:roomId:slot` lookup for rendering and the
-  // `timetable_slot_blocked` validation rule.
+  // `timetable_slot_blocked` validation rule. Only build the map when blocks
+  // data is actually available to prevent silent bypass of validation.
   const blockedCellMap = useMemo(
-    () => buildBlockedCellMap(blocks ?? []),
+    () => (blocks ? buildBlockedCellMap(blocks) : undefined),
     [blocks]
   )
 
@@ -464,7 +465,7 @@ export default function TimetablePage() {
   }
 
   function handleBlockCellSelect(day: string, slotId: string, roomId: string) {
-    if (!blockMode) return
+    if (!blockMode || !blockedCellMap) return
     const cell: SelectionCell = {
       day: day as SelectionCell['day'],
       slot: slotId as SelectionCell['slot'],

@@ -148,8 +148,8 @@ inline the hex values.
 Rendering rules:
 
 - Unnamed blocks render grey/disabled with no label, using the `--block-empty-*` tokens.
-- Named blocks render the block name and selected colour (`gold` → `--block-gold-*`,
-  `light_blue` → `--block-blue-*`, `light_pink` → `--block-pink-*` sets). No lock icon.
+- Named blocks render the block name, selected colour (`gold` → `--block-gold-*`,
+  `light_blue` → `--block-blue-*`, `light_pink` → `--block-pink-*` sets), and a lock icon.
 - Block cells have no left-border accent; this is the visual distinction from session cards
   (which always carry a coloured left border).
 - Fall back to the grey `--block-empty-*` set if a colour is missing or unknown.

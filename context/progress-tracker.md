@@ -850,7 +850,6 @@ change.
 
 ## Next Up
 
-- **Implement the Timetable Blocks batch (Units 84–88)** against the now-aligned context docs, in spec order (84 → 85 → 86 → 87 → 88), verifying each unit end to end before moving on.
 - Run the post-v1 interactive checklist against the full stack, then complete the outstanding manual deployment wiring for Vercel, Railway, and Trigger.dev. WebSocket solver progress and bundle code-splitting remain later, out-of-scope follow-ups.
 
 ## Open Questions

@@ -10,6 +10,7 @@ This is the backend data/API contract only — frontend validation and solver
 integration arrive in later units.
 """
 import structlog
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession, selectinload
 
 from api.errors import AppError
@@ -244,7 +245,15 @@ def create_timetable_block(
 
     unscheduled = _unschedule_overlapping_assignments(db, _blocked_key_set(cells))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "block_cell_conflict",
+            "A cell in this block is already reserved by another block.",
+            status_code=409,
+        )
     logger.info(
         "block_created",
         block_group_id=group.id,
@@ -302,7 +311,15 @@ def update_timetable_block(
 
     unscheduled = _unschedule_overlapping_assignments(db, _blocked_key_set(cells))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "block_cell_conflict",
+            "A cell in this block is already reserved by another block.",
+            status_code=409,
+        )
     logger.info(
         "block_updated",
         block_group_id=group.id,
@@ -320,5 +337,13 @@ def update_timetable_block(
 def delete_timetable_block(db: DBSession, block_group_id: str) -> None:
     group = _get_group(db, block_group_id)
     db.delete(group)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "block_delete_conflict",
+            "Unable to delete block due to a database constraint violation.",
+            status_code=409,
+        )
     logger.info("block_deleted", block_group_id=block_group_id)

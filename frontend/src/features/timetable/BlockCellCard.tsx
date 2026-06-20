@@ -36,6 +36,15 @@ export function BlockCellCard({
     onClick?.(block.blockId)
   }
 
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!interactive) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClick?.(block.blockId)
+    }
+  }
+
   // Horizontal span: each GridCell has border-right: 1px (border-box), so
   // 100% = cell content width = W - 1px. For N rooms the visual span is
   // N*W - 1px, but N*100% = N*(W-1px) = N*W - N*px → (N-1)px short.
@@ -68,6 +77,8 @@ export function BlockCellCard({
       }}
       title={block.name ?? 'Blocked'}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      {...(interactive && { tabIndex: 0, role: 'button' })}
     >
       {block.name ? (
         <span className="truncate text-xs font-medium">{block.name}</span>

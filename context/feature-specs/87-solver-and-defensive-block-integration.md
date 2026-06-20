@@ -10,7 +10,7 @@ Make timetable blocks a hard backend and solver constraint. Stale frontend data 
 - Blocks are hard constraints, not soft constraints.
 - Blocks are room-specific `day + slot + room_id` cells.
 - Blocks are not sessions.
-- Solver objective remains: maximize scheduled unscheduled sessions.
+- Solver objective remains: maximize the number of scheduled sessions.
 - Solver output may be partial when blocks reduce feasibility.
 - No frontend UI changes in this unit.
 
