@@ -64,6 +64,23 @@ class LockedAssignment:
 
 
 @dataclass(frozen=True)
+class BlockedCellSnapshot:
+    """A single room-specific reserved (blocked) cell mirrored into the solver.
+
+    Unit 87: timetable blocks are a hard constraint. A blocked ``day + slot +
+    room_id`` cell may never be occupied by a generated or locked assignment.
+    ``block_name`` is the owning group's name (``None`` for an unnamed block) and
+    is carried for diagnostics only.
+    """
+
+    day: str
+    slot: str
+    room_id: str
+    block_group_id: str
+    block_name: str | None = None
+
+
+@dataclass(frozen=True)
 class TimetableConstants:
     days: tuple[str, ...]
     slots: tuple[str, ...]
@@ -100,6 +117,9 @@ class SolverInputSnapshot:
     student_conflict_pairs: list[tuple[str, str]]
     unit_session_conflict_pairs: list[tuple[str, str]]
     timetable_constants: TimetableConstants
+    # Unit 87: room-specific cells reserved by timetable blocks. The CP-SAT
+    # model never creates a candidate occupying one of these cells.
+    blocked_cells: list[BlockedCellSnapshot] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

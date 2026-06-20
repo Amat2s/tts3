@@ -22,6 +22,10 @@ interface TimetableGridProps {
   editingDisabled?: boolean
   // Set of "day:roomId:slotId" keys to highlight (valid hover proposals only).
   hoverHighlightKeys?: Set<string>
+  // Unit 86: block-selection mode and the currently selected cell keys.
+  blockSelectionMode?: boolean
+  blockSelectionKeys?: Set<string>
+  onBlockCellSelect?: (day: string, slotId: string, roomId: string) => void
   onCellClick?: (day: string, slotId: string, roomId: string) => void
   onUnschedule?: (sessionId: string) => void
   onMoveSelect?: (sessionId: string) => void
@@ -91,6 +95,9 @@ export function TimetableGrid({
   warningSessionIds,
   editingDisabled = false,
   hoverHighlightKeys,
+  blockSelectionMode = false,
+  blockSelectionKeys,
+  onBlockCellSelect,
   onCellClick,
   onUnschedule,
   onMoveSelect,
@@ -219,6 +226,9 @@ export function TimetableGrid({
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  blockSelectionMode={blockSelectionMode}
+                  isBlockSelected={blockSelectionKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}
@@ -290,6 +300,9 @@ export function TimetableGrid({
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  blockSelectionMode={blockSelectionMode}
+                  isBlockSelected={blockSelectionKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
                   onMoveSelect={onMoveSelect}

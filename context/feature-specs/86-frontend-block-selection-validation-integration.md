@@ -76,7 +76,7 @@ On success:
 Add blocking issue type:
 
 ```ts
-"timetable_slot_blocked"
+"timetable_slot_blocked";
 ```
 
 Update frontend blocking helpers so:

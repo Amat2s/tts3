@@ -5,6 +5,7 @@ from api.errors import AppError
 from models.assignment import TimetableAssignment
 from models.room import Room
 from models.session import Session
+from models.timetable_block import TimetableBlockCell
 from models.unit import Unit
 from schemas.assignment import AssignmentItem, AssignmentResponse, AssignmentSaveRequest
 from services.session_allocation import allocated_student_ids, allocation_counts
@@ -211,6 +212,34 @@ def save_assignments(
                 start_slot=start_slot,
                 duration=duration,
             )
+
+    # Unit 87: defensively reject any requested assignment whose occupied cells
+    # intersect a timetable block. Stale frontend data must never persist a
+    # session into a blocked cell. This is defensive persistence validation, not
+    # the normal (frontend-owned) UX validation path.
+    blocked_cells: set[tuple[str, str, str]] = {
+        (c.day.value, c.slot.value, c.room_id)
+        for c in db.query(TimetableBlockCell).all()
+    }
+    if blocked_cells:
+        for item in items:
+            session = sessions_map[item.session_id]
+            duration = session.duration
+            start_index = _slot_index(item.start_slot.value)
+            slots_used = ORDERED_SLOTS[start_index : start_index + duration]
+            for slot in slots_used:
+                if (item.day.value, slot, item.room_id) in blocked_cells:
+                    _reject_save(
+                        "assignment_overlaps_timetable_block",
+                        (
+                            f"Session {item.session_id} overlaps a timetable block "
+                            f"on {item.day.value} at slot {slot}."
+                        ),
+                        session_id=item.session_id,
+                        room_id=item.room_id,
+                        day=item.day.value,
+                        slot=slot,
+                    )
 
     # Cross-item: room double-booking (checks multi-slot overlaps, not just same start slot).
     occupied: dict[tuple[str, str, str], str] = {}

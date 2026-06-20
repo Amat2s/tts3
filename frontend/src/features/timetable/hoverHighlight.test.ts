@@ -4,7 +4,13 @@ import {
   computePreviewHeight,
   GRID_ROW_HEIGHT_PX,
 } from './hoverHighlight'
-import { makeAssignment, makeRoom, makeSchedulableSession } from '@/test/fixtures'
+import { buildBlockedCellMap } from './blocks'
+import {
+  makeAssignment,
+  makeRoom,
+  makeSchedulableSession,
+  makeTimetableBlock,
+} from '@/test/fixtures'
 
 // ---------------------------------------------------------------------------
 // computePreviewHeight
@@ -156,6 +162,40 @@ describe('computeHoverHighlightKeys — invalid proposals return empty', () => {
       [SESSION_2H],
       [],
       [ROOM]
+    )
+    expect(result).toEqual(new Set())
+  })
+
+  it('returns empty (no highlight) when hovering over a blocked cell', () => {
+    const blocked = buildBlockedCellMap([
+      makeTimetableBlock({
+        cells: [{ id: 'c', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
+    ])
+    const result = computeHoverHighlightKeys(
+      'Monday:room-1:s1',
+      'sess-1',
+      [SESSION],
+      [],
+      [ROOM],
+      blocked
+    )
+    expect(result).toEqual(new Set())
+  })
+
+  it('returns empty when a multi-slot hover would span into a blocked cell', () => {
+    const blocked = buildBlockedCellMap([
+      makeTimetableBlock({
+        cells: [{ id: 'c', day: 'Monday', slot: 's2', room_id: 'room-1' }],
+      }),
+    ])
+    const result = computeHoverHighlightKeys(
+      'Monday:room-1:s1',
+      'sess-2h',
+      [SESSION_2H],
+      [],
+      [ROOM],
+      blocked
     )
     expect(result).toEqual(new Set())
   })
