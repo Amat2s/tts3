@@ -374,7 +374,7 @@ type SessionScheduleState =
 - `frontend/src/routes/` — route-level pages such as `/timetable`, `/units`, `/lecturers`, `/students`, and `/rooms`.
 - `frontend/src/components/` — reusable UI components that are not route-specific.
 - `frontend/src/components/ui/` — shadcn/ui generated and wrapped components.
-- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft) and `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
+- `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft), `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens), and `blocks.ts` (`buildBlockedCellMap`, `buildBlockAnchorData`, `getBlockColorTokens` — block flattening and multi-room horizontal merging helpers). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
 - `frontend/src/features/units/` — unit and session management UI.
 - `frontend/src/features/lecturers/` — lecturer management and availability UI.
 - `frontend/src/features/students/` — student management UI.

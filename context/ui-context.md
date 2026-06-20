@@ -153,6 +153,12 @@ Rendering rules:
   (`gold` → blue/pink map to the `--block-gold-*` / `--block-blue-*` / `--block-pink-*`
   sets).
 - Fall back to the grey `--block-empty-*` set if a colour is missing or unknown.
+- **Multi-room merging**: when a block group occupies multiple adjacent room columns at
+  the same slot row, the cells are merged horizontally into a single card spanning all
+  those columns. The leftmost cell renders the merged card (width = N × cell width);
+  the other cells in the same group/slot render no card visually but remain functionally
+  blocked. Each slot row is merged independently — there is no vertical merging across
+  slot rows.
 - Block cells live in the timetable grid, never in the unscheduled pool, and must stay
   visually distinct from session cards. During block-selection mode, selected cells use
   temporary token-based styling.

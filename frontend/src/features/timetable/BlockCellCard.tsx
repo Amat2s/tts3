@@ -6,6 +6,10 @@ interface BlockCellCardProps {
   // When interactive, the whole cell is clickable (opens the block editor).
   interactive?: boolean
   onClick?: (blockId: string) => void
+  // Number of adjacent room columns this card should visually span. When > 1
+  // the card overflows its parent cell to cover the suppressed cells to the
+  // right, creating a single connected merged block per slot row.
+  roomSpan?: number
 }
 
 /**
@@ -18,6 +22,7 @@ export function BlockCellCard({
   block,
   interactive = false,
   onClick,
+  roomSpan = 1,
 }: BlockCellCardProps) {
   const tokens = getBlockColorTokens(block.colour)
 
@@ -37,6 +42,10 @@ export function BlockCellCard({
         borderLeftWidth: '3px',
         color: tokens.text,
         cursor: interactive ? 'pointer' : 'default',
+        // Span multiple room columns: override the right:0 from inset-0 by
+        // setting an explicit width. CSS resolves the over-constrained case
+        // (left + width + right all set) by ignoring `right` for LTR layouts.
+        ...(roomSpan > 1 && { width: `${roomSpan * 100}%`, right: 'auto' }),
       }}
       title={block.name ?? 'Blocked'}
       onClick={handleClick}

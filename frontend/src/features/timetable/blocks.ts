@@ -77,3 +77,85 @@ export function getBlockColorTokens(
   if (!colour) return BLOCK_EMPTY_TOKENS
   return BLOCK_COLOUR_TOKENS[colour] ?? BLOCK_EMPTY_TOKENS
 }
+
+/**
+ * For each block group + slot combination that spans multiple adjacent room
+ * columns, compute which cell is the visual "anchor" (leftmost room) and how
+ * many columns it should span, and which cells should be visually suppressed
+ * (covered by the anchor's merged card).
+ *
+ * Returns:
+ * - `anchorSpanMap`: keys are `day:room_id:slot`; values are the room-column
+ *   span count (≥ 2 — only entries that actually span multiple rooms are
+ *   included; single-room cells are left out).
+ * - `suppressSet`: keys are `day:room_id:slot` for non-anchor blocked cells
+ *   that are visually covered by an anchor's merged card and should not render
+ *   their own `BlockCellCard`.
+ *
+ * Non-consecutive room groups (a gap in the room index) produce independent
+ * runs and are each handled separately.  In practice block selection always
+ * produces a contiguous rectangle, but the function is robust to gaps.
+ */
+export function buildBlockAnchorData(
+  blockedCells: Map<string, BlockedCell>,
+  rooms: { id: string }[]
+): { anchorSpanMap: Map<string, number>; suppressSet: Set<string> } {
+  const roomIndexMap = new Map(rooms.map((r, i) => [r.id, i]))
+
+  // Group cells by (blockId, day, slot) — each entry is the list of rooms that
+  // share this block group at this specific slot row.
+  type Entry = {
+    roomIdx: number
+    room_id: string
+    day: string
+    slot: string
+  }
+  const groups = new Map<string, Entry[]>()
+
+  for (const cell of blockedCells.values()) {
+    const rIdx = roomIndexMap.get(cell.room_id)
+    if (rIdx === undefined) continue
+    const gk = `${cell.blockId}::${cell.day}::${cell.slot}`
+    const list = groups.get(gk)
+    const entry: Entry = {
+      roomIdx: rIdx,
+      room_id: cell.room_id,
+      day: cell.day,
+      slot: cell.slot,
+    }
+    if (list) {
+      list.push(entry)
+    } else {
+      groups.set(gk, [entry])
+    }
+  }
+
+  const anchorSpanMap = new Map<string, number>()
+  const suppressSet = new Set<string>()
+
+  for (const roomList of groups.values()) {
+    if (roomList.length <= 1) continue
+    roomList.sort((a, b) => a.roomIdx - b.roomIdx)
+
+    // Walk consecutive runs and record anchor + suppressed cells for each run.
+    let runStart = 0
+    for (let i = 1; i <= roomList.length; i++) {
+      const isRunEnd =
+        i === roomList.length ||
+        roomList[i].roomIdx !== roomList[i - 1].roomIdx + 1
+      if (isRunEnd) {
+        const run = roomList.slice(runStart, i)
+        if (run.length > 1) {
+          const { day, slot } = run[0]
+          anchorSpanMap.set(`${day}:${run[0].room_id}:${slot}`, run.length)
+          for (let j = 1; j < run.length; j++) {
+            suppressSet.add(`${day}:${run[j].room_id}:${slot}`)
+          }
+        }
+        runStart = i
+      }
+    }
+  }
+
+  return { anchorSpanMap, suppressSet }
+}

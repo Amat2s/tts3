@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
 import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
-import type { BlockedCell } from './blocks'
+import { buildBlockAnchorData, type BlockedCell } from './blocks'
 
 export interface RoomColumn {
   id: string
@@ -133,6 +133,18 @@ export function TimetableGrid({
     return () => ro.disconnect()
   }, []) // ResizeObserver handles layout-driven changes; callback accessed via ref
 
+  // Compute merged-block anchor data: for each block group/slot that spans
+  // multiple adjacent room columns, identify the leftmost "anchor" cell (which
+  // renders a merged card spanning N columns) and the covered non-anchor cells
+  // (which render no visual card but remain functionally blocked).
+  const { anchorSpanMap, suppressSet } = useMemo(
+    () =>
+      blockedCells
+        ? buildBlockAnchorData(blockedCells, rooms)
+        : { anchorSpanMap: new Map<string, number>(), suppressSet: new Set<string>() },
+    [blockedCells, rooms]
+  )
+
   if (rooms.length === 0) return null
 
   const assignmentMap = buildAssignmentMap(assignments)
@@ -209,7 +221,8 @@ export function TimetableGrid({
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
             rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              const cellKey = `${day}:${room.id}:${slot.id}`
+              const a = assignmentMap.get(cellKey)
               return (
                 <GridCell
                   key={`${day}-${room.id}-${slot.id}`}
@@ -218,16 +231,18 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
-                  blockedCell={blockedCells?.get(`${day}:${room.id}:${slot.id}`) ?? null}
+                  blockedCell={blockedCells?.get(cellKey) ?? null}
+                  blockRoomSpan={anchorSpanMap.get(cellKey)}
+                  suppressBlockVisual={suppressSet.has(cellKey)}
                   isBlockInteractive={isBlockInteractive}
                   onBlockClick={onBlockClick}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
+                  isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
                   blockSelectionMode={blockSelectionMode}
-                  isBlockSelected={blockSelectionKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}
                   onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
@@ -283,7 +298,8 @@ export function TimetableGrid({
           <TimeLabel label={slot.label} />
           {DAYS.flatMap((day) =>
             rooms.map((room, rIdx) => {
-              const a = assignmentMap.get(`${day}:${room.id}:${slot.id}`)
+              const cellKey = `${day}:${room.id}:${slot.id}`
+              const a = assignmentMap.get(cellKey)
               return (
                 <GridCell
                   key={`${day}-${room.id}-${slot.id}`}
@@ -292,16 +308,18 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
-                  blockedCell={blockedCells?.get(`${day}:${room.id}:${slot.id}`) ?? null}
+                  blockedCell={blockedCells?.get(cellKey) ?? null}
+                  blockRoomSpan={anchorSpanMap.get(cellKey)}
+                  suppressBlockVisual={suppressSet.has(cellKey)}
                   isBlockInteractive={isBlockInteractive}
                   onBlockClick={onBlockClick}
-                  isOccupied={coveredSet.has(`${day}:${room.id}:${slot.id}`)}
+                  isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
-                  isHoverHighlighted={hoverHighlightKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
                   blockSelectionMode={blockSelectionMode}
-                  isBlockSelected={blockSelectionKeys?.has(`${day}:${room.id}:${slot.id}`) ?? false}
+                  isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}
                   onBlockCellSelect={onBlockCellSelect ? () => onBlockCellSelect(day, slot.id, room.id) : undefined}
                   onCellClick={onCellClick ? () => onCellClick(day, slot.id, room.id) : undefined}
                   onUnschedule={onUnschedule}
