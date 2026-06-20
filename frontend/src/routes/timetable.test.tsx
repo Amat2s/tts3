@@ -1007,7 +1007,7 @@ describe('TimetablePage — Unit 80: empty-draft save and clear', () => {
 })
 
 describe('TimetablePage — Unit 85: timetable block rendering', () => {
-  it('renders a named block with its name, colour, and a lock icon', async () => {
+  it('renders a named block with its name and colour', async () => {
     mockListTimetableBlocks.mockResolvedValue([
       makeTimetableBlock({
         id: 'b1',
@@ -1021,13 +1021,12 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
     await screen.findByText('Monday')
     // Named label is visible only because the block has a name.
     expect(await screen.findByText('Chapel')).toBeInTheDocument()
-    // The block cell always carries a lock indicator (never colour alone).
+    // The block cell element is present.
     const blockCell = document.querySelector('[data-block-cell="true"]')
     expect(blockCell).not.toBeNull()
-    expect(blockCell?.querySelector('svg')).not.toBeNull()
   })
 
-  it('renders an unnamed block with a lock icon and no visible label', async () => {
+  it('renders an unnamed block with an accessible-only label and no visible text', async () => {
     mockListTimetableBlocks.mockResolvedValue([
       makeTimetableBlock({
         id: 'b2',
@@ -1044,8 +1043,7 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
       expect(el).not.toBeNull()
       return el as HTMLElement
     })
-    // Grey/disabled unnamed block: lock icon present, accessible-only label.
-    expect(blockCell.querySelector('svg')).not.toBeNull()
+    // Grey/disabled unnamed block: accessible label present, no visible text.
     expect(blockCell).toHaveTextContent('Blocked')
     expect(blockCell.querySelector('.sr-only')).not.toBeNull()
   })

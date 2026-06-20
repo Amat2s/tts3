@@ -1,4 +1,3 @@
-import { Lock } from 'lucide-react'
 import { getBlockColorTokens, type BlockedCell } from './blocks'
 
 interface BlockCellCardProps {
@@ -13,10 +12,10 @@ interface BlockCellCardProps {
 }
 
 /**
- * Passive render of a reserved (blocked) timetable cell. Unnamed blocks read as
- * grey/disabled with just a lock icon; named blocks show the lock icon, the
- * name, and the block colour. Never relies on colour alone — the lock icon is
- * always present (Design Invariant 11).
+ * Passive render of a reserved (blocked) timetable cell. Unnamed blocks read
+ * as grey/disabled; named blocks show the name and block colour. Blocks are
+ * visually distinguished from session cards by the absence of a left border
+ * accent and by their dedicated `--block-*` colour tokens.
  */
 export function BlockCellCard({
   block,
@@ -32,25 +31,30 @@ export function BlockCellCard({
     onClick?.(block.blockId)
   }
 
+  // Each GridCell has `border-right: 1px` with `box-sizing: border-box`, so
+  // `100%` for an absolutely positioned child equals the cell content width
+  // (total width W minus 1 px). For N rooms the needed visual span is
+  // N*W - 1px, but N*100% = N*(W-1px) = N*W - N*px, leaving a (N-1)px gap.
+  // Adding (roomSpan - 1)px corrects for the internal cell borders.
+  const widthStyle =
+    roomSpan > 1
+      ? { width: `calc(${roomSpan * 100}% + ${roomSpan - 1}px)`, right: 'auto' as const }
+      : undefined
+
   return (
     <div
-      className="absolute inset-0 z-10 flex items-center gap-1 overflow-hidden rounded-none border px-1.5 select-none"
+      className="absolute inset-0 z-10 flex items-center overflow-hidden rounded-none border px-1.5 select-none"
       data-block-cell="true"
       style={{
         backgroundColor: tokens.background,
         borderColor: tokens.border,
-        borderLeftWidth: '3px',
         color: tokens.text,
         cursor: interactive ? 'pointer' : 'default',
-        // Span multiple room columns: override the right:0 from inset-0 by
-        // setting an explicit width. CSS resolves the over-constrained case
-        // (left + width + right all set) by ignoring `right` for LTR layouts.
-        ...(roomSpan > 1 && { width: `${roomSpan * 100}%`, right: 'auto' }),
+        ...widthStyle,
       }}
       title={block.name ?? 'Blocked'}
       onClick={handleClick}
     >
-      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       {block.name ? (
         <span className="truncate text-xs font-medium">{block.name}</span>
       ) : (
