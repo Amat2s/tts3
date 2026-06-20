@@ -270,12 +270,12 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Trigger.dev background solver execution.
 - No timetable version history in v1; the latest timetable state is the source of truth.
 - Backend timetable Excel export: a protected `GET /timetable/export.xlsx` API (Unit 93) that renders the saved timetable into a fixed, repo-owned Campion `.xlsx` template and streams it. Exports read saved state only, never mutate assignments, and are never persisted to the database or object storage.
+- Frontend timetable Excel download UI (Unit 94): a `Download Timetable` button in the sticky timetable action bar that opens a required-title dialog and downloads the Unit 93 backend `.xlsx` for the current **saved** timetable. The browser never generates the workbook; it streams the backend blob and triggers a download (filename from the backend `Content-Disposition` or a dated fallback). Download is blocked while the saved timetable is unsafe to export (dirty draft, save or solver in progress, saved assignments/rooms/blocks still loading or failed, or an export already running) but stays available for partial saved timetables, unscheduled sessions, and warning-invalid saved assignments. Adds no blob storage and no export history.
 
 ### Out of Scope
 
 - General file upload/import beyond the backend student CSV import API (`POST /students/import-csv`, Unit 90), including a frontend upload UI.
-- Excel import templates (Excel *export* is in scope via Unit 93; import is not).
-- Frontend timetable export/download UI (later unit; the backend export API itself lands in Unit 93).
+- Excel import templates (Excel *export* is in scope via Unit 93, with the frontend download UI in Unit 94; import is not).
 - Student-facing timetable views.
 - Lecturer-facing timetable views.
 - Multi-admin collaboration.

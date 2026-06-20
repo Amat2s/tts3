@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
+  Download,
   Loader2,
   Lock,
   Plus,
@@ -48,6 +49,13 @@ interface TimetableActionBarProps {
   onStartBlockMode?: () => void
   onCancelBlockMode?: () => void
   onCreateBlock?: () => void
+  // Timetable Excel download (Unit 94)
+  canDownload?: boolean
+  downloadDisabledReason?: string | null
+  isExporting?: boolean
+  onDownloadTimetable?: () => void
+  downloadNotice?: string | null
+  onDismissDownloadNotice?: () => void
   // Solver lifecycle (merged from SolverStatusPanel)
   solverRunStatus: SolverRunStatusResponse | null
   isSolverStarting: boolean
@@ -107,6 +115,12 @@ export function TimetableActionBar({
   onStartBlockMode,
   onCancelBlockMode,
   onCreateBlock,
+  canDownload = false,
+  downloadDisabledReason,
+  isExporting = false,
+  onDownloadTimetable,
+  downloadNotice = null,
+  onDismissDownloadNotice,
   solverRunStatus,
   isSolverStarting,
   solverStartError,
@@ -284,6 +298,19 @@ export function TimetableActionBar({
         dismissible: true,
         retryable: false,
         onDismiss: onDismissBlockNotice,
+      }
+    }
+
+    // Priority 2.5: timetable-download notice (dismissible, one-time)
+    if (downloadNotice) {
+      return {
+        text: downloadNotice,
+        color: 'var(--state-success)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        isAlert: false,
+        dismissible: true,
+        retryable: false,
+        onDismiss: onDismissDownloadNotice,
       }
     }
 
@@ -513,6 +540,26 @@ export function TimetableActionBar({
               >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 Clear all
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!canDownload}
+                title={downloadDisabledReason ?? undefined}
+                onClick={onDownloadTimetable}
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Downloading…
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    Download Timetable
+                  </>
+                )}
               </Button>
 
               <Button
