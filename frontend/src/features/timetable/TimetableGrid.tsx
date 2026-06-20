@@ -137,11 +137,14 @@ export function TimetableGrid({
   // multiple adjacent room columns, identify the leftmost "anchor" cell (which
   // renders a merged card spanning N columns) and the covered non-anchor cells
   // (which render no visual card but remain functionally blocked).
-  const { anchorSpanMap, suppressSet } = useMemo(
+  const { anchorMap, suppressSet } = useMemo(
     () =>
       blockedCells
         ? buildBlockAnchorData(blockedCells, rooms)
-        : { anchorSpanMap: new Map<string, number>(), suppressSet: new Set<string>() },
+        : {
+            anchorMap: new Map<string, { roomSpan: number; slotSpan: number }>(),
+            suppressSet: new Set<string>(),
+          },
     [blockedCells, rooms]
   )
 
@@ -232,7 +235,8 @@ export function TimetableGrid({
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
-                  blockRoomSpan={anchorSpanMap.get(cellKey)}
+                  blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
+                  blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
                   suppressBlockVisual={suppressSet.has(cellKey)}
                   isBlockInteractive={isBlockInteractive}
                   onBlockClick={onBlockClick}
@@ -309,7 +313,8 @@ export function TimetableGrid({
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
-                  blockRoomSpan={anchorSpanMap.get(cellKey)}
+                  blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
+                  blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
                   suppressBlockVisual={suppressSet.has(cellKey)}
                   isBlockInteractive={isBlockInteractive}
                   onBlockClick={onBlockClick}

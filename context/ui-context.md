@@ -147,18 +147,18 @@ inline the hex values.
 
 Rendering rules:
 
-- Unnamed blocks render grey/disabled with a lock icon and no label, using the
-  `--block-empty-*` tokens.
-- Named blocks render with a lock icon, the block name, and the selected colour
-  (`gold` → blue/pink map to the `--block-gold-*` / `--block-blue-*` / `--block-pink-*`
-  sets).
+- Unnamed blocks render grey/disabled with no label, using the `--block-empty-*` tokens.
+- Named blocks render the block name and selected colour (`gold` → `--block-gold-*`,
+  `light_blue` → `--block-blue-*`, `light_pink` → `--block-pink-*` sets). No lock icon.
+- Block cells have no left-border accent; this is the visual distinction from session cards
+  (which always carry a coloured left border).
 - Fall back to the grey `--block-empty-*` set if a colour is missing or unknown.
-- **Multi-room merging**: when a block group occupies multiple adjacent room columns at
-  the same slot row, the cells are merged horizontally into a single card spanning all
-  those columns. The leftmost cell renders the merged card (width = N × cell width);
-  the other cells in the same group/slot render no card visually but remain functionally
-  blocked. Each slot row is merged independently — there is no vertical merging across
-  slot rows.
+- **Rectangle merging**: contiguous cells of the same block group that form a rectangular
+  region (consecutive room columns × consecutive slot rows) are merged into a single card.
+  The top-left cell is the anchor; it renders the card with `width = N_rooms × cell width`
+  and `height = N_slots × 3.5rem`. All other cells in the rectangle render no card visually
+  but remain functionally blocked. Non-rectangular or gapped block groups produce multiple
+  independent rectangles, each with its own anchor.
 - Block cells live in the timetable grid, never in the unscheduled pool, and must stay
   visually distinct from session cards. During block-selection mode, selected cells use
   temporary token-based styling.

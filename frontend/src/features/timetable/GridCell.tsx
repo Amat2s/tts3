@@ -15,12 +15,11 @@ interface GridCellProps {
   // Unit 85: a reserved (blocked) cell. Rendered passively below the session
   // layer; placement validation against blocks is a later unit.
   blockedCell?: BlockedCell | null
-  // When the block group spans multiple adjacent rooms at this slot, the
-  // leftmost ("anchor") cell receives blockRoomSpan > 1 and renders a merged
-  // card covering the adjacent columns. Non-anchor cells in the same run
-  // receive suppressBlockVisual=true and render no card (they remain
-  // functionally blocked via blockedCell for validation).
+  // Anchor cell: roomSpan > 1 → merged card covering adjacent room columns;
+  // slotSpan > 1 → merged card covering consecutive slot rows (like sessions).
+  // Non-anchor cells in the same rectangle receive suppressBlockVisual=true.
   blockRoomSpan?: number
+  blockSlotSpan?: number
   suppressBlockVisual?: boolean
   isBlockInteractive?: boolean
   onBlockClick?: (blockId: string) => void
@@ -48,6 +47,7 @@ export function GridCell({
   assignment,
   blockedCell,
   blockRoomSpan,
+  blockSlotSpan,
   suppressBlockVisual = false,
   isBlockInteractive = false,
   onBlockClick,
@@ -122,6 +122,7 @@ export function GridCell({
         <BlockCellCard
           block={blockedCell}
           roomSpan={blockRoomSpan}
+          slotSpan={blockSlotSpan}
           // While a session is pending placement (or in block-selection mode),
           // the block overlay lets clicks fall through to the cell so a blocked
           // placement attempt surfaces its reason instead of opening the editor.

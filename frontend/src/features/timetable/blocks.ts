@@ -78,84 +78,152 @@ export function getBlockColorTokens(
   return BLOCK_COLOUR_TOKENS[colour] ?? BLOCK_EMPTY_TOKENS
 }
 
+// Canonical slot ordering used for consecutive-slot detection.
+const SLOT_INDEX: Record<string, number> = {
+  s1: 0, s2: 1, s3: 2, s4: 3, s5: 4, s6: 5, s7: 6,
+}
+const SLOT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
+
 /**
- * For each block group + slot combination that spans multiple adjacent room
- * columns, compute which cell is the visual "anchor" (leftmost room) and how
- * many columns it should span, and which cells should be visually suppressed
- * (covered by the anchor's merged card).
+ * For each block group, compute the minimal set of visual "rectangles" (one
+ * per distinct contiguous slot-run × contiguous room-run combination) and
+ * identify which cell is the top-left anchor and how many columns/rows it
+ * spans.
  *
  * Returns:
- * - `anchorSpanMap`: keys are `day:room_id:slot`; values are the room-column
- *   span count (≥ 2 — only entries that actually span multiple rooms are
- *   included; single-room cells are left out).
- * - `suppressSet`: keys are `day:room_id:slot` for non-anchor blocked cells
- *   that are visually covered by an anchor's merged card and should not render
- *   their own `BlockCellCard`.
+ * - `anchorMap`: keys are `day:room_id:slot` for the top-left cell of each
+ *   rectangle; values are `{ roomSpan, slotSpan }` (both ≥ 1, but an entry
+ *   is only present when roomSpan > 1 or slotSpan > 1 — i.e. actual merging
+ *   is needed).
+ * - `suppressSet`: keys are `day:room_id:slot` for all non-anchor cells
+ *   covered by a merged rectangle; these cells render no `BlockCellCard`
+ *   visually but remain functionally blocked.
  *
- * Non-consecutive room groups (a gap in the room index) produce independent
- * runs and are each handled separately.  In practice block selection always
- * produces a contiguous rectangle, but the function is robust to gaps.
+ * The algorithm handles gaps in slot or room sequences by treating each
+ * contiguous run as an independent rectangle.
  */
 export function buildBlockAnchorData(
   blockedCells: Map<string, BlockedCell>,
   rooms: { id: string }[]
-): { anchorSpanMap: Map<string, number>; suppressSet: Set<string> } {
+): {
+  anchorMap: Map<string, { roomSpan: number; slotSpan: number }>
+  suppressSet: Set<string>
+} {
   const roomIndexMap = new Map(rooms.map((r, i) => [r.id, i]))
 
-  // Group cells by (blockId, day, slot) — each entry is the list of rooms that
-  // share this block group at this specific slot row.
-  type Entry = {
-    roomIdx: number
-    room_id: string
+  // Step 1: group cells by (blockId, day, room_id) → collect all slot ids.
+  type RoomEntry = {
+    blockId: string
     day: string
-    slot: string
+    room_id: string
+    roomIdx: number
+    slots: string[]
   }
-  const groups = new Map<string, Entry[]>()
+  const byRoomDay = new Map<string, RoomEntry>()
 
   for (const cell of blockedCells.values()) {
-    const rIdx = roomIndexMap.get(cell.room_id)
-    if (rIdx === undefined) continue
-    const gk = `${cell.blockId}::${cell.day}::${cell.slot}`
-    const list = groups.get(gk)
-    const entry: Entry = {
-      roomIdx: rIdx,
-      room_id: cell.room_id,
-      day: cell.day,
-      slot: cell.slot,
-    }
-    if (list) {
-      list.push(entry)
+    const roomIdx = roomIndexMap.get(cell.room_id)
+    if (roomIdx === undefined) continue
+    const key = `${cell.blockId}::${cell.day}::${cell.room_id}`
+    const existing = byRoomDay.get(key)
+    if (existing) {
+      existing.slots.push(cell.slot)
     } else {
-      groups.set(gk, [entry])
+      byRoomDay.set(key, {
+        blockId: cell.blockId,
+        day: cell.day,
+        room_id: cell.room_id,
+        roomIdx,
+        slots: [cell.slot],
+      })
     }
   }
 
-  const anchorSpanMap = new Map<string, number>()
-  const suppressSet = new Set<string>()
+  // Step 2: for each (blockId, day, room_id) entry, find consecutive slot runs.
+  type SlotRun = {
+    blockId: string
+    day: string
+    room_id: string
+    roomIdx: number
+    startSlot: string
+    startSlotIdx: number
+    slotSpan: number
+  }
+  const allRuns: SlotRun[] = []
 
-  for (const roomList of groups.values()) {
-    if (roomList.length <= 1) continue
-    roomList.sort((a, b) => a.roomIdx - b.roomIdx)
-
-    // Walk consecutive runs and record anchor + suppressed cells for each run.
+  for (const entry of byRoomDay.values()) {
+    const sorted = [...entry.slots].sort(
+      (a, b) => (SLOT_INDEX[a] ?? 99) - (SLOT_INDEX[b] ?? 99)
+    )
     let runStart = 0
-    for (let i = 1; i <= roomList.length; i++) {
+    for (let i = 1; i <= sorted.length; i++) {
       const isRunEnd =
-        i === roomList.length ||
-        roomList[i].roomIdx !== roomList[i - 1].roomIdx + 1
+        i === sorted.length ||
+        (SLOT_INDEX[sorted[i]] ?? 99) !== (SLOT_INDEX[sorted[i - 1]] ?? 99) + 1
       if (isRunEnd) {
-        const run = roomList.slice(runStart, i)
-        if (run.length > 1) {
-          const { day, slot } = run[0]
-          anchorSpanMap.set(`${day}:${run[0].room_id}:${slot}`, run.length)
-          for (let j = 1; j < run.length; j++) {
-            suppressSet.add(`${day}:${run[j].room_id}:${slot}`)
-          }
-        }
+        const run = sorted.slice(runStart, i)
+        allRuns.push({
+          blockId: entry.blockId,
+          day: entry.day,
+          room_id: entry.room_id,
+          roomIdx: entry.roomIdx,
+          startSlot: run[0],
+          startSlotIdx: SLOT_INDEX[run[0]] ?? 0,
+          slotSpan: run.length,
+        })
         runStart = i
       }
     }
   }
 
-  return { anchorSpanMap, suppressSet }
+  // Step 3: group slot runs by (blockId, day, startSlotIdx, slotSpan) —
+  // runs that share the same block/day/start/span form a horizontal merge group.
+  const runGroups = new Map<string, SlotRun[]>()
+  for (const run of allRuns) {
+    const key = `${run.blockId}::${run.day}::${run.startSlotIdx}::${run.slotSpan}`
+    const existing = runGroups.get(key)
+    if (existing) {
+      existing.push(run)
+    } else {
+      runGroups.set(key, [run])
+    }
+  }
+
+  // Step 4: within each group, find consecutive room runs → one rectangle each.
+  const anchorMap = new Map<string, { roomSpan: number; slotSpan: number }>()
+  const suppressSet = new Set<string>()
+
+  for (const runs of runGroups.values()) {
+    runs.sort((a, b) => a.roomIdx - b.roomIdx)
+    const { day, startSlot, startSlotIdx, slotSpan } = runs[0]
+
+    let roomRunStart = 0
+    for (let i = 1; i <= runs.length; i++) {
+      const isRunEnd =
+        i === runs.length || runs[i].roomIdx !== runs[i - 1].roomIdx + 1
+      if (isRunEnd) {
+        const roomRun = runs.slice(roomRunStart, i)
+        const roomSpan = roomRun.length
+
+        if (roomSpan > 1 || slotSpan > 1) {
+          const anchorKey = `${day}:${roomRun[0].room_id}:${startSlot}`
+          anchorMap.set(anchorKey, { roomSpan, slotSpan })
+
+          // Suppress every cell in the rectangle except the anchor.
+          for (const room of roomRun) {
+            for (let si = 0; si < slotSpan; si++) {
+              const slotId = SLOT_IDS[startSlotIdx + si]
+              if (!slotId) continue
+              const cellKey = `${day}:${room.room_id}:${slotId}`
+              if (cellKey !== anchorKey) suppressSet.add(cellKey)
+            }
+          }
+        }
+
+        roomRunStart = i
+      }
+    }
+  }
+
+  return { anchorMap, suppressSet }
 }

@@ -57,24 +57,24 @@ describe('buildBlockAnchorData', () => {
   ]
 
   it('returns empty maps when blockedCells is empty', () => {
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(new Map(), rooms)
-    expect(anchorSpanMap.size).toBe(0)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(new Map(), rooms)
+    expect(anchorMap.size).toBe(0)
     expect(suppressSet.size).toBe(0)
   })
 
-  it('produces no anchor entry for a single-room block (no merging needed)', () => {
+  it('produces no anchor entry for a single-cell block (no merging needed)', () => {
     const blockedCells = buildBlockedCellMap([
       makeTimetableBlock({
         id: 'b1',
         cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'r1' }],
       }),
     ])
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
-    expect(anchorSpanMap.size).toBe(0)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+    expect(anchorMap.size).toBe(0)
     expect(suppressSet.size).toBe(0)
   })
 
-  it('merges a 3-room block into an anchor with span 3 and 2 suppressed cells', () => {
+  it('merges a single-slot 3-room block horizontally (roomSpan: 3)', () => {
     const blockedCells = buildBlockedCellMap([
       makeTimetableBlock({
         id: 'b1',
@@ -85,19 +85,32 @@ describe('buildBlockAnchorData', () => {
         ],
       }),
     ])
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
 
-    // r1 is the anchor with span 3
-    expect(anchorSpanMap.get('Monday:r1:s1')).toBe(3)
-    // r2 and r3 are suppressed
+    expect(anchorMap.get('Monday:r1:s1')).toEqual({ roomSpan: 3, slotSpan: 1 })
     expect(suppressSet.has('Monday:r2:s1')).toBe(true)
     expect(suppressSet.has('Monday:r3:s1')).toBe(true)
-    // r1 is not suppressed
     expect(suppressSet.has('Monday:r1:s1')).toBe(false)
   })
 
-  it('produces independent anchor entries per slot row for a multi-slot multi-room block', () => {
-    // 2 rooms × 2 slots = each slot row gets its own anchor+suppress pair.
+  it('merges a single-room 2-slot block vertically (slotSpan: 2)', () => {
+    const blockedCells = buildBlockedCellMap([
+      makeTimetableBlock({
+        id: 'b1',
+        cells: [
+          { id: 'c1', day: 'Monday', slot: 's1', room_id: 'r1' },
+          { id: 'c2', day: 'Monday', slot: 's2', room_id: 'r1' },
+        ],
+      }),
+    ])
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+
+    expect(anchorMap.get('Monday:r1:s1')).toEqual({ roomSpan: 1, slotSpan: 2 })
+    expect(suppressSet.has('Monday:r1:s2')).toBe(true)
+    expect(suppressSet.size).toBe(1)
+  })
+
+  it('merges a 2-slot × 2-room block into one rectangle (roomSpan: 2, slotSpan: 2)', () => {
     const blockedCells = buildBlockedCellMap([
       makeTimetableBlock({
         id: 'b1',
@@ -109,14 +122,14 @@ describe('buildBlockAnchorData', () => {
         ],
       }),
     ])
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
 
-    expect(anchorSpanMap.get('Tuesday:r1:s2')).toBe(2)
-    expect(anchorSpanMap.get('Tuesday:r1:s3')).toBe(2)
+    expect(anchorMap.get('Tuesday:r1:s2')).toEqual({ roomSpan: 2, slotSpan: 2 })
+    expect(anchorMap.size).toBe(1)
     expect(suppressSet.has('Tuesday:r2:s2')).toBe(true)
+    expect(suppressSet.has('Tuesday:r1:s3')).toBe(true)
     expect(suppressSet.has('Tuesday:r2:s3')).toBe(true)
-    expect(anchorSpanMap.size).toBe(2)
-    expect(suppressSet.size).toBe(2)
+    expect(suppressSet.size).toBe(3)
   })
 
   it('handles two independent block groups in the same slot independently', () => {
@@ -137,10 +150,10 @@ describe('buildBlockAnchorData', () => {
         ],
       }),
     ])
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
 
-    expect(anchorSpanMap.get('Wednesday:r1:s4')).toBe(2)
-    expect(anchorSpanMap.get('Wednesday:r3:s4')).toBe(2)
+    expect(anchorMap.get('Wednesday:r1:s4')).toEqual({ roomSpan: 2, slotSpan: 1 })
+    expect(anchorMap.get('Wednesday:r3:s4')).toEqual({ roomSpan: 2, slotSpan: 1 })
     expect(suppressSet.has('Wednesday:r2:s4')).toBe(true)
     expect(suppressSet.has('Wednesday:r4:s4')).toBe(true)
   })
@@ -155,12 +168,8 @@ describe('buildBlockAnchorData', () => {
         ],
       }),
     ])
-    // Only r1 is in the rooms list; unknown-room is not.
-    const { anchorSpanMap, suppressSet } = buildBlockAnchorData(blockedCells, [
-      { id: 'r1' },
-    ])
-    // No merging since only 1 known room
-    expect(anchorSpanMap.size).toBe(0)
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, [{ id: 'r1' }])
+    expect(anchorMap.size).toBe(0)
     expect(suppressSet.size).toBe(0)
   })
 })
