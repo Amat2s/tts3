@@ -1,4 +1,4 @@
-"""Timetable Excel export service (Unit 93).
+"""Timetable Excel export service (Units 93, 96).
 
 Renders the current *saved* timetable state into the fixed Campion timetable
 ``.xlsx`` template. The static template (``export_templates/
@@ -7,22 +7,31 @@ only mutates the title, version, classes, blocks and the lecturer/tutor key,
 then returns an in-memory workbook stream. Nothing is written to the database
 or to disk — exports are never persisted.
 
-Boundary note: the requested class colouring derives a subject from the unit
-code prefix. The subject parser is otherwise frontend-only, so this module
-keeps a small, export-scoped subject -> fill map purely for rendering the Excel
-artifact (see ``SUBJECT_FILLS``). It does not introduce a general backend
-subject parser.
+Styling parity (Unit 96): class and block cells are painted by applying the
+**template-derived NamedStyles** baked into the template by
+``export_templates/build_template.py`` (copied verbatim from the source sheet's
+own class/event exemplar cells). This module never constructs subject fills,
+fonts, or borders from approximated RGB; it only chooses which template style
+to apply per subject/block colour and writes the dynamic value. Static template
+content (headers, time labels, ``Mass/Lunch``, ``FORMAL HALL``, notes, key,
+version style) is left untouched.
+
+Boundary note: choosing a class style derives a subject from the unit code
+prefix. The subject parser is otherwise frontend-only, so this module keeps a
+small, export-scoped subject -> template-style map purely for rendering the
+Excel artifact (see ``SUBJECT_PREFIXES``). It does not introduce a general
+backend subject parser.
 """
 from __future__ import annotations
 
 import io
 import re
+from copy import copy
 from datetime import date
 from pathlib import Path
 
 import structlog
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session as DBSession, selectinload
 
@@ -65,39 +74,40 @@ TITLE_CELL = "B2"
 VERSION_CELL = "K29"
 STATIC_VERSION = "Version 1"
 
-# Lecturer/tutor key area: two columns (A, D) starting at row 29.
+# Lecturer/tutor key area: two columns (A, D) starting at row 29. The template
+# styles five key rows per column (29-33); overflow rows copy that style.
 KEY_COLUMNS = ["A", "D"]
 KEY_START_ROW = 29
+KEY_TEMPLATE_LAST_ROW = 33
 KEY_CLEAR_ROWS = range(29, 41)
 
-# --- Styling -----------------------------------------------------------------
+# --- Styling (template-derived NamedStyles, baked by build_template.py) ------
 
-_FONT_NAME = "Trebuchet MS"
-_MEDIUM = Side(style="medium", color="FF000000")
-_THIN = Side(style="thin", color="FFC6C6C6")
+# Subject class styles keyed by unit-code prefix. Each name resolves to a
+# NamedStyle copied verbatim from the template's own class exemplar cell.
+# Unknown/legacy prefixes (e.g. SCI) fall back to the neutral default class
+# style. Must mirror export_templates/build_template.py.
+SUBJECT_STYLE_PREFIX = "tt_class_"
+SUBJECT_PREFIXES: frozenset[str] = frozenset({"HIS", "THE", "LIT", "PHI", "GRE", "LAN"})
+DEFAULT_CLASS_STYLE = "tt_class_default"
 
-# Subject background / text colours (mirrors the frontend subject tokens), keyed
-# by unit-code prefix. Unknown/legacy prefixes fall back to the neutral style.
-SUBJECT_FILLS: dict[str, tuple[str, str]] = {
-    "HIS": ("F7E5D4", "6B3515"),
-    "PHI": ("E7EEF7", "234766"),
-    "THE": ("F6E7EF", "67304C"),
-    "LIT": ("E4EFE8", "244D39"),
-    "LAN": ("FAECD8", "7A4B16"),
-    "GRE": ("EAF3DF", "4F6D2E"),
-    "SCI": ("DFE9F2", "1E3A56"),
-}
-DEFAULT_CLASS_FILL: tuple[str, str] = ("F7F0D8", "7A4B16")
-
-# Block background / text colours by app block colour (mirrors the block tokens).
-BLOCK_FILLS: dict[str | None, tuple[str, str]] = {
-    None: ("E9E2D8", "8A7E78"),  # unnamed
-    "gold": ("F7F0D8", "7A4B16"),
-    "light_blue": ("E7EEF7", "234766"),
-    "light_pink": ("F6E7EF", "67304C"),
+# Block styles by app block colour; resolve to the template's blocked/static-
+# event styling (gold/blue/maroon events; grey "blocked" for unnamed blocks).
+BLOCK_STYLE: dict[str | None, str] = {
+    "gold": "tt_block_gold",
+    "light_blue": "tt_block_blue",
+    "light_pink": "tt_block_pink",
+    None: "tt_block_unnamed",
 }
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _class_style_name(unit_code: str) -> str:
+    prefix = unit_code[:3].upper()
+    if prefix in SUBJECT_PREFIXES:
+        return SUBJECT_STYLE_PREFIX + prefix
+    return DEFAULT_CLASS_STYLE
 
 
 # --- Mapping helpers ---------------------------------------------------------
@@ -162,14 +172,15 @@ def _paint(
     left: int,
     bottom: int,
     right: int,
-    bg: str,
-    text: str,
+    style_name: str,
     value: str | None,
 ) -> None:
-    """Merge a rectangle, fill it, and write the value at the top-left cell.
+    """Apply a template-derived NamedStyle to a rectangle, merge it, and write
+    the value at the top-left cell.
 
-    A medium-black box is drawn around the rectangle with thin-grey interior so
-    the written class/block matches the template's grid styling.
+    The style (fill/font/border/alignment) is copied verbatim from the
+    template's own class/event exemplar cells (baked into the template by
+    build_template.py); this function never constructs approximated styles.
     """
     if top < 6 or bottom > 21 or 12 <= top <= 13 or 12 <= bottom <= 13:
         # App slot bands never touch the static Mass/Lunch rows (12-13); guard
@@ -181,21 +192,9 @@ def _paint(
         )
 
     _unmerge_region(ws, top, left, bottom, right)
-    fill = PatternFill(fill_type="solid", fgColor=f"FF{bg}")
-    font = Font(name=_FONT_NAME, size=10, bold=True, color=f"FF{text}")
-    align = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for row in range(top, bottom + 1):
         for col in range(left, right + 1):
-            cell = ws.cell(row=row, column=col)
-            cell.fill = fill
-            cell.font = font
-            cell.alignment = align
-            cell.border = Border(
-                top=_MEDIUM if row == top else _THIN,
-                bottom=_MEDIUM if row == bottom else _THIN,
-                left=_MEDIUM if col == left else _THIN,
-                right=_MEDIUM if col == right else _THIN,
-            )
+            ws.cell(row=row, column=col).style = style_name
     if top != bottom or left != right:
         ws.merge_cells(start_row=top, start_column=left, end_row=bottom, end_column=right)
     ws.cell(row=top, column=left).value = value
@@ -336,9 +335,10 @@ def _write_lecturer_key(ws: Worksheet, assignments: list[TimetableAssignment]) -
 
     entries = sorted(by_id.values(), key=lambda e: (e[0], e[1]))
 
-    # Clear the key value cells (style preserved), then write balanced columns.
-    key_font = Font(name=_FONT_NAME, size=10, bold=True, color="FF404040")
-    key_align = Alignment(horizontal="left")
+    # Clear the key value cells (template key style preserved), then write
+    # balanced columns. Written cells inherit the template key-area style; any
+    # overflow rows below the styled key block copy the style of their column's
+    # first key cell so the look stays template-faithful.
     for col in KEY_COLUMNS:
         for row in KEY_CLEAR_ROWS:
             ws[f"{col}{row}"] = None
@@ -346,11 +346,12 @@ def _write_lecturer_key(ws: Worksheet, assignments: list[TimetableAssignment]) -
     per_column = (len(entries) + 1) // 2  # column A holds the first half
     for index, (initials, display) in enumerate(entries):
         col = KEY_COLUMNS[0] if index < per_column else KEY_COLUMNS[1]
-        row = KEY_START_ROW + (index if index < per_column else index - per_column)
+        offset = index if index < per_column else index - per_column
+        row = KEY_START_ROW + offset
         cell = ws[f"{col}{row}"]
         cell.value = f"{initials}: {display}"
-        cell.font = key_font
-        cell.alignment = key_align
+        if row > KEY_TEMPLATE_LAST_ROW:
+            cell._style = copy(ws[f"{col}{KEY_START_ROW}"]._style)
 
 
 # --- Public API --------------------------------------------------------------
@@ -407,10 +408,9 @@ def generate_timetable_export(db: DBSession, title: str) -> io.BytesIO:
         room_name = a.room.name
         top, col = cell_anchor(a.day.value, room_name, a.start_slot.value)
         _, bottom = _slot_row_span(a.start_slot.value, session.duration)
-        prefix = session.unit.code[:3].upper()
-        bg, text = SUBJECT_FILLS.get(prefix, DEFAULT_CLASS_FILL)
+        style_name = _class_style_name(session.unit.code)
         label = _session_label(session, tutorial_letters.get(a.session_id))
-        _paint(ws, top, col, bottom, col, bg, text, label)
+        _paint(ws, top, col, bottom, col, style_name, label)
 
     _write_blocks(db, ws)
     _write_lecturer_key(ws, assignments)
@@ -446,10 +446,10 @@ def _write_blocks(db: DBSession, ws: Worksheet) -> None:
         if not cells:
             continue
         colour = group.colour.value if group.colour is not None else None
-        bg, text = BLOCK_FILLS.get(colour, BLOCK_FILLS[None])
+        style_name = BLOCK_STYLE.get(colour, BLOCK_STYLE[None])
         value = group.name if group.name else None
         for top, left, bottom, right in _block_rectangles(cells):
-            _paint(ws, top, left, bottom, right, bg, text, value)
+            _paint(ws, top, left, bottom, right, style_name, value)
 
 
 def export_filename(title: str, today: date) -> str:

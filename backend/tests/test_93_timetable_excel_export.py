@@ -423,8 +423,8 @@ def test_named_block_exports_name_with_block_style(db):
     # s5 Monday PDS -> rows 16-17, col B.
     assert "B16:B17" in merges(ws)
     assert ws["B16"].value == "Chapel"
-    # Gold block fill, not the grey empty-cell fill.
-    assert ws["B16"].fill.fgColor.rgb == "FF" + ex.BLOCK_FILLS["gold"][0]
+    # Template-derived gold event fill, not the grey empty-cell fill.
+    assert ws["B16"].fill.fgColor.rgb == "FFcc9900"
 
 
 def test_unnamed_block_exports_blank_with_block_style(db):
@@ -436,8 +436,8 @@ def test_unnamed_block_exports_blank_with_block_style(db):
     _, ws = load_ws(ex.generate_timetable_export(db, "T"))
     assert "B16:B17" in merges(ws)
     assert ws["B16"].value is None
-    # Grey block-empty fill (distinct from the grid empty d9d9d9).
-    assert ws["B16"].fill.fgColor.rgb == "FF" + ex.BLOCK_FILLS[None][0]
+    # Unnamed blocks use the template's grey "blocked" (empty-cell) fill.
+    assert ws["B16"].fill.fgColor.rgb == "FFd9d9d9"
 
 
 def test_block_rectangle_merging(db):
