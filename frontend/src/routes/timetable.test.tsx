@@ -36,6 +36,11 @@ vi.mock('@/lib/api/solver', () => ({
   startSolverRun: vi.fn(),
   getSolverRunStatus: vi.fn(),
 }))
+vi.mock('@/lib/api/timetableExport', () => ({
+  exportSavedTimetableExcel: vi.fn(),
+  fallbackExportFilename: vi.fn(() => 'campion-timetable-2026-06-21.xlsx'),
+  triggerBlobDownload: vi.fn(),
+}))
 
 import TimetablePage from './timetable'
 import { ApiRequestError } from '@/lib/api/client'
@@ -55,6 +60,10 @@ import {
   deleteTimetableBlock,
 } from '@/lib/api/timetableBlocks'
 import { startSolverRun, getSolverRunStatus } from '@/lib/api/solver'
+import {
+  exportSavedTimetableExcel,
+  triggerBlobDownload,
+} from '@/lib/api/timetableExport'
 import {
   makeAssignment,
   makeAssignmentResponse,
@@ -84,6 +93,8 @@ const mockListTimetableBlocks = vi.mocked(listTimetableBlocks)
 const mockCreateTimetableBlock = vi.mocked(createTimetableBlock)
 const mockUpdateTimetableBlock = vi.mocked(updateTimetableBlock)
 const mockDeleteTimetableBlock = vi.mocked(deleteTimetableBlock)
+const mockExportTimetable = vi.mocked(exportSavedTimetableExcel)
+const mockTriggerBlobDownload = vi.mocked(triggerBlobDownload)
 
 function renderTimetable() {
   const queryClient = new QueryClient({
@@ -139,6 +150,10 @@ beforeEach(() => {
     unscheduled_session_ids: [],
   })
   mockDeleteTimetableBlock.mockResolvedValue()
+  mockExportTimetable.mockResolvedValue({
+    blob: new Blob(['xlsx']),
+    filename: 'campion-timetable.xlsx',
+  })
 })
 
 afterEach(() => {
@@ -1348,5 +1363,260 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
       expect(screen.queryByTitle('Unschedule')).not.toBeInTheDocument()
     })
     expect((await screen.findAllByText('Ancient History')).length).toBeGreaterThan(0)
+  })
+})
+
+describe('TimetablePage — timetable Excel download (Unit 94)', () => {
+  function downloadButton(): HTMLElement {
+    return screen.getByRole('button', {
+      name: /^(Download Timetable|Downloading…)$/,
+    })
+  }
+
+  function gridCell(
+    container: HTMLElement,
+    day: string,
+    roomId: string,
+    slot: string
+  ): HTMLElement {
+    return container.querySelector(
+      `[data-day="${day}"][data-room="${roomId}"][data-slot="${slot}"]`
+    ) as HTMLElement
+  }
+
+  async function placeOneSession(container: HTMLElement) {
+    await screen.findAllByText('Ancient History')
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    fireEvent.click(gridCell(container, 'Monday', 'room-1', 's1'))
+    await screen.findByText('HIS101')
+  }
+
+  const SCHEDULABLE = [
+    makeSchedulableSession({
+      session_id: 'sess-1',
+      unit_code: 'HIS101',
+      unit_name: 'Ancient History',
+      duration: 1,
+      student_count: 10,
+    }),
+  ]
+
+  it('shows the Download Timetable button in the sticky action bar', async () => {
+    renderTimetable()
+    await screen.findByText('Monday')
+    const bar = screen.getByTestId('timetable-action-bar')
+    expect(bar).toContainElement(downloadButton())
+    expect(downloadButton()).toBeEnabled()
+  })
+
+  it('disables download while the draft is dirty with a clear reason', async () => {
+    mockListSchedulable.mockResolvedValue(SCHEDULABLE)
+    const { container } = renderTimetable()
+
+    // Enabled while the saved timetable is clean.
+    await screen.findAllByText('Ancient History')
+    expect(downloadButton()).toBeEnabled()
+
+    // Placing a session makes the draft dirty → download blocked.
+    await placeOneSession(container)
+    expect(downloadButton()).toBeDisabled()
+    expect(downloadButton()).toHaveAttribute(
+      'title',
+      'Save timetable changes before downloading.'
+    )
+  })
+
+  it('disables download while a save is in progress', async () => {
+    mockListSchedulable.mockResolvedValue(SCHEDULABLE)
+    // Hang the save so the in-flight state is observable.
+    mockSaveAssignments.mockReturnValue(
+      new Promise(() => {}) as ReturnType<typeof saveAssignments>
+    )
+    const { container } = renderTimetable()
+    await placeOneSession(container)
+
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Saving...'))
+    expect(downloadButton()).toBeDisabled()
+  })
+
+  it('disables download while the solver is running', async () => {
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+      }),
+    ])
+    renderTimetable()
+
+    await waitFor(() => expect(runSolverButton()).toBeEnabled())
+    fireEvent.click(runSolverButton())
+    expect(await screen.findByText('Solver is running…')).toBeInTheDocument()
+    expect(downloadButton()).toBeDisabled()
+  })
+
+  it('disables download when saved assignment data failed to load', async () => {
+    mockListAssignments.mockRejectedValue(
+      new ApiRequestError({ status: 500, message: 'boom' })
+    )
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await waitFor(() => expect(downloadButton()).toBeDisabled())
+    expect(downloadButton()).toHaveAttribute(
+      'title',
+      'Saved timetable data could not be loaded.'
+    )
+  })
+
+  it('opens the title dialog when the button is enabled', async () => {
+    const user = userEvent.setup()
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(downloadButton())
+
+    expect(
+      screen.getByRole('heading', { name: 'Download timetable' })
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toHaveValue('Campion Timetable')
+    expect(
+      screen.getByText('This title appears inside the downloaded Excel file.')
+    ).toBeInTheDocument()
+  })
+
+  it('disables the dialog Download action while the title is blank', async () => {
+    const user = userEvent.setup()
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(downloadButton())
+    const dialogDownload = screen.getByRole('button', { name: 'Download' })
+    expect(dialogDownload).toBeEnabled()
+
+    await user.clear(screen.getByLabelText('Title'))
+    expect(dialogDownload).toBeDisabled()
+  })
+
+  it('exports with the trimmed title and triggers a download, then closes', async () => {
+    const user = userEvent.setup()
+    const blob = new Blob(['workbook'])
+    mockExportTimetable.mockResolvedValue({
+      blob,
+      filename: 'semester-2026.xlsx',
+    })
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(downloadButton())
+    const input = screen.getByLabelText('Title')
+    await user.clear(input)
+    await user.type(input, '  My Semester  ')
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+
+    await waitFor(() =>
+      expect(mockExportTimetable).toHaveBeenCalledWith({ title: 'My Semester' })
+    )
+    await waitFor(() =>
+      expect(mockTriggerBlobDownload).toHaveBeenCalledWith(blob, 'semester-2026.xlsx')
+    )
+    // Dialog closes and the action bar shows the concise success notice.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('heading', { name: 'Download timetable' })
+      ).not.toBeInTheDocument()
+    )
+    expect(screen.getByText('Timetable downloaded.')).toBeInTheDocument()
+  })
+
+  it('falls back to a dated filename when the backend omits Content-Disposition', async () => {
+    const user = userEvent.setup()
+    const blob = new Blob(['workbook'])
+    mockExportTimetable.mockResolvedValue({ blob, filename: null })
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(downloadButton())
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+
+    await waitFor(() =>
+      expect(mockTriggerBlobDownload).toHaveBeenCalledWith(
+        blob,
+        'campion-timetable-2026-06-21.xlsx'
+      )
+    )
+  })
+
+  it('keeps the dialog open and shows the message when the export fails', async () => {
+    const user = userEvent.setup()
+    mockExportTimetable.mockRejectedValue(
+      new ApiRequestError({
+        status: 422,
+        message: 'A scheduled room is not part of the export template.',
+      })
+    )
+    renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(downloadButton())
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+
+    expect(
+      await screen.findByText(
+        'A scheduled room is not part of the export template.'
+      )
+    ).toBeInTheDocument()
+    // Dialog stays open; nothing was downloaded.
+    expect(
+      screen.getByRole('heading', { name: 'Download timetable' })
+    ).toBeInTheDocument()
+    expect(mockTriggerBlobDownload).not.toHaveBeenCalled()
+  })
+
+  it('keeps download enabled when there are unscheduled sessions', async () => {
+    mockListSchedulable.mockResolvedValue(SCHEDULABLE)
+    mockListAssignments.mockResolvedValue([])
+    renderTimetable()
+
+    await screen.findAllByText('Ancient History')
+    expect(downloadButton()).toBeEnabled()
+  })
+
+  it('keeps download enabled when saved assignments carry warnings', async () => {
+    mockListRooms.mockResolvedValue([
+      makeRoom({ id: 'room-1', capacity: 30 }),
+      makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
+    ])
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({
+        assignment_id: 'asg-1',
+        session_id: 'sess-1',
+        unit_id: 'unit-1',
+        unit_code: 'HIS101',
+        room_id: 'room-1',
+        day: 'Monday',
+        start_slot: 's1',
+        lecturer_id: 'lec-1',
+      }),
+      makeAssignmentResponse({
+        assignment_id: 'asg-2',
+        session_id: 'sess-2',
+        unit_id: 'unit-2',
+        unit_code: 'MAT200',
+        room_id: 'room-2',
+        day: 'Monday',
+        start_slot: 's1',
+        lecturer_id: 'lec-1',
+      }),
+    ])
+    mockListLecturers.mockResolvedValue([makeLecturer()])
+    renderTimetable()
+
+    // A scheduling warning exists (solver disabled) but export stays available.
+    await screen.findByText(/scheduling warning/)
+    expect(downloadButton()).toBeEnabled()
   })
 })

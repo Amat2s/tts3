@@ -60,6 +60,12 @@ import {
 } from '@/features/timetable/blockSelection'
 import { BlockEditDialog } from '@/features/timetable/BlockEditDialog'
 import { BlockCreateDialog } from '@/features/timetable/BlockCreateDialog'
+import { TimetableDownloadDialog } from '@/features/timetable/TimetableDownloadDialog'
+import {
+  exportSavedTimetableExcel,
+  fallbackExportFilename,
+  triggerBlobDownload,
+} from '@/lib/api/timetableExport'
 import {
   checkDraftForBlockingViolations,
   checkProposedPlacement,
@@ -211,6 +217,10 @@ export default function TimetablePage() {
   )
   const [blockCreateOpen, setBlockCreateOpen] = useState(false)
   const [blockCreateError, setBlockCreateError] = useState<string | null>(null)
+  // Timetable Excel download (Unit 94).
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null)
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -412,6 +422,29 @@ export default function TimetablePage() {
     },
   })
 
+  // Export the SAVED timetable as Excel. The backend renders the workbook; we
+  // only trigger the browser download from the returned blob, preferring the
+  // backend `Content-Disposition` filename and falling back to a dated slug.
+  const exportMutation = useMutation({
+    mutationFn: (title: string) => exportSavedTimetableExcel({ title }),
+    onSuccess: (result) => {
+      const filename = result.filename ?? fallbackExportFilename()
+      triggerBlobDownload(result.blob, filename)
+      setDownloadDialogOpen(false)
+      setExportError(null)
+      setDownloadNotice('Timetable downloaded.')
+    },
+    onError: (err: unknown) => {
+      // Keep the dialog open and surface a readable message inside it.
+      setExportError(
+        getErrorMessage(
+          err,
+          'The timetable could not be downloaded. Please try again.'
+        )
+      )
+    },
+  })
+
   function surfaceUnscheduledNotice(count: number) {
     if (count > 0) {
       setBlockNotice(
@@ -553,6 +586,40 @@ export default function TimetablePage() {
     return null
   })()
   const canAddBlock = addBlockDisabledReason === null
+
+  // Timetable Excel download gating (Unit 94). The export represents the SAVED
+  // timetable, so it is blocked whenever the saved data is unsafe to export:
+  // a dirty draft, a save in flight, a solver run, still-loading or failed saved
+  // assignments / rooms / blocks, or an export already running. It deliberately
+  // stays enabled for unscheduled sessions, warning-invalid saved assignments,
+  // and otherwise-partial saved timetables.
+  const downloadDisabledReason: string | null = (() => {
+    if (isDirty) return 'Save timetable changes before downloading.'
+    if (saveMutation.isPending) return 'Saving timetable changes…'
+    if (editingDisabled) return 'A solver run is in progress.'
+    if (isError) return 'Rooms could not be loaded.'
+    if (assignmentsIsError) return 'Saved timetable data could not be loaded.'
+    if (blocksIsError) return 'Timetable blocks could not be loaded.'
+    if (savedAssignments === undefined)
+      return 'Saved timetable data is still loading.'
+    if (exportMutation.isPending) return 'A download is already in progress.'
+    return null
+  })()
+  const canDownload = downloadDisabledReason === null
+
+  function handleOpenDownload() {
+    if (!canDownload) return
+    setExportError(null)
+    setDownloadNotice(null)
+    setDownloadDialogOpen(true)
+  }
+
+  function handleDownload(title: string) {
+    const trimmed = title.trim()
+    if (!trimmed || exportMutation.isPending) return
+    setExportError(null)
+    exportMutation.mutate(trimmed)
+  }
 
   // Sessions not currently placed in the draft.
   const scheduledIds = new Set(draft.map((a) => a.session_id))
@@ -916,6 +983,12 @@ export default function TimetablePage() {
             onStartBlockMode={handleStartBlockMode}
             onCancelBlockMode={handleCancelBlockMode}
             onCreateBlock={handleOpenCreateBlock}
+            canDownload={canDownload}
+            downloadDisabledReason={downloadDisabledReason}
+            isExporting={exportMutation.isPending}
+            onDownloadTimetable={handleOpenDownload}
+            downloadNotice={downloadNotice}
+            onDismissDownloadNotice={() => setDownloadNotice(null)}
             solverRunStatus={solver.runStatus}
             isSolverStarting={solver.isStarting}
             solverStartError={solver.startError}
@@ -995,6 +1068,16 @@ export default function TimetablePage() {
         onCreate={handleCreateBlock}
         isSaving={createBlockMutation.isPending}
         error={blockCreateError}
+      />
+      <TimetableDownloadDialog
+        open={downloadDialogOpen}
+        onOpenChange={(open) => {
+          setDownloadDialogOpen(open)
+          if (!open) setExportError(null)
+        }}
+        onDownload={handleDownload}
+        isExporting={exportMutation.isPending}
+        error={exportError}
       />
     </AppFrame>
   )

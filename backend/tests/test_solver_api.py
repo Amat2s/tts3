@@ -4,6 +4,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import asyncio
+import itertools
 import json
 import pytest
 
@@ -118,9 +119,13 @@ def make_lecturer(db, lecturer_id="lec1") -> Lecturer:
     return lecturer
 
 
+_student_numbers = itertools.count(10_000_000)
+
+
 def make_student(db, student_id: str) -> Student:
     student = Student(
         id=student_id,
+        student_number=str(next(_student_numbers)),
         first_name="Stu",
         last_name=student_id,
         year_level=1,

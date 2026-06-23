@@ -123,10 +123,12 @@ This application is a university timetable scheduling system for administrators.
 - Admin can create students.
 - Students have no title.
 - Each student has:
+  - a required, unique `student_number` (the canonical institutional identifier, exactly 8 digits, separate from the internal record id)
   - first name
   - last name
   - year level restricted to 1-3
 - Creating a student automatically enrols them into existing units with the same derived year.
+- Admin can bulk-import students from a CSV via `POST /students/import-csv`. The upload is parsed in-memory and discarded (no file storage). Current rows (kept when `dest census date >= today` in Australia/Sydney) create or update students matched by `student_number` and additively enrol them into matching existing units; units are never created from the CSV and existing enrolments are never removed. Newly created students get an initial year level derived from their student number (future cohorts rejected, above 3 capped to 3); existing students keep their manually set year level but have their names updated. The response is aggregate counts only (created/updated students, added enrolments, and skipped/deduped row tallies).
 - Creating a unit without an explicit student list defaults to students in the unit's derived year.
 - Enrolment edits from the student and unit pages update the same `unit_students` relationship.
 - Hidden session allocations derive student-conflict warnings and solver conflicts.
@@ -267,12 +269,13 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Supabase Postgres persistence.
 - Trigger.dev background solver execution.
 - No timetable version history in v1; the latest timetable state is the source of truth.
+- Backend timetable Excel export: a protected `GET /timetable/export.xlsx` API (Unit 93) that renders the saved timetable into a fixed, repo-owned Campion `.xlsx` template and streams it. Exports read saved state only, never mutate assignments, and are never persisted to the database or object storage.
+- Frontend timetable Excel download UI (Unit 94): a `Download Timetable` button in the sticky timetable action bar that opens a required-title dialog and downloads the Unit 93 backend `.xlsx` for the current **saved** timetable. The browser never generates the workbook; it streams the backend blob and triggers a download (filename from the backend `Content-Disposition` or a dated fallback). Download is blocked while the saved timetable is unsafe to export (dirty draft, save or solver in progress, saved assignments/rooms/blocks still loading or failed, or an export already running) but stays available for partial saved timetables, unscheduled sessions, and warning-invalid saved assignments. Adds no blob storage and no export history.
 
 ### Out of Scope
 
-- File upload/import for v1.
-- CSV or Excel import templates.
-- Timetable export/download for v1.
+- General file upload/import beyond the backend student CSV import API (`POST /students/import-csv`, Unit 90), including a frontend upload UI.
+- Excel import templates (Excel *export* is in scope via Unit 93, with the frontend download UI in Unit 94; import is not).
 - Student-facing timetable views.
 - Lecturer-facing timetable views.
 - Multi-admin collaboration.

@@ -7,6 +7,21 @@ from schemas.student import StudentCreate, StudentUpdate
 from services.session_allocation import rebalance_unit_session_allocations
 
 
+def _check_student_number_unique(
+    db: Session, student_number: str, exclude_id: str | None = None
+) -> None:
+    """Reject a duplicate student number, excluding the student's own row on update."""
+    q = db.query(Student).filter(Student.student_number == student_number)
+    if exclude_id is not None:
+        q = q.filter(Student.id != exclude_id)
+    if q.first() is not None:
+        raise AppError(
+            "student_number_conflict",
+            f"Student number '{student_number}' already exists.",
+            status_code=409,
+        )
+
+
 def list_students(db: Session) -> list[Student]:
     return db.query(Student).order_by(Student.last_name, Student.first_name).all()
 
@@ -19,12 +34,16 @@ def get_student(db: Session, student_id: str) -> Student:
 
 
 def create_student(db: Session, data: StudentCreate) -> Student:
+    # The student number is already trimmed/validated (exactly 8 digits) by the
+    # schema; reject a duplicate before persisting.
+    _check_student_number_unique(db, data.student_number)
     # Auto-enrol the new student into every existing unit whose derived
     # year_level matches, in the same transaction as student creation.
     matching_units = (
         db.query(Unit).filter(Unit.year_level == data.year_level).all()
     )
     student = Student(
+        student_number=data.student_number,
         first_name=data.first_name,
         last_name=data.last_name,
         year_level=data.year_level,
@@ -43,6 +62,10 @@ def create_student(db: Session, data: StudentCreate) -> Student:
 
 def update_student(db: Session, student_id: str, data: StudentUpdate) -> Student:
     student = get_student(db, student_id)
+    # When a new student number is supplied it is already trimmed/validated by
+    # the schema; reject a duplicate that belongs to a different student.
+    if data.student_number is not None:
+        _check_student_number_unique(db, data.student_number, exclude_id=student_id)
     # Only scalar fields are updated here. Enrolments are preserved: changing
     # year_level does NOT silently add or remove unit memberships. Enrolment
     # changes happen through unit updates (and a later student-side endpoint).

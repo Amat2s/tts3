@@ -63,6 +63,19 @@ describe('filterStudents', () => {
     ).toEqual(['s3'])
   })
 
+  it('searches by student number (Unit 91)', () => {
+    const list = [
+      makeStudent({ id: 's1', student_number: '20250001' }),
+      makeStudent({ id: 's2', student_number: '20250002' }),
+    ]
+    expect(
+      filterStudents(list, { ...EMPTY_STUDENT_FILTERS, search: '0001' }).map((s) => s.id)
+    ).toEqual(['s1'])
+    expect(
+      filterStudents(list, { ...EMPTY_STUDENT_FILTERS, search: '20250002' }).map((s) => s.id)
+    ).toEqual(['s2'])
+  })
+
   it('filters by year level', () => {
     const result = filterStudents(students, { ...EMPTY_STUDENT_FILTERS, year: '1' })
     expect(result.map((s) => s.id)).toEqual(['s1', 's3', 's4'])
