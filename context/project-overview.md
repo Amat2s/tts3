@@ -15,7 +15,7 @@ This application is a university timetable scheduling system for administrators.
 7. Block impossible manual placements in the frontend before they enter the timetable draft.
 8. Allow warning-level conflicts to remain visible while blocking solver execution.
 9. Use the solver to schedule as many unscheduled sessions as possible while respecting all locked scheduled sessions.
-10. Keep v1 focused on hard constraints only, with soft constraints deferred to v2.
+10. Keep v1 focused on hard constraints, with the single exception of room-specific lecturer scheduling preferences (a `preferred`/`avoid` soft constraint). All other soft constraints remain deferred to v2.
 11. Allow the admin to reserve room-specific timetable cells as hard blocks (e.g. chapel, mass, staff meeting, maintenance) that no session may occupy manually or via the solver.
 
 ## Core User Flow
@@ -29,6 +29,7 @@ This application is a university timetable scheduling system for administrators.
    - `/lecturers`
    - `/students`
    - `/rooms`
+   - `/preferences` (right-most tab)
 5. The admin manually creates rooms on `/rooms`.
 6. Once at least one room exists, `/timetable` renders the timetable grid.
 7. The admin manually creates lecturers on `/lecturers`, including lecturer availability.
@@ -221,12 +222,24 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Admins provide constraint parameters through normal data entry, such as lecturer availability and room capacity.
 - Admins do not define custom constraint rules in v1.
 
+### Lecturer Scheduling Preferences
+
+- A dedicated `/preferences` tab (the right-most navbar tab) lets the admin record room-specific scheduling **preferences** for a single selected lecturer.
+- The page is a timetable-shaped grid (the same Monday–Friday days, room columns, and time-slot rows as `/timetable`) with no sessions, no drag/drop, and no blocks — only preference cells.
+- Each cell holds one of three states for the selected lecturer: neutral (no preference), `preferred` (favour this room/day/slot), or `avoid` (steer away). Clicking a cell cycles neutral → preferred → avoid → neutral.
+- Preferences are a **soft constraint**, distinct from lecturer availability and timetable blocks (both hard). A preference never blocks a manual placement and never reduces solver feasibility or the scheduled-session count; it only breaks ties among equally-good solver outcomes.
+- Editing is **immediate-persist**: each click saves straight to the backend (a `preferred`/`avoid` upsert or a delete back to neutral). There is no dirty-draft or explicit Save step on this page, and no browser-storage draft. The frontend owns the on-screen grid state; the backend only stores each change.
+- Preferred cells read green and avoid cells read red, using dedicated preference colour tokens (separate from subject and block tokens); a legend supplies the key so the level is never conveyed by colour alone.
+- Preferences are per-lecturer: selecting a different lecturer swaps to that lecturer's own cells with no cross-lecturer bleed.
+- The backend persists submitted cells as-is with no cross-validation against availability, blocks, or existing sessions — any cell can be marked for any lecturer.
+
 ### Solver
 
 - The solver uses the saved timetable state as input.
 - Saved scheduled sessions are fixed and treated as locked.
 - Unscheduled sessions are solver variables.
 - The solver attempts to schedule as many unscheduled sessions as possible.
+- Maximizing the scheduled-session count is the primary objective. Lecturer preferences are a strictly-secondary tie-breaker: the solver favours `preferred` cells and avoids `avoid` cells only when doing so costs no scheduled sessions. Preferences can never reject a feasible placement or lower the scheduled count.
 - Solver output may be partial.
 - Successfully scheduled sessions become saved scheduled assignments.
 - Failed sessions remain unscheduled.
@@ -271,6 +284,7 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - No timetable version history in v1; the latest timetable state is the source of truth.
 - Backend timetable Excel export: a protected `GET /timetable/export.xlsx` API (Unit 93) that renders the saved timetable into a fixed, repo-owned Campion `.xlsx` template and streams it. Exports read saved state only, never mutate assignments, and are never persisted to the database or object storage.
 - Frontend timetable Excel download UI (Unit 94): a `Download Timetable` button in the sticky timetable action bar that opens a required-title dialog and downloads the Unit 93 backend `.xlsx` for the current **saved** timetable. The browser never generates the workbook; it streams the backend blob and triggers a download (filename from the backend `Content-Disposition` or a dated fallback). Download is blocked while the saved timetable is unsafe to export (dirty draft, save or solver in progress, saved assignments/rooms/blocks still loading or failed, or an export already running) but stays available for partial saved timetables, unscheduled sessions, and warning-invalid saved assignments. Adds no blob storage and no export history.
+- Room-specific lecturer scheduling preferences (Units 98–101): a persisted `preferred`/`avoid` soft constraint edited on the `/preferences` tab, stored per `lecturer_id + day + slot + room_id`, and fed into the solver as a strictly-secondary tie-breaker that never blocks placement or reduces the scheduled count. Immediate-persist (no dirty draft), with a per-day view filter and an extend/scroll view control shared with `/timetable` (Unit 103).
 
 ### Out of Scope
 
@@ -284,8 +298,7 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - User-defined custom constraint rules.
 - All-rooms or non-room-specific timetable blocks.
 - Timetable blocks modeled as sessions or as soft constraints.
-- Soft constraints in v1.
-- Preference optimization, such as minimizing gaps or preferring mornings.
+- Soft constraints other than room-specific lecturer scheduling preferences (which are in scope). Automatic soft optimizations such as minimizing gaps, preferring mornings, or matching the last saved timetable remain out of scope unless separately specced.
 - Comparing multiple generated timetables.
 - Timetable version history.
 - Automatic session generation from units.

@@ -30,8 +30,14 @@ describe('TopNav — brand and links (Unit 81)', () => {
 
   it('keeps the centered nav links', () => {
     renderNav()
-    for (const label of ['Timetable', 'Units', 'Lecturers', 'Students', 'Rooms']) {
+    for (const label of ['Timetable', 'Preferences', 'Units', 'Lecturers', 'Students', 'Rooms']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
+  })
+
+  it('renders Preferences as the last nav link (Unit 103)', () => {
+    renderNav()
+    const links = screen.getAllByRole('link')
+    expect(links[links.length - 1]).toHaveTextContent('Preferences')
   })
 })

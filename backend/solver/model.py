@@ -28,6 +28,12 @@ DEFAULT_TIME_LIMIT_SECONDS = 30.0
 # Fixed seed + single worker keep CP-SAT runs deterministic for a given model.
 _RANDOM_SEED = 0
 
+# Unit 101: one fixed uniform weight for every lecturer preference cell. A
+# `preferred` cell contributes +PREFERENCE_WEIGHT and an `avoid` cell
+# -PREFERENCE_WEIGHT to the secondary objective term. There is no per-lecturer
+# or per-cell configurable weight.
+PREFERENCE_WEIGHT = 1
+
 
 # ---------------------------------------------------------------------------
 # Static placement helpers
@@ -135,10 +141,21 @@ def solve_timetable(
             locked_time_cells_by_session[locked_id]
         )
 
+    # Unit 101: lookup for room-specific lecturer preferences. Key is
+    # (lecturer_id, day, slot, room_id) -> "preferred" | "avoid". A missing key
+    # means neutral (no preference).
+    preference_map: dict[tuple[str, str, str, str], str] = {
+        (p.lecturer_id, p.day, p.slot, p.room_id): p.level
+        for p in snapshot.preferences
+    }
+
     model = cp_model.CpModel()
 
     # Per-session decision variables and candidate placements.
     scheduled_vars: dict[str, cp_model.IntVar] = {}
+    # Unit 101: (score, var) secondary-objective terms; score is the net
+    # preference reward/penalty for a candidate's occupied cells.
+    preference_terms: list[tuple[int, cp_model.IntVar]] = []
     # candidate -> (day, start index, room_id, var), in deterministic order
     candidates_by_session: dict[str, list[tuple[str, int, str, cp_model.IntVar]]] = {}
     # (day, room_id, slot index) -> candidate vars occupying that room cell
@@ -177,6 +194,22 @@ def solve_timetable(
                         room_cell_vars.setdefault((day, room.room_id, t), []).append(var)
                         time_cell_vars.setdefault((session_id, day, t), []).append(var)
 
+                    # Unit 101: net preference score for this candidate — reward
+                    # `preferred` cells and penalise `avoid` cells occupied by the
+                    # session's lecturer. Preferences never gate the candidate.
+                    if preference_map:
+                        score = 0
+                        for t in occupied:
+                            level = preference_map.get(
+                                (session.lecturer_id, day, slots[t], room.room_id)
+                            )
+                            if level == "preferred":
+                                score += PREFERENCE_WEIGHT
+                            elif level == "avoid":
+                                score -= PREFERENCE_WEIGHT
+                        if score:
+                            preference_terms.append((score, var))
+
         candidates_by_session[session_id] = candidates
         # Exactly one candidate when scheduled, none otherwise. A session with
         # no feasible candidate is forced unscheduled rather than dropped.
@@ -198,9 +231,26 @@ def solve_timetable(
                 if vars_a and vars_b:
                     model.Add(sum(vars_a) + sum(vars_b) <= 1)
 
-    # v1 objective: maximize the number of previously unscheduled sessions
-    # that get scheduled. No soft preferences.
-    model.Maximize(sum(scheduled_vars.values()))
+    # Objective (Unit 101): a lexicographic two-term objective. The primary term
+    # maximises the number of previously unscheduled sessions that get scheduled;
+    # the secondary term rewards `preferred` and penalises `avoid` preference
+    # cells. The primary term is scaled by a multiplier strictly larger than the
+    # widest possible secondary swing, so preferences only break ties among
+    # equally-maximal scheduling outcomes and can never trade a scheduled session
+    # for a better preference score.
+    #
+    # Each scheduled session contributes at most `duration` cells of magnitude
+    # PREFERENCE_WEIGHT, so the secondary term lies in [-B, +B] where
+    # B = PREFERENCE_WEIGHT * sum(durations). Scheduling one extra session must
+    # beat the full 2B swing, so the multiplier is 2B + 1.
+    max_secondary = PREFERENCE_WEIGHT * sum(
+        session_map[sid].duration for sid in snapshot.unscheduled_session_ids
+    )
+    primary_multiplier = 2 * max_secondary + 1
+    objective = primary_multiplier * sum(scheduled_vars.values())
+    if preference_terms:
+        objective += sum(score * var for score, var in preference_terms)
+    model.Maximize(objective)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_seconds

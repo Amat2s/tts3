@@ -4,6 +4,7 @@ import { AuthProvider } from '@/lib/auth/context'
 import { ErrorBoundary } from '@/components/error/ErrorBoundary'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import TimetablePage from '@/routes/timetable'
+import PreferencesPage from '@/routes/preferences'
 import RoomsPage from '@/routes/rooms'
 import LecturersPage from '@/routes/lecturers'
 import StudentsPage from '@/routes/students'
@@ -25,6 +26,10 @@ export default function App() {
           <Route
             path="/timetable"
             element={<ProtectedRoute><TimetablePage /></ProtectedRoute>}
+          />
+          <Route
+            path="/preferences"
+            element={<ProtectedRoute><PreferencesPage /></ProtectedRoute>}
           />
           <Route
             path="/rooms"

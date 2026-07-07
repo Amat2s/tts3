@@ -9,6 +9,8 @@ const NAV_LINKS = [
   { to: '/lecturers', label: 'Lecturers' },
   { to: '/students', label: 'Students' },
   { to: '/rooms', label: 'Rooms' },
+  // Unit 103: Preferences sits at the far-right end of the nav list.
+  { to: '/preferences', label: 'Preferences' },
 ] as const
 
 export function TopNav() {

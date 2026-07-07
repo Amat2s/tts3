@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS } from './slots'
+import { DAYS, AM_SLOTS, PM_SLOTS, LUNCH_LABEL, TIME_SLOTS, type Day } from './slots'
+import { extendedGridMinWidth } from './gridView'
 import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
@@ -31,6 +32,10 @@ interface TimetableGridProps {
   onMoveSelect?: (sessionId: string) => void
   // Called with measured grid cell dimensions; recomputed on container resize.
   onMetricsChange?: (metrics: TimetableGridMetrics) => void
+  // Unit 103: view-only controls. Which weekdays to render (default all), and
+  // whether to render the wider, horizontally scrollable extended layout.
+  visibleDays?: Day[]
+  extended?: boolean
 }
 
 const TIME_COL_W = '6rem'
@@ -102,6 +107,8 @@ export function TimetableGrid({
   onUnschedule,
   onMoveSelect,
   onMetricsChange,
+  visibleDays = DAYS,
+  extended = false,
 }: TimetableGridProps) {
   // Hooks must run unconditionally and before any early return so the hook
   // order stays stable when `rooms` changes from empty to non-empty.
@@ -152,12 +159,19 @@ export function TimetableGrid({
 
   const assignmentMap = buildAssignmentMap(assignments)
   const coveredSet = buildCoveredSet(assignments)
+  // Extended mode widens the grid past its container so cell measurement stays
+  // legible on dense timetables; the ResizeObserver above re-measures the cell
+  // when this width change lands, keeping drag/drop metrics accurate.
+  const minWidth = extended
+    ? extendedGridMinWidth(visibleDays.length, rooms.length)
+    : undefined
 
   return (
+    <div className="w-full overflow-x-auto">
     <div
       ref={containerRef}
       className="w-full border rounded-none"
-      style={{ borderColor: 'var(--grid-border-emphasis)' }}
+      style={{ borderColor: 'var(--grid-border-emphasis)', minWidth }}
     >
       {/* Day header row */}
       <div
@@ -168,7 +182,7 @@ export function TimetableGrid({
           className="shrink-0 border-r"
           style={{ width: TIME_COL_W, borderColor: 'var(--grid-line-strong)' }}
         />
-        {DAYS.map((day) => (
+        {visibleDays.map((day) => (
           <div
             key={day}
             className="flex items-center justify-center py-2 border-r text-sm font-medium select-none"
@@ -193,11 +207,11 @@ export function TimetableGrid({
           className="shrink-0 border-r"
           style={{ width: TIME_COL_W, borderColor: 'var(--grid-line-strong)' }}
         />
-        {DAYS.flatMap((day) =>
+        {visibleDays.flatMap((day) =>
           rooms.map((room, rIdx) => (
             <div
               key={`header-${day}-${room.id}`}
-              className="flex-1 flex items-center justify-center py-1 border-r text-xs select-none overflow-hidden"
+              className="flex-1 flex items-center justify-center py-1 border-r text-[0.65rem] select-none overflow-hidden"
               style={{
                 borderRightColor:
                   rIdx === rooms.length - 1
@@ -222,7 +236,7 @@ export function TimetableGrid({
           style={{ borderColor: 'var(--grid-line)' }}
         >
           <TimeLabel label={slot.label} />
-          {DAYS.flatMap((day) =>
+          {visibleDays.flatMap((day) =>
             rooms.map((room, rIdx) => {
               const cellKey = `${day}:${room.id}:${slot.id}`
               const a = assignmentMap.get(cellKey)
@@ -300,7 +314,7 @@ export function TimetableGrid({
           }}
         >
           <TimeLabel label={slot.label} />
-          {DAYS.flatMap((day) =>
+          {visibleDays.flatMap((day) =>
             rooms.map((room, rIdx) => {
               const cellKey = `${day}:${room.id}:${slot.id}`
               const a = assignmentMap.get(cellKey)
@@ -335,6 +349,7 @@ export function TimetableGrid({
           )}
         </div>
       ))}
+    </div>
     </div>
   )
 }
