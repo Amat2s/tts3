@@ -10,6 +10,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Tests must never report to Sentry. A real DSN in backend/.env would otherwise
+# be picked up when tests import the app; environment variables take priority
+# over .env values, so blanking it here keeps Sentry disabled for the run.
+os.environ["SENTRY_DSN"] = ""
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker

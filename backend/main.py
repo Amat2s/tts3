@@ -21,10 +21,6 @@ logger = structlog.get_logger(__name__)
 
 app = FastAPI(title="TTS3 API")
 
-# Correlation/request ID context for every request (Unit 49). Added last so it
-# runs outermost among our middleware and binds the id before route handlers.
-app.add_middleware(RequestContextMiddleware)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -32,6 +28,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Correlation/request ID context for every request (Unit 49). Added after CORS
+# so it runs outermost among our middleware (Starlette wraps last-added first)
+# and binds the id before anything else handles the request.
+app.add_middleware(RequestContextMiddleware)
 
 app.add_exception_handler(AppError, app_error_handler)
 
@@ -58,5 +59,6 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
         status_code=500,
         content={"error": {"code": "internal_error", "message": "An unexpected error occurred."}},
     )
+
 
 app.include_router(api_router)

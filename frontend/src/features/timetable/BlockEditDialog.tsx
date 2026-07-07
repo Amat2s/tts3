@@ -76,7 +76,7 @@ export function BlockEditDialog({
           <DialogTitle>Edit timetable block</DialogTitle>
           <DialogDescription>
             Rename or recolour this reserved block, or remove it to free its
-            cells. An unnamed block renders grey with a lock icon.
+            cells. An unnamed block renders grey.
           </DialogDescription>
         </DialogHeader>
 

@@ -1,5 +1,5 @@
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 class ConstraintType(str, enum.Enum):

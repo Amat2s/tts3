@@ -48,8 +48,8 @@ export interface SchedulableSession {
   // allocation membership; these ids exist so later units can validate
   // student-level placement conflicts.
   allocated_student_ids: string[]
-  // Optional until the backend schedulable DTO surfaces it (consumed by the
-  // later validation unit). Derived from the parent unit's year level.
+  // Not surfaced by the backend schedulable DTO; when absent, consumers derive
+  // the year from the unit code (see unscheduledPoolView).
   unit_year_level?: YearLevel
 }
 

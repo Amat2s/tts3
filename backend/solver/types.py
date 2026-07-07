@@ -12,12 +12,12 @@ PM_SLOTS: list[str] = ["s4", "s5", "s6", "s7"]
 # Index of the first PM slot — sessions spanning across this boundary cross lunch.
 AM_PM_BOUNDARY_INDEX: int = 3
 
-# Session type sort order for deterministic collection ordering.
+# Session type sort order for deterministic collection ordering. Session types
+# were reduced to lecture/tutorial in Unit 60; unknown types sort last via the
+# caller's `.get(..., 99)` fallback.
 SESSION_TYPE_ORDER: dict[str, int] = {
     "lecture": 0,
     "tutorial": 1,
-    "lab": 2,
-    "workshop": 3,
 }
 
 
@@ -124,7 +124,7 @@ class SolverInputSnapshot:
 
 # ---------------------------------------------------------------------------
 # Solver output DTOs — consumed by the result-application service and the
-# frontend solver status UI in later units.
+# frontend solver status UI.
 # ---------------------------------------------------------------------------
 
 

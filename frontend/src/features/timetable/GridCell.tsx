@@ -12,8 +12,8 @@ interface GridCellProps {
   roomId: string
   isDayBoundary?: boolean
   assignment?: TimetableAssignment
-  // Unit 85: a reserved (blocked) cell. Rendered passively below the session
-  // layer; placement validation against blocks is a later unit.
+  // Unit 85: a reserved (blocked) cell, rendered passively below the session
+  // layer. Placement validation against blocks lives in lib/validation/blocking.
   blockedCell?: BlockedCell | null
   // Anchor cell: roomSpan > 1 → merged card covering adjacent room columns;
   // slotSpan > 1 → merged card covering consecutive slot rows (like sessions).

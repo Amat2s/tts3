@@ -28,8 +28,6 @@ def get_current_admin(
         payload = decode_supabase_token(credentials.credentials)
     except InvalidTokenError:
         raise AppError("invalid_token", "Invalid or expired token.", status_code=401)
-    except Exception:
-        raise
 
     user_id: str | None = payload.get("sub")
     if not user_id:
