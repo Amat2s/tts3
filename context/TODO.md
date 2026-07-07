@@ -9,6 +9,7 @@ The project is looking good, but there are a few final things to do before its r
 - Add a go back to previous saves feature
 - Add a soft constraint to make the timetable as similar as possible to the last save.
 - Add another upload feature for lecture information.
+- Text display in scheduled sessions
 - Bug fixes
 
 ## Export Feature
@@ -38,3 +39,6 @@ Like the students upload, this will read the Lecturer information and fill it ou
 
 - When saving, can get stuck; make sure updates after successful save
 - Lock download table if draft is not saved
+- Clear messages when a new one comes
+- dragging sessions actually works
+- timetable one pixel off

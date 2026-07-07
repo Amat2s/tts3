@@ -234,29 +234,33 @@ def test_empty_grid_cells_white_on_tue_thu(db, coord):
     assert _fill_daytype(ws[coord]) == (0, 0.0), coord
 
 
-@pytest.mark.parametrize("coord", GREY_EMPTY + WHITE_EMPTY)
-def test_empty_grid_cells_match_template_verbatim(db, template_ws, coord):
-    """Each blanked cell equals the template's own empty cell at that coord —
-    fill, border (medium rows, dark verticals), and alignment copied verbatim."""
+def test_every_grid_box_is_uniform_medium_box(db):
+    """Every grid box (all rooms, all slots, all five days) has an identical,
+    clearly-bordered look: a medium (bold) box on all four sides in the dark
+    indexed-64 colour — never the old thin light-grey (c6c6c6) interior — and
+    the correct day-type fill (Tue/Thu white, Mon/Wed/Fri grey). This is the
+    uniform-border contract: adjacent room columns and slot rows all read the
+    same, and no cell is left unfilled (e.g. the old T16-17 white gap)."""
     ws = export(db)
-    assert style_sig(ws[coord]) == style_sig(template_ws[coord]), coord
-
-
-def test_empty_grid_borders_are_bold_dark_not_light_grey(db):
-    """Empty grid cells keep medium (bold) row borders and dark theme/indexed
-    interior verticals — not the old thin light-grey (c6c6c6)."""
-    ws = export(db)
-    interior = ws["E6"]  # a Monday interior grid cell
-    assert interior.border.top.style == "medium"
-    assert interior.border.bottom.style == "medium"
-    # Interior vertical separators are thin but dark (indexed 64 / theme), never
-    # a reconstructed light-grey RGB.
-    right = interior.border.right
-    assert right.style == "thin"
-    assert right.color is None or right.color.rgb != "FFc6c6c6"
-    # Day-block boundary columns carry a medium vertical.
-    assert ws["B6"].border.left.style == "medium"   # Monday day-start
-    assert ws["I6"].border.right.style == "medium"  # Monday day-end
+    white_starts = {10, 26}  # Tuesday (J-Q), Thursday (Z-AG)
+    for start in (2, 10, 18, 26, 34):
+        expected = (0, 0.0) if start in white_starts else (0, -0.15)
+        for col in range(start, start + 8):
+            for top in SLOT_TOP_ROWS:
+                cell = ws.cell(row=top, column=col)
+                coord = cell.coordinate
+                assert _fill_daytype(cell) == expected, coord
+                b = cell.border
+                # Merged 2-row band: the anchor owns top/left/right; bottom is
+                # medium on the band's bottom cell. Check the box is medium and
+                # dark on the visible edges.
+                assert b.top.style == "medium", f"{coord} top"
+                assert b.left.style == "medium", f"{coord} left"
+                assert b.right.style == "medium", f"{coord} right"
+                for side in (b.top, b.left, b.right):
+                    assert side.color is None or side.color.rgb != "FFc6c6c6", coord
+                bottom = ws.cell(row=top + 1, column=col)
+                assert bottom.border.bottom.style == "medium", f"{coord} bottom"
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +377,14 @@ def test_unknown_subject_uses_default_class_style(db, template_ws):
     make_assignment(db, "a1", s, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["PDS"])
 
     ws = export(db)
-    # Neutral white default class cell (template K6 exemplar).
-    assert style_sig(ws["B6"]) == style_sig(template_ws["K6"])
+    cell = ws["B6"]
+    # Neutral white default class cell (template K6 exemplar's fill + font),
+    # with the uniform medium box border.
+    assert cell.fill.fgColor.theme == template_ws["K6"].fill.fgColor.theme == 0
+    assert round(cell.fill.fgColor.tint or 0.0, 4) == 0.0
+    assert cell.font.name == "Trebuchet MS" and cell.font.size == 10
+    for side in (cell.border.top, cell.border.left, cell.border.right):
+        assert side.style == "medium"
 
 
 def test_multi_slot_class_styles_every_row(db):

@@ -22,13 +22,13 @@ bold theme-coloured borders. Concretely this build:
   untouched (day/room headers, time labels, the static ``Mass/Lunch`` row, the
   evening rows incl. the static ``FORMAL HALL`` banner, the notes area, and the
   lecturer/tutor key layout);
-* clears only the dynamic class/event **values** from the s1-s7 grid bands and
-  resets each formerly populated grid cell to the empty look of **its own day
-  block** — copied verbatim from a real empty 2-row band in the *same column*
-  (so Tuesday/Thursday stay white ``theme0`` tint 0.0, Monday/Wednesday/Friday
-  stay grey ``theme0`` tint -0.15, and the template's medium row borders and
-  dark day-boundary/interior verticals are preserved, never reconstructed from
-  approximated RGB), re-merging each room x slot into its 2-row band;
+* clears the dynamic class/event **values** from the s1-s7 grid bands and resets
+  every room x slot band to a **uniform** empty look: its day block's empty fill
+  — white ``theme0`` tint 0.0 for Tuesday (J-Q) and Thursday (Z-AG), grey
+  ``theme0`` tint -0.15 for Monday/Wednesday/Friday — and a uniform **medium box
+  border** on every cell, so every box looks the same (fills and the medium
+  border side are copied verbatim from real template cells, never reconstructed
+  from approximated RGB), re-merging each room x slot into its 2-row band;
 * bakes **template-derived NamedStyles** for each subject class and each block
   colour, copied directly from the template's own class/event exemplar cells
   (theme-based subject fills; gold/blue/maroon event fills + text), so the
@@ -85,6 +85,13 @@ OUTPUT = Path("export_templates/campion_timetable_export_template.xlsx")
 # Literature theme2/-0.25).
 
 EMPTY_EXEMPLAR = "D6"  # a real grey "empty" grid cell (Monday, theme0 tint -0.15)
+WHITE_EMPTY_EXEMPLAR = "K6"  # a real white "empty" grid cell (Tuesday, theme0 tint 0.0)
+MEDIUM_BORDER_EXEMPLAR = "C6"  # a real class cell with a clean medium box border
+
+# Day blocks whose empty grid cells are white (pure theme0), for visual contrast
+# against the grey Monday/Wednesday/Friday blocks: Tuesday (J-Q) and Thursday
+# (Z-AG). Keyed by the block's start column.
+WHITE_DAY_START_COLS = {10, 26}  # J = Tuesday, Z = Thursday
 
 SUBJECT_EXEMPLARS = {
     "HIS": "C6",   # History     (theme9 tint 0.6)
@@ -115,21 +122,35 @@ BLOCK_STYLE = {
 }
 
 
-def _class_named_style(name: str, exemplar) -> NamedStyle:
-    """A NamedStyle that copies a template class cell's style verbatim."""
+def _uniform_border(ws):
+    """A clean medium box border (medium on all four sides), so every grid box —
+    empty cell, class cell, and block cell — has an identical, clearly-bordered
+    look. The medium Side is copied verbatim from a real template medium border
+    (theme/indexed colour preserved), never reconstructed from RGB."""
+    from openpyxl.styles import Border
+
+    medium = ws[MEDIUM_BORDER_EXEMPLAR].border.top  # a real medium indexed-64 side
+    return Border(
+        top=copy(medium), bottom=copy(medium), left=copy(medium), right=copy(medium),
+    )
+
+
+def _class_named_style(name: str, exemplar, border) -> NamedStyle:
+    """A NamedStyle that copies a template class cell's style, with a uniform
+    medium box border so every grid box looks the same."""
     ns = NamedStyle(name=name)
     ns.font = copy(exemplar.font)
     ns.fill = copy(exemplar.fill)
-    ns.border = copy(exemplar.border)
+    ns.border = copy(border)
     ns.alignment = copy(exemplar.alignment)
     ns.number_format = exemplar.number_format
     return ns
 
 
-def _block_named_style(name: str, event_exemplar, class_exemplar) -> NamedStyle:
+def _block_named_style(name: str, event_exemplar, class_exemplar, border) -> NamedStyle:
     """A block NamedStyle reusing a template event's fill + text colour and the
     template event's alignment, with the class cell's readable 10pt bold font
-    and clean medium-box border (copied verbatim, never reconstructed)."""
+    and the uniform medium box border."""
     ns = NamedStyle(name=name)
     base = class_exemplar.font
     ns.font = Font(
@@ -137,7 +158,7 @@ def _block_named_style(name: str, event_exemplar, class_exemplar) -> NamedStyle:
         color=copy(event_exemplar.font.color),
     )
     ns.fill = copy(event_exemplar.fill)
-    ns.border = copy(class_exemplar.border)
+    ns.border = copy(border)
     # Block cells carry the template's static-event alignment (defect 4), which
     # differs from the class alignment (e.g. FORMAL HALL is center/center).
     ns.alignment = copy(event_exemplar.alignment)
@@ -146,69 +167,24 @@ def _block_named_style(name: str, event_exemplar, class_exemplar) -> NamedStyle:
 
 
 def _register_named_styles(ws, wb) -> None:
+    border = _uniform_border(ws)
     class_exemplar = ws[SUBJECT_EXEMPLARS["HIS"]]
     for prefix, coord in SUBJECT_EXEMPLARS.items():
-        wb.add_named_style(_class_named_style(SUBJECT_STYLE_PREFIX + prefix, ws[coord]))
-    wb.add_named_style(_class_named_style(DEFAULT_CLASS_STYLE, ws[DEFAULT_CLASS_EXEMPLAR]))
+        wb.add_named_style(_class_named_style(SUBJECT_STYLE_PREFIX + prefix, ws[coord], border))
+    wb.add_named_style(_class_named_style(DEFAULT_CLASS_STYLE, ws[DEFAULT_CLASS_EXEMPLAR], border))
 
     # Blocks: gold / blue / maroon(pink) event styling, plus a grey "blocked"
-    # style for unnamed blocks (the template's own empty-cell look, verbatim).
+    # style for unnamed blocks (the template's own grey empty-cell fill).
     wb.add_named_style(_block_named_style(
-        BLOCK_STYLE["gold"], ws[GOLD_EVENT_EXEMPLAR], class_exemplar,
+        BLOCK_STYLE["gold"], ws[GOLD_EVENT_EXEMPLAR], class_exemplar, border,
     ))
     wb.add_named_style(_block_named_style(
-        BLOCK_STYLE["light_blue"], ws[BLUE_EVENT_EXEMPLAR], class_exemplar,
+        BLOCK_STYLE["light_blue"], ws[BLUE_EVENT_EXEMPLAR], class_exemplar, border,
     ))
     wb.add_named_style(_block_named_style(
-        BLOCK_STYLE["light_pink"], ws[MAROON_EVENT_EXEMPLAR], class_exemplar,
+        BLOCK_STYLE["light_pink"], ws[MAROON_EVENT_EXEMPLAR], class_exemplar, border,
     ))
-    wb.add_named_style(_class_named_style(BLOCK_STYLE[None], ws[EMPTY_EXEMPLAR]))
-
-
-def _is_empty_grid_cell(cell) -> bool:
-    """True if a grid cell is a real empty band anchor: no value and a theme0
-    (grey/white) empty fill, as opposed to a themed class fill or an rgb event
-    fill. Merge continuations (patternType None) are not band anchors."""
-    if cell.value is not None:
-        return False
-    fill = cell.fill
-    return fill.patternType == "solid" and isinstance(fill.fgColor.theme, int) and fill.fgColor.theme == 0
-
-
-def _empty_band_style(ws) -> dict[int, tuple[tuple, tuple]]:
-    """For each grid column, capture the (top-cell, bottom-cell) style of a real
-    empty 2-row band in that column, so blanked cells can be reset to their own
-    day block's empty look verbatim. Captured before any mutation.
-
-    Style tuples are (fill, font, alignment, border) copies. If a column is
-    fully populated (no empty band of its own) it falls back to another empty
-    column in the same day block.
-    """
-    def capture(col: int):
-        for top in SLOT_TOP_ROWS:
-            anchor = ws.cell(row=top, column=col)
-            if _is_empty_grid_cell(anchor):
-                bottom = ws.cell(row=top + 1, column=col)
-                return (
-                    (copy(anchor.fill), copy(anchor.font), copy(anchor.alignment), copy(anchor.border)),
-                    (copy(bottom.fill), copy(bottom.font), copy(bottom.alignment), copy(bottom.border)),
-                )
-        return None
-
-    exemplars: dict[int, tuple[tuple, tuple]] = {}
-    for col in GRID_COLS:
-        style = capture(col)
-        if style is None:
-            # Fall back to any empty column in the same day block.
-            start = next(s for s in DAY_START_COLS if s <= col < s + ROOMS_PER_DAY)
-            for sibling in range(start, start + ROOMS_PER_DAY):
-                style = capture(sibling)
-                if style is not None:
-                    break
-        if style is None:  # pragma: no cover - the real template always has empties
-            raise RuntimeError(f"No empty grid band found for column {col} or its day block.")
-        exemplars[col] = style
-    return exemplars
+    wb.add_named_style(_class_named_style(BLOCK_STYLE[None], ws[EMPTY_EXEMPLAR], border))
 
 
 def _grid_merges(ws):
@@ -219,56 +195,35 @@ def _grid_merges(ws):
             yield rng
 
 
-def _populated_bands(ws) -> set[tuple[int, int]]:
-    """Set of (column, band_top) grid bands that hold a dynamic class/event
-    value (i.e. must be blanked). A band is populated when the merge covering it
-    has an anchor that is not a real empty cell (has a value or a non-empty
-    themed/rgb fill). Already-empty bands are excluded so their own verbatim
-    fill/border are preserved."""
-    populated: set[tuple[int, int]] = set()
-    for rng in _grid_merges(ws):
-        anchor = ws.cell(row=rng.min_row, column=rng.min_col)
-        if _is_empty_grid_cell(anchor):
-            continue
-        for col in range(rng.min_col, rng.max_col + 1):
-            for top in SLOT_TOP_ROWS:
-                if rng.min_row <= top and top + 1 <= rng.max_row:
-                    populated.add((col, top))
-    return populated
-
-
 def _blank_grid(ws) -> None:
-    """Clear the dynamic s1-s7 grid. Formerly-populated bands are reset to their
-    own day block's empty look (copied verbatim from a real empty band in the
-    same column, so Tuesday/Thursday stay white and Mon/Wed/Fri grey, with the
-    template's medium row borders and day-boundary verticals). Already-empty
-    bands keep their own verbatim fill/border. Every room x slot is re-merged
-    into its 2-row band."""
-    exemplars = _empty_band_style(ws)
-    populated = _populated_bands(ws)
+    """Clear the dynamic s1-s7 grid to a uniform empty look: every room x slot
+    band is reset to its day block's empty fill — **white** (theme0 tint 0.0)
+    for Tuesday (J-Q) and Thursday (Z-AG), **grey** (theme0 tint -0.15) for
+    Monday/Wednesday/Friday — and a uniform medium box border, so every box
+    looks the same. Fills and the medium border side are copied verbatim from
+    real template cells, never reconstructed from RGB. Each room x slot is
+    re-merged into its 2-row band."""
+    grey_fill = copy(ws[EMPTY_EXEMPLAR].fill)
+    white_fill = copy(ws[WHITE_EMPTY_EXEMPLAR].fill)
+    base_font = copy(ws[EMPTY_EXEMPLAR].font)
+    base_align = copy(ws[EMPTY_EXEMPLAR].alignment)
+    border = _uniform_border(ws)
 
     for rng in _grid_merges(ws):
         ws.unmerge_cells(str(rng))
 
-    for col in GRID_COLS:
-        (tf, tfont, talign, tborder), (bf, bfont, balign, bborder) = exemplars[col]
-        for top in SLOT_TOP_ROWS:
-            if (col, top) in populated:
-                anchor = ws.cell(row=top, column=col)
-                anchor.value = None
-                anchor.fill = copy(tf)
-                anchor.font = copy(tfont)
-                anchor.alignment = copy(talign)
-                anchor.border = copy(tborder)
-
-                bottom = ws.cell(row=top + 1, column=col)
-                bottom.value = None
-                bottom.fill = copy(bf)
-                bottom.font = copy(bfont)
-                bottom.alignment = copy(balign)
-                bottom.border = copy(bborder)
-
-            ws.merge_cells(start_row=top, start_column=col, end_row=top + 1, end_column=col)
+    for start in DAY_START_COLS:
+        day_fill = white_fill if start in WHITE_DAY_START_COLS else grey_fill
+        for col in range(start, start + ROOMS_PER_DAY):
+            for top in SLOT_TOP_ROWS:
+                for row in (top, top + 1):
+                    cell = ws.cell(row=row, column=col)
+                    cell.value = None
+                    cell.fill = copy(day_fill)
+                    cell.font = copy(base_font)
+                    cell.alignment = copy(base_align)
+                    cell.border = copy(border)
+                ws.merge_cells(start_row=top, start_column=col, end_row=top + 1, end_column=col)
 
 
 def build() -> Path:
