@@ -1,12 +1,15 @@
-"""Unit 96: Excel export styling parity tests.
+"""Unit 96/97: Excel export styling parity tests.
 
 These prove *style* parity (not just placement), comparing the exported workbook
-against the canonical source template ``assets/excel/Timetable S2 2025
-DRAFT .xlsx`` — the visual contract. They check that the export preserves the
-template's columns, row heights, sheet-format properties, page margins, static
-merged ranges, and static cell styles/values verbatim, and that dynamic class
-and block cells are painted with styles copied from the template's own
-class/event exemplar cells (never frontend subject tokens or approximated RGB).
+against the canonical source sheet ``S2, 2025 Timetable `` (trailing space) of
+the real pristine template ``assets/excel/Timetable S2 2025 DRAFT.xlsx`` — the
+visual contract. They check that the export preserves the template's columns,
+row heights, sheet-format properties, page setup, tab colour, sheet view zoom,
+margins, static merged ranges, and static cell styles/values verbatim; that the
+blanked grid keeps the per-day empty fills (Tuesday/Thursday white, Mon/Wed/Fri
+grey) with bold dark borders; and that dynamic class and block cells are painted
+with theme-based styles copied from the template's own class/event exemplar
+cells (never frontend subject tokens or approximated RGB).
 """
 import io
 import os
@@ -35,11 +38,14 @@ from tests.test_93_timetable_excel_export import (
     merges,
 )
 
-# Canonical source template — the visual contract.
+# Canonical source template — the visual contract (Unit 97: the real pristine
+# template, no trailing space; the canonical sheet is "S2, 2025 Timetable "
+# WITH a trailing space, not worksheets[0] which is a generic template sheet).
 TEMPLATE_SOURCE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
-    "assets", "excel", "Timetable S2 2025 DRAFT .xlsx",
+    "assets", "excel", "Timetable S2 2025 DRAFT.xlsx",
 )
+TEMPLATE_SOURCE_SHEET = "S2, 2025 Timetable "
 
 # Grid (dynamic) region: every row inside an s1-s7 slot band, columns B..AO.
 SLOT_TOP_ROWS = [6, 8, 10, 14, 16, 18, 20]
@@ -50,7 +56,7 @@ GRID_MIN_COL, GRID_MAX_COL = 2, 41
 @pytest.fixture(scope="module")
 def template_ws():
     wb = openpyxl.load_workbook(TEMPLATE_SOURCE_PATH)
-    return wb.worksheets[0]
+    return wb[TEMPLATE_SOURCE_SHEET]
 
 
 def export(db, title="Parity Timetable"):
@@ -169,9 +175,88 @@ def test_page_margins_match_template(db, template_ws):
         assert getattr(g, attr) == getattr(t, attr), attr
 
 
+def test_page_setup_matches_template(db, template_ws):
+    """Landscape, page scale 35, and fitToPage carry over from the template."""
+    ws = export(db)
+    assert ws.page_setup.orientation == template_ws.page_setup.orientation == "landscape"
+    assert ws.page_setup.scale == template_ws.page_setup.scale == 35
+    assert ws.sheet_properties.pageSetUpPr is not None
+    assert ws.sheet_properties.pageSetUpPr.fitToPage is True
+
+
+def test_tab_colour_matches_template(db, template_ws):
+    ws = export(db)
+    assert ws.sheet_properties.tabColor.rgb == template_ws.sheet_properties.tabColor.rgb == "FF00B050"
+
+
+def test_sheet_view_zoom_matches_template(db, template_ws):
+    ws = export(db)
+    assert ws.sheet_view.zoomScale == template_ws.sheet_view.zoomScale == 90
+
+
+def test_default_row_height_matches_template(db, template_ws):
+    ws = export(db)
+    assert ws.sheet_format.defaultRowHeight == template_ws.sheet_format.defaultRowHeight == 12.95
+
+
 def test_static_merged_ranges_match_template(db, template_ws):
     ws = export(db)
     assert static_merges(ws) == static_merges(template_ws)
+
+
+# ---------------------------------------------------------------------------
+# Per-day empty-cell fills + bold borders (the blanked grid)
+# ---------------------------------------------------------------------------
+
+
+def _fill_daytype(cell):
+    """(theme, tint) of a theme-based empty grid fill."""
+    fg = cell.fill.fgColor
+    return (fg.theme, round(fg.tint, 4) if fg.tint else 0.0)
+
+
+# Representative empty grid cells, one interior cell per day block. Tuesday
+# (J-Q) and Thursday (Z-AG) are white (theme0 tint 0.0); Monday/Wednesday/Friday
+# are grey (theme0 tint -0.15). These coords are empty in the source too.
+GREY_EMPTY = ["D6", "E6", "W6", "AH6"]      # Mon / Mon / Wed / Fri
+WHITE_EMPTY = ["K6", "L6", "AA6", "AB8"]    # Tue / Tue / Thu / Thu
+
+
+@pytest.mark.parametrize("coord", GREY_EMPTY)
+def test_empty_grid_cells_grey_on_mon_wed_fri(db, coord):
+    ws = export(db)
+    assert _fill_daytype(ws[coord]) == (0, -0.15), coord
+
+
+@pytest.mark.parametrize("coord", WHITE_EMPTY)
+def test_empty_grid_cells_white_on_tue_thu(db, coord):
+    ws = export(db)
+    assert _fill_daytype(ws[coord]) == (0, 0.0), coord
+
+
+@pytest.mark.parametrize("coord", GREY_EMPTY + WHITE_EMPTY)
+def test_empty_grid_cells_match_template_verbatim(db, template_ws, coord):
+    """Each blanked cell equals the template's own empty cell at that coord —
+    fill, border (medium rows, dark verticals), and alignment copied verbatim."""
+    ws = export(db)
+    assert style_sig(ws[coord]) == style_sig(template_ws[coord]), coord
+
+
+def test_empty_grid_borders_are_bold_dark_not_light_grey(db):
+    """Empty grid cells keep medium (bold) row borders and dark theme/indexed
+    interior verticals — not the old thin light-grey (c6c6c6)."""
+    ws = export(db)
+    interior = ws["E6"]  # a Monday interior grid cell
+    assert interior.border.top.style == "medium"
+    assert interior.border.bottom.style == "medium"
+    # Interior vertical separators are thin but dark (indexed 64 / theme), never
+    # a reconstructed light-grey RGB.
+    right = interior.border.right
+    assert right.style == "thin"
+    assert right.color is None or right.color.rgb != "FFc6c6c6"
+    # Day-block boundary columns carry a medium vertical.
+    assert ws["B6"].border.left.style == "medium"   # Monday day-start
+    assert ws["I6"].border.right.style == "medium"  # Monday day-end
 
 
 # ---------------------------------------------------------------------------
@@ -260,9 +345,10 @@ def test_class_cell_copies_template_subject_style(db, template_ws, prefix):
     assert style_sig(ws["B6"]) == style_sig(template_ws[exemplar]), prefix
 
 
-def test_class_cells_use_template_colours_not_app_tokens(db):
-    """History cells must be the template peach (fcd5b5) with black text — not
-    the old frontend subject token (F7E5D4 fill / coloured text)."""
+def test_class_cells_use_template_theme_fills_not_app_tokens(db):
+    """History cells must use the template's theme-based subject fill (theme9
+    tint 0.6) with default (automatic) text — not the old frontend subject token
+    (F7E5D4 fill / coloured text)."""
     rooms = base_rooms(db)
     unit = make_unit(db, code="HIS101")
     lec = make_lecturer(db)
@@ -271,11 +357,12 @@ def test_class_cells_use_template_colours_not_app_tokens(db):
 
     ws = export(db)
     cell = ws["B6"]
-    assert cell.fill.fgColor.rgb == "FFfcd5b5"
+    fg = cell.fill.fgColor
+    assert fg.theme == 9 and round(fg.tint, 4) == 0.6
     assert cell.font.name == "Trebuchet MS" and cell.font.size == 10 and cell.font.b
-    # Black (theme) text, not a subject-coloured RGB.
-    assert cell.font.color.theme == 1
-    assert cell.alignment.vertical == "top"
+    # Default/automatic text colour, not a subject-coloured RGB.
+    assert cell.font.color is None
+    assert cell.alignment.vertical == "top" and bool(cell.alignment.wrap_text)
 
 
 def test_unknown_subject_uses_default_class_style(db, template_ws):
@@ -304,7 +391,8 @@ def test_multi_slot_class_styles_every_row(db):
     ranges = merges(ws)
     assert "B6:B9" in ranges
     assert "B8:B9" not in ranges  # second band is absorbed into the single block
-    assert ws["B6"].fill.fgColor.rgb == "FFfcd5b5"
+    fg = ws["B6"].fill.fgColor
+    assert fg.theme == 9 and round(fg.tint, 4) == 0.6
     assert ws["B6"].value == "HIS101 Lecture (SC)"
 
 
@@ -322,8 +410,10 @@ def test_named_block_copies_template_event_style(db, template_ws):
     ws = export(db)
     cell = ws["B16"]
     # Gold event fill + maroon text, copied from the template gold event (Z22).
-    assert cell.fill.fgColor.rgb == template_ws["Z22"].fill.fgColor.rgb == "FFcc9900"
+    assert cell.fill.fgColor.rgb == template_ws["Z22"].fill.fgColor.rgb == "FFCC9900"
     assert cell.font.color.rgb == template_ws["Z22"].font.color.rgb == "FF660033"
+    # Block cells carry the event alignment (center/center), not the class one.
+    assert cell.alignment.horizontal == "center" and cell.alignment.vertical == "center"
 
 
 def test_unnamed_block_uses_template_grey_blocked_style(db):
@@ -334,7 +424,9 @@ def test_unnamed_block_uses_template_grey_blocked_style(db):
     )
     ws = export(db)
     assert ws["B16"].value is None
-    assert ws["B16"].fill.fgColor.rgb == "FFd9d9d9"
+    # Grey "blocked" fill = the template's empty-cell theme fill (theme0 -0.15).
+    fg = ws["B16"].fill.fgColor
+    assert fg.theme == 0 and round(fg.tint, 4) == -0.15
 
 
 # ---------------------------------------------------------------------------

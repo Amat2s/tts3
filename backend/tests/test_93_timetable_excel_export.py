@@ -424,7 +424,7 @@ def test_named_block_exports_name_with_block_style(db):
     assert "B16:B17" in merges(ws)
     assert ws["B16"].value == "Chapel"
     # Template-derived gold event fill, not the grey empty-cell fill.
-    assert ws["B16"].fill.fgColor.rgb == "FFcc9900"
+    assert ws["B16"].fill.fgColor.rgb == "FFCC9900"
 
 
 def test_unnamed_block_exports_blank_with_block_style(db):
@@ -436,8 +436,10 @@ def test_unnamed_block_exports_blank_with_block_style(db):
     _, ws = load_ws(ex.generate_timetable_export(db, "T"))
     assert "B16:B17" in merges(ws)
     assert ws["B16"].value is None
-    # Unnamed blocks use the template's grey "blocked" (empty-cell) fill.
-    assert ws["B16"].fill.fgColor.rgb == "FFd9d9d9"
+    # Unnamed blocks use the template's grey "blocked" (empty-cell) fill —
+    # theme0 tint -0.15 in the real template, not an approximated grey RGB.
+    fg = ws["B16"].fill.fgColor
+    assert fg.theme == 0 and round(fg.tint, 4) == -0.15
 
 
 def test_block_rectangle_merging(db):
