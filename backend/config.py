@@ -1,4 +1,10 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The active environment (development | production) selects which env file is
+# loaded. Defaults to development so local runs need no extra configuration.
+_app_env = os.getenv("APP_ENV", "development")
 
 
 class Settings(BaseSettings):
@@ -21,7 +27,7 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = None
     environment: str = "development"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=f".env.{_app_env}", extra="ignore")
 
 
 settings = Settings()

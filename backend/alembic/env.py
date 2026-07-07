@@ -5,8 +5,12 @@ from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from the per-environment file selected by APP_ENV
+# (development | production). Defaults to development so a bare `alembic upgrade`
+# targets the dev database; run e.g. `APP_ENV=production alembic upgrade head`
+# to target production.
+app_env = os.environ.get("APP_ENV", "development")
+load_dotenv(f".env.{app_env}")
 
 config = context.config
 

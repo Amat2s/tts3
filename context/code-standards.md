@@ -29,6 +29,7 @@
 - The frontend owns user-facing timetable validation in v1. Backend assignment save validation is defensive and should not drive normal UX.
 - Avoid hidden recovery behavior. If data changes make an assignment violate a blocking rule, the frontend may automatically unschedule it, but the reason must be explicit in the code and visible in the UI when relevant.
 - Do not silently discard sessions, assignments, constraint violations, or solver failures.
+- Select the target environment with a single `APP_ENV` variable (`development` | `production`, default `development`); never switch environments by hand-editing or commenting values inside a shared `.env`. Each boundary keeps one env file per environment (`.env.development`, `.env.production`), all gitignored — only `.env.example` templates are committed. The backend (`config.py`, `alembic/env.py`) loads `.env.{APP_ENV}`; `jobs/trigger.config.ts` selects its project ref from a map by `APP_ENV`; the `jobs` npm scripts set `APP_ENV` and `--env-file` via `cross-env`; Vite loads `.env.{mode}` automatically. Do not hardcode a per-environment ref, URL, or key in committed code or config.
 
 ## TypeScript
 
