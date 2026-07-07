@@ -6,8 +6,10 @@
   "description": "Trigger.dev background jobs boundary for the timetable scheduling system. Jobs orchestrate backend work; they contain no solver business logic.",
   "scripts": {
     "login": "trigger.dev login",
-    "dev": "trigger.dev dev",
-    "deploy": "trigger.dev deploy",
+    "dev": "cross-env APP_ENV=development trigger.dev dev --env-file .env.development",
+    "dev:prod": "cross-env APP_ENV=production trigger.dev dev --env-file .env.production",
+    "deploy": "cross-env APP_ENV=production trigger.dev deploy --env-file .env.production",
+    "deploy:dev": "cross-env APP_ENV=development trigger.dev deploy --env-file .env.development",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "cross-env": "^7.0.3",
     "trigger.dev": "^3.3.17",
     "typescript": "^5.5.0"
   }
