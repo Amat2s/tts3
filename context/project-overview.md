@@ -25,6 +25,7 @@ This application is a university timetable scheduling system for administrators.
 3. If no rooms exist, the timetable canvas is not shown. The page displays a message telling the admin to add rooms to generate the timetable canvas.
 4. The admin uses the top navigation bar to move between:
    - `/timetable`
+   - `/preferences`
    - `/units`
    - `/lecturers`
    - `/students`

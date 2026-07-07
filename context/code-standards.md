@@ -378,10 +378,11 @@ type SessionScheduleState =
 ## File Organization
 
 - `frontend/` — React application, route structure, UI components, hooks, client-side validation display, and timetable interactions.
-- `frontend/src/routes/` — route-level pages such as `/timetable`, `/units`, `/lecturers`, `/students`, and `/rooms`.
+- `frontend/src/routes/` — route-level pages such as `/timetable`, `/preferences`, `/units`, `/lecturers`, `/students`, and `/rooms`.
 - `frontend/src/components/` — reusable UI components that are not route-specific.
 - `frontend/src/components/ui/` — shadcn/ui generated and wrapped components.
 - `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft), `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens), and `blocks.ts` (`buildBlockedCellMap`, `buildBlockAnchorData`, `getBlockColorTokens` — block flattening and multi-room horizontal merging helpers). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
+- `frontend/src/features/preferences/` — the `/preferences` page shell: `PreferenceGrid.tsx`/`PreferenceCell.tsx` (a sessions-free timetable-shaped grid reusing the timetable `slots.ts` day/room/slot structure with no session, block, drag/drop, or validation logic) and `LecturerSelector.tsx` (single-select lecturer picker over the existing lecturers query). Layout and local UI state only until preference data load/save is wired in a later unit.
 - `frontend/src/features/units/` — unit and session management UI.
 - `frontend/src/features/lecturers/` — lecturer management and availability UI.
 - `frontend/src/features/students/` — student management UI.

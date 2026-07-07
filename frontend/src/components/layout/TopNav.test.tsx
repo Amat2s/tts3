@@ -30,7 +30,7 @@ describe('TopNav — brand and links (Unit 81)', () => {
 
   it('keeps the centered nav links', () => {
     renderNav()
-    for (const label of ['Timetable', 'Units', 'Lecturers', 'Students', 'Rooms']) {
+    for (const label of ['Timetable', 'Preferences', 'Units', 'Lecturers', 'Students', 'Rooms']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
   })

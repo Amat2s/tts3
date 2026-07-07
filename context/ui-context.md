@@ -163,6 +163,31 @@ Rendering rules:
   visually distinct from session cards. During block-selection mode, selected cells use
   temporary token-based styling.
 
+## Lecturer Preference Colors
+
+The `/preferences` grid (Unit 100) marks room-specific lecturer preference cells with one
+of two levels. These preference tokens are **separate from the subject and block tokens**
+above and must not be reused for sessions or blocks. `preferred` reads green (favour this
+slot); `avoid` reads red (steer away). A neutral cell has no preference row and renders
+empty. Components must reference these tokens and never inline the hex values.
+
+| Role                       | CSS Variable                    | Value     |
+| -------------------------- | ------------------------------- | --------- |
+| Preference preferred bg    | `--preference-preferred-bg`     | `#E4F1E9` |
+| Preference preferred border| `--preference-preferred-border` | `#2E7D4F` |
+| Preference preferred text  | `--preference-preferred-text`   | `#1E5636` |
+| Preference avoid bg        | `--preference-avoid-bg`         | `#FBE3E1` |
+| Preference avoid border    | `--preference-avoid-border`     | `#B4232A` |
+| Preference avoid text      | `--preference-avoid-text`       | `#7A1B1F` |
+
+Rendering rules:
+
+- A neutral cell renders empty; a preferred/avoid cell renders its token fill, border, and
+  a short text label (`Prefer` / `Avoid`) so the level never relies on colour alone.
+- Clicking a cell cycles neutral → preferred → avoid → neutral, persisting immediately
+  (no dirty draft or explicit save on this page).
+- Cells are non-interactive until a lecturer is selected.
+
 ## AI / Solver Accent Variants
 
 Use these only for solver-related UI, not general branding. The solver should feel helpful and technical, but not futuristic or flashy.

@@ -153,6 +153,17 @@
   --block-pink-border: #A5527D;
   --block-pink-text: #67304C;
 
+  /* Lecturer preference cells (Unit 100) — soft-constraint preference levels on
+     the /preferences grid. Deliberately SEPARATE from the subject and block
+     tokens and must not be reused for sessions or blocks: `preferred` reads
+     green (favour this slot), `avoid` reads red (steer away). */
+  --preference-preferred-bg: #E4F1E9;
+  --preference-preferred-border: #2E7D4F;
+  --preference-preferred-text: #1E5636;
+  --preference-avoid-bg: #FBE3E1;
+  --preference-avoid-border: #B4232A;
+  --preference-avoid-text: #7A1B1F;
+
   /* Solver accents */
   --solver-accent: #2F5F8F;
   --solver-accent-hover: #264D73;
