@@ -12,7 +12,7 @@ The project is looking good, but there are a few final things to do before its r
 - Text display in scheduled sessions
 - Bug fixes
 
-## Export Feature
+## Export Feature - DONE
 
 At the moment, the new excel spreadsheet created from the timetable doesn't look as it should. Create another spec file to carefully implement.
 
@@ -42,3 +42,6 @@ Like the students upload, this will read the Lecturer information and fill it ou
 - Clear messages when a new one comes
 - dragging sessions actually works
 - timetable one pixel off
+- can edit blocks when not saved
+- change the way edit blocks works
+- Add a feature to extend timetable???
