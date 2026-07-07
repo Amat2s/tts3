@@ -182,11 +182,37 @@ empty. Components must reference these tokens and never inline the hex values.
 
 Rendering rules:
 
-- A neutral cell renders empty; a preferred/avoid cell renders its token fill, border, and
-  a short text label (`Prefer` / `Avoid`) so the level never relies on colour alone.
+- A neutral cell renders empty; a preferred/avoid cell renders a **rounded, token-filled
+  chip** (`rounded-md`, inset from the cell edge) with **no in-cell text label** (Unit 103).
+  The level is conveyed instead by the grid **legend** (green = `Prefer`, red = `Avoid`) and
+  by each cell's `aria-label` (which always includes the level word plus human day/time/room
+  labels), so status is never conveyed by colour alone even though the chip itself is
+  text-free. The underlying grid cell geometry stays square (`rounded-none`); only the
+  coloured fill is rounded.
+- A `Prefer` / `Avoid` **legend** sits above the grid and is the visual key for the
+  text-free chips. It uses the preference tokens only.
 - Clicking a cell cycles neutral → preferred → avoid → neutral, persisting immediately
-  (no dirty draft or explicit save on this page).
+  (no dirty draft or explicit save on this page). The frontend owns the displayed grid
+  state: a click updates the grid optimistically and is not re-driven by a per-click
+  backend refetch — the backend just stores each change (Unit 103). Server state is
+  reconciled the next time a lecturer's preferences load (on selection).
 - Cells are non-interactive until a lecturer is selected.
+
+### Shared grid view controls (Unit 103)
+
+The `/timetable` and `/preferences` grids share two **view-only** controls (see
+`features/timetable/GridViewControls.tsx` + `gridView.ts`):
+
+- an **extend** toggle that widens the grid past its container and makes the grid container
+  horizontally scrollable (the page itself never scrolls horizontally), so dense
+  many-room timetables stay legible;
+- a **particular-days selector** that shows/hides individual weekday columns, keeping at
+  least one day visible.
+
+Both are purely visual: hiding a day or extending the grid never mutates saved
+assignments, blocks, or preferences, and validation/the solver still operate on the full
+dataset. Room sub-header text uses a reduced size (`text-[0.65rem]`) in both grids while
+keeping truncation.
 
 ## AI / Solver Accent Variants
 

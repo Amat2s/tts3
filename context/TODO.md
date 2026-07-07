@@ -16,9 +16,17 @@ The project is looking good, but there are a few final things to do before its r
 
 At the moment, the new excel spreadsheet created from the timetable doesn't look as it should. Create another spec file to carefully implement.
 
-## Contraints tab
+## Contraints tab - V1, bug fixes
 
 Add another tab, called Preferences, that takes soft constraints from the user. Generate several spec files to implement this.
+
+### Bug fixes
+- Lecturer names displayed rather than id
+- backend logic messing with frontend; only the frontend should be controling what gets changed, backend/db just store
+- remove text; make constraints look nicer, rounder
+- smaller text for rooms; extend button (makes timetable wider and adds scroll); particular days selector
+- legend with green = prefer, red = avoid
+- tab goes to the right end
 
 ## Saved tables feature
 

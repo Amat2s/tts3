@@ -16,6 +16,8 @@ import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
+import { GridViewControls } from '@/features/timetable/GridViewControls'
+import { useGridViewState } from '@/features/timetable/gridView'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
 import { DragPreviewCard } from '@/features/timetable/DragPreviewCard'
 import { useSolverRun } from '@/features/timetable/useSolverRun'
@@ -188,6 +190,9 @@ export default function TimetablePage() {
     queryKey: ['timetable-blocks'],
     queryFn: listTimetableBlocks,
   })
+
+  // View-only grid controls (day filter + extend/scroll), shared with /preferences.
+  const gridView = useGridViewState()
 
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -914,6 +919,14 @@ export default function TimetablePage() {
 
     return (
       <div className="flex flex-col gap-4">
+        <div className="flex justify-end">
+          <GridViewControls
+            extended={gridView.extended}
+            onToggleExtended={gridView.toggleExtended}
+            visibleDays={gridView.visibleDays}
+            onToggleDay={gridView.toggleDay}
+          />
+        </div>
         <TimetableGrid
           rooms={rooms}
           assignments={draft}
@@ -931,6 +944,8 @@ export default function TimetablePage() {
           onUnschedule={handleUnschedule}
           onMoveSelect={handleSelectSession}
           onMetricsChange={handleMetricsChange}
+          visibleDays={gridView.visibleDays}
+          extended={gridView.extended}
         />
         <UnscheduledPool
           sessions={unscheduledSessions}

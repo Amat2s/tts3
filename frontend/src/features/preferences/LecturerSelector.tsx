@@ -27,6 +27,13 @@ export function LecturerSelector({
   onChange,
   disabled = false,
 }: LecturerSelectorProps) {
+  // Resolve the selected lecturer so the trigger renders their display name.
+  // Radix `SelectValue` otherwise falls back to the raw `value` (the lecturer
+  // id) once a selection is made, which surfaced the ID instead of the name.
+  const selected = value
+    ? (lecturers.find((lecturer) => lecturer.id === value) ?? null)
+    : null
+
   return (
     <div className="flex flex-col gap-1.5">
       <label
@@ -51,7 +58,9 @@ export function LecturerSelector({
                 ? 'No lecturers available'
                 : 'Select a lecturer'
             }
-          />
+          >
+            {selected ? lecturerDisplayName(selected) : undefined}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {lecturers.map((lecturer) => (

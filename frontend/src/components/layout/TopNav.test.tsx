@@ -34,4 +34,10 @@ describe('TopNav — brand and links (Unit 81)', () => {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
   })
+
+  it('renders Preferences as the last nav link (Unit 103)', () => {
+    renderNav()
+    const links = screen.getAllByRole('link')
+    expect(links[links.length - 1]).toHaveTextContent('Preferences')
+  })
 })

@@ -5,6 +5,9 @@ interface PreferenceCellProps {
   slotId: string
   day: string
   roomId: string
+  // Human-readable labels for the accessible name (never raw ids/colour alone).
+  timeLabel: string
+  roomName: string
   isDayBoundary?: boolean
   // Current level for this cell, or null for neutral (no preference).
   level?: LecturerPreferenceLevel | null
@@ -14,14 +17,17 @@ interface PreferenceCellProps {
   disabled?: boolean
 }
 
-// Unit 99/100: a grid cell on the preferences page. Neutral by default; when a
-// preference level is set it renders with the dedicated preference tokens and a
-// short text label (never colour alone). Clicking cycles the level; each click
-// is persisted immediately by the page (no dirty draft / explicit save).
+// Unit 99/100/103: a grid cell on the preferences page. Neutral by default; when
+// a preference level is set it renders a rounded, token-filled chip with no
+// in-cell text (Unit 103) — the level is conveyed by the grid legend plus this
+// cell's `aria-label`, so it never relies on colour alone. Clicking cycles the
+// level; each click is persisted immediately by the page (no dirty draft).
 export function PreferenceCell({
   slotId,
   day,
   roomId,
+  timeLabel,
+  roomName,
   isDayBoundary = false,
   level = null,
   onClick,
@@ -42,13 +48,13 @@ export function PreferenceCell({
     }
   }
 
-  const ariaLabel = `${day} ${slotId} ${roomId}: ${
-    level ? getPreferenceTokens(level).label : 'neutral'
+  const ariaLabel = `${day} ${timeLabel}, ${roomName}: ${
+    tokens ? tokens.label : 'neutral'
   }`
 
   return (
     <div
-      className="relative h-14 flex-1 border-r rounded-none"
+      className="relative h-14 flex-1 border-r rounded-none p-1"
       data-preference-cell="true"
       data-slot={slotId}
       data-day={day}
@@ -71,16 +77,13 @@ export function PreferenceCell({
     >
       {tokens && (
         <div
-          className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-none border px-1 text-xs font-medium select-none"
+          className="h-full w-full rounded-md border"
           data-preference-fill="true"
           style={{
             backgroundColor: tokens.background,
             borderColor: tokens.border,
-            color: tokens.text,
           }}
-        >
-          <span className="truncate">{tokens.label}</span>
-        </div>
+        />
       )}
     </div>
   )

@@ -4,10 +4,13 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { LecturerSelector } from '@/features/preferences/LecturerSelector'
+import { PreferenceLegend } from '@/features/preferences/PreferenceLegend'
 import {
   PreferenceGrid,
   preferenceCellKey,
 } from '@/features/preferences/PreferenceGrid'
+import { GridViewControls } from '@/features/timetable/GridViewControls'
+import { useGridViewState } from '@/features/timetable/gridView'
 import { listLecturers } from '@/lib/api/lecturers'
 import type { AvailabilityDay, AvailabilitySlot } from '@/lib/api/lecturers'
 import {
@@ -44,6 +47,8 @@ export default function PreferencesPage() {
     null
   )
   const [mutationError, setMutationError] = useState<string | null>(null)
+  // View-only grid controls (day filter + extend/scroll), shared with /timetable.
+  const gridView = useGridViewState()
 
   const {
     data: rooms,
@@ -126,12 +131,11 @@ export default function PreferencesPage() {
       }
       setMutationError(getErrorMessage(err, 'Failed to save preference.'))
     },
-    // Reconcile the optimistic guess with the server on settle.
-    onSettled: (_data, _err, { cell }: PreferenceMutationVars) => {
-      queryClient.invalidateQueries({
-        queryKey: ['lecturer-preferences', cell.lecturer_id],
-      })
-    },
+    // No refetch on settle: the frontend owns what the grid shows. The backend
+    // just stores each click; the optimistic cache write is the source of truth
+    // between lecturer loads, so cells never flicker or revert on a round-trip.
+    // Server state is reconciled the next time the lecturer's preferences load
+    // (on (re)selection).
   })
 
   function handleCellClick(day: string, slotId: string, roomId: string) {
@@ -226,6 +230,15 @@ export default function PreferencesPage() {
 
     return (
       <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PreferenceLegend />
+          <GridViewControls
+            extended={gridView.extended}
+            onToggleExtended={gridView.toggleExtended}
+            visibleDays={gridView.visibleDays}
+            onToggleDay={gridView.toggleDay}
+          />
+        </div>
         {!selectedLecturerId && (
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
             Select a lecturer to view and set their preferences.
@@ -245,6 +258,8 @@ export default function PreferencesPage() {
           preferenceLevels={preferenceLevels}
           onCellClick={handleCellClick}
           interactionDisabled={!selectedLecturerId}
+          visibleDays={gridView.visibleDays}
+          extended={gridView.extended}
         />
       </div>
     )

@@ -1,5 +1,14 @@
 # Unit 100 Spec: Frontend Lecturer Preference API Integration
 
+> **Superseded in part by Unit 103.** The "update optimistically and invalidate
+> `['lecturer-preferences', lecturerId]` on settle" step below is no longer the
+> behaviour: Unit 103 makes the frontend own the displayed grid state (the
+> optimistic cache write is authoritative between loads) and removes the
+> per-click refetch, because the round-trip let the backend re-drive/flicker the
+> grid. Server state is still reconciled when a lecturer's preferences load on
+> (re)selection. The rest of this spec (API client, tokens, cycle behaviour,
+> immediate persistence) still stands.
+
 ## Goal
 
 Wire the Unit 99 Preferences grid to the Unit 98 API: loading the selected lecturer's preference cells and toggling cells to set them, saving immediately per click.

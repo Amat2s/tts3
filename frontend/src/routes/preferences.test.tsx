@@ -211,7 +211,12 @@ describe('PreferencesPage — preference API integration (Unit 100)', () => {
     await waitFor(() =>
       expect(cellEl('Monday', 'room-1', 's1')).toHaveAttribute('data-level', 'avoid')
     )
-    expect(cellEl('Monday', 'room-1', 's1')).toHaveTextContent('Avoid')
+    // Unit 103: cells carry no in-cell text; the level is a coloured fill plus
+    // the accessible label (never colour alone).
+    const cell = cellEl('Monday', 'room-1', 's1')
+    expect(cell).not.toHaveTextContent('Avoid')
+    expect(cell.getAttribute('aria-label')).toMatch(/Avoid$/)
+    expect(cell.querySelector('[data-preference-fill="true"]')).not.toBeNull()
   })
 
   it('cycles a cell neutral -> preferred -> avoid -> neutral, persisting each click', async () => {
@@ -288,5 +293,68 @@ describe('PreferencesPage — preference API integration (Unit 100)', () => {
     await selectLecturer(user, 'Dr Ada Lovelace')
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Failed to load preferences.')
+  })
+})
+
+describe('PreferencesPage — tab/grid bug fixes (Unit 103)', () => {
+  beforeEach(() => {
+    mockListRooms.mockResolvedValue([makeRoom({ id: 'room-1', name: 'Room A' })])
+    mockListLecturers.mockResolvedValue([
+      makeLecturer({ id: 'lec-1', title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' }),
+    ])
+  })
+
+  it('shows the selected lecturer name (not the id) in the selector trigger', async () => {
+    const user = userEvent.setup()
+    renderPreferences()
+    await screen.findByText('Monday')
+
+    await selectLecturer(user, 'Dr Ada Lovelace')
+
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-slot="select-trigger"]'
+    )
+    expect(trigger).not.toBeNull()
+    expect(trigger).toHaveTextContent('Dr Ada Lovelace')
+    expect(trigger).not.toHaveTextContent('lec-1')
+  })
+
+  it('keeps a clicked cell set without a backend refetch reverting it', async () => {
+    const user = userEvent.setup()
+    renderPreferences()
+    await screen.findByText('Monday')
+    await selectLecturer(user, 'Dr Ada Lovelace')
+    await waitFor(() => expect(mockListPreferences).toHaveBeenCalledWith('lec-1'))
+
+    const loadCalls = mockListPreferences.mock.calls.length
+    await user.click(cellEl('Monday', 'room-1', 's1'))
+    await waitFor(() =>
+      expect(cellEl('Monday', 'room-1', 's1')).toHaveAttribute('data-level', 'preferred')
+    )
+    // The frontend owns the grid state: a click persists but does not trigger a
+    // per-click refetch that could revert the optimistic value.
+    expect(mockListPreferences.mock.calls.length).toBe(loadCalls)
+    expect(cellEl('Monday', 'room-1', 's1')).toHaveAttribute('data-level', 'preferred')
+  })
+
+  it('renders a Prefer/Avoid legend', async () => {
+    renderPreferences()
+    const legend = await screen.findByLabelText('Preference legend')
+    expect(legend).toHaveTextContent('Prefer')
+    expect(legend).toHaveTextContent('Avoid')
+  })
+
+  it('day selector hides a day column without touching saved data', async () => {
+    const user = userEvent.setup()
+    renderPreferences()
+    expect(await screen.findByText('Monday')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mon' }))
+
+    await waitFor(() => expect(screen.queryByText('Monday')).toBeNull())
+    // Other days remain visible; no preference API calls were made by filtering.
+    expect(screen.getByText('Tuesday')).toBeInTheDocument()
+    expect(mockUpsert).not.toHaveBeenCalled()
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 })
