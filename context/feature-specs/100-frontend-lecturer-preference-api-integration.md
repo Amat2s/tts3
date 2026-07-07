@@ -58,7 +58,7 @@ Add preference tokens to `ui-context.md` and global CSS:
   - neutral -> calls upsert with `preferred`;
   - `preferred` -> calls upsert with `avoid`;
   - `avoid` -> calls delete (back to neutral);
-- update the grid optimistically and invalidate `['lecturer-preferences', lecturerId]` on settle;
+- update the grid optimistically and keep the displayed cache authoritative between lecturer selections;
 - switching lecturers swaps the loaded/highlighted cell set with no cross-lecturer bleed.
 
 If the preference query fails, show a concise inline error near the grid.

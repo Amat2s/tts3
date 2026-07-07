@@ -4,7 +4,6 @@
 
 The project is looking good, but there are a few final things to do before its ready for the customers. These are:
 
-- Making the excel export work properly
 - Adding a new constraint feature, where the user can add in soft constraints
 - Add a go back to previous saves feature
 - Add a soft constraint to make the timetable as similar as possible to the last save.
@@ -21,6 +20,7 @@ At the moment, the new excel spreadsheet created from the timetable doesn't look
 Add another tab, called Preferences, that takes soft constraints from the user. Generate several spec files to implement this.
 
 ### Bug fixes
+
 - Lecturer names displayed rather than id
 - backend logic messing with frontend; only the frontend should be controling what gets changed, backend/db just store
 - remove text; make constraints look nicer, rounder

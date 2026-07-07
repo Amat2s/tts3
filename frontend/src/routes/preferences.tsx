@@ -41,6 +41,11 @@ function nextAction(current: LecturerPreferenceLevel | null): PreferenceAction {
   return { kind: 'delete' }
 }
 
+// Monotonic tag so each optimistic write is uniquely identifiable. Lets an
+// errored mutation detect whether a later click on the same cell has since
+// overwritten its optimistic value, so rollback never clobbers a newer write.
+let optimisticSeq = 0
+
 export default function PreferencesPage() {
   const queryClient = useQueryClient()
   const [selectedLecturerId, setSelectedLecturerId] = useState<string | null>(
@@ -98,20 +103,20 @@ export default function PreferencesPage() {
       setMutationError(null)
       const key = ['lecturer-preferences', cell.lecturer_id]
       await queryClient.cancelQueries({ queryKey: key })
+      const matchesCell = (p: LecturerPreference) =>
+        p.day === cell.day &&
+        p.slot === cell.slot &&
+        p.room_id === cell.room_id
       const previous = queryClient.getQueryData<LecturerPreference[]>(key)
+      // Snapshot only the affected cell so rollback is scoped to this write.
+      const previousCell = (previous ?? []).find(matchesCell) ?? null
+      const optimisticId = `optimistic-${cell.day}-${cell.slot}-${cell.room_id}-${++optimisticSeq}`
       queryClient.setQueryData<LecturerPreference[]>(key, (old) => {
-        const without = (old ?? []).filter(
-          (p) =>
-            !(
-              p.day === cell.day &&
-              p.slot === cell.slot &&
-              p.room_id === cell.room_id
-            )
-        )
+        const without = (old ?? []).filter((p) => !matchesCell(p))
         if (action.kind === 'delete') return without
         const now = new Date().toISOString()
         const optimistic: LecturerPreference = {
-          id: `optimistic-${cell.day}-${cell.slot}-${cell.room_id}`,
+          id: optimisticId,
           lecturer_id: cell.lecturer_id,
           day: cell.day,
           slot: cell.slot,
@@ -122,12 +127,29 @@ export default function PreferencesPage() {
         }
         return [...without, optimistic]
       })
-      return { previous, key }
+      return { key, cell, action, previousCell, optimisticId }
     },
     onError: (err, _vars, context) => {
-      // Roll the optimistic update back to the last server-confirmed state.
+      // Roll back only this write's cell, and only if a later click on the same
+      // cell hasn't already superseded it — otherwise we'd revert a newer,
+      // still-correct value to a stale snapshot.
       if (context) {
-        queryClient.setQueryData(context.key, context.previous)
+        const { key, cell, action, previousCell, optimisticId } = context
+        queryClient.setQueryData<LecturerPreference[]>(key, (old) => {
+          const list = old ?? []
+          const matchesCell = (p: LecturerPreference) =>
+            p.day === cell.day &&
+            p.slot === cell.slot &&
+            p.room_id === cell.room_id
+          const currentCell = list.find(matchesCell) ?? null
+          const stillOurs =
+            action.kind === 'delete'
+              ? currentCell === null
+              : currentCell?.id === optimisticId
+          if (!stillOurs) return list
+          const without = list.filter((p) => !matchesCell(p))
+          return previousCell ? [...without, previousCell] : without
+        })
       }
       setMutationError(getErrorMessage(err, 'Failed to save preference.'))
     },
