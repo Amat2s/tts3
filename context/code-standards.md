@@ -167,8 +167,8 @@ type SessionScheduleState =
 - Student and lecturer conflicts should be compiled into a conflict graph before solver modeling.
 - Room capacity should be applied as a hard feasibility constraint.
 - Room exclusivity should be applied as a hard no-overlap constraint.
-- Keep solver objectives simple in v1: maximize the number of scheduled sessions.
-- Do not introduce soft constraints into the v1 solver model.
+- Keep the solver objective primarily about maximizing the number of scheduled sessions.
+- The **only** soft constraint permitted in the v1 solver model is room-specific lecturer scheduling preferences (Unit 101). Model it as a strictly-secondary, lexicographic objective term (`primary_multiplier · Σ(scheduled) + Σ(preference_score · var)`, `primary_multiplier` larger than the max secondary swing) so it only breaks ties and can never gate a candidate, reject a feasible placement, or reduce the scheduled count. Do not add any other soft constraint, per-lecturer weighting, or preference-driven feasibility check without a new spec.
 - Solver results must include enough information for the UI to show scheduled count, unscheduled count, and partial success warnings.
 - Solver runs should be deterministic where practical.
 - Solver timeout behavior must be explicit.
@@ -382,7 +382,7 @@ type SessionScheduleState =
 - `frontend/src/components/` — reusable UI components that are not route-specific.
 - `frontend/src/components/ui/` — shadcn/ui generated and wrapped components.
 - `frontend/src/features/timetable/` — timetable grid, session cards, drag/drop behavior, unscheduled pool, selected-session UI, and timetable-specific hooks. Includes `draftStorage.ts` (versioned browser-storage helper for the unsaved draft), `unitColors.ts` (`getSubjectTokens`, mapping unit codes to subject colour tokens), and `blocks.ts` (`buildBlockedCellMap`, `buildBlockAnchorData`, `getBlockColorTokens` — block flattening and multi-room horizontal merging helpers). The slot-ID-to-human-time-label helper lives in `frontend/src/lib/slot-label.ts`.
-- `frontend/src/features/preferences/` — the `/preferences` page shell: `PreferenceGrid.tsx`/`PreferenceCell.tsx` (a sessions-free timetable-shaped grid reusing the timetable `slots.ts` day/room/slot structure with no session, block, drag/drop, or validation logic) and `LecturerSelector.tsx` (single-select lecturer picker over the existing lecturers query). Layout and local UI state only until preference data load/save is wired in a later unit.
+- `frontend/src/features/preferences/` — the `/preferences` page: `PreferenceGrid.tsx`/`PreferenceCell.tsx` (a sessions-free timetable-shaped grid reusing the timetable `slots.ts` day/room/slot structure with no session, block, drag/drop, or validation logic; cells render a rounded, text-free `preferred`/`avoid` colour chip and carry a human `aria-label`), `LecturerSelector.tsx` (single-select lecturer picker over the existing lecturers query; the trigger shows the selected lecturer's name, not id), `preferenceColors.ts` (`getPreferenceTokens`), and `PreferenceLegend.tsx` (the Prefer/Avoid legend). The route (`routes/preferences.tsx`) loads `['lecturer-preferences', lecturerId]` on selection and persists each click immediately; the frontend owns the on-screen grid state (optimistic cache write is authoritative, no per-click refetch — Unit 103). Shared view-only grid controls live in `features/timetable/` (`gridView.ts` `useGridViewState`/`extendedGridMinWidth`, `GridViewControls.tsx`) and are reused by both `/preferences` and `/timetable` for the per-day filter and extend/scroll toggle.
 - `frontend/src/features/units/` — unit and session management UI.
 - `frontend/src/features/lecturers/` — lecturer management and availability UI.
 - `frontend/src/features/students/` — student management UI.
@@ -393,13 +393,13 @@ type SessionScheduleState =
 - `frontend/src/lib/unit-code-parser.ts` — frontend-only unit-code parser deriving subject, colour tokens, and year level from the `AAA999` code for display, filtering, and validation UX.
 - `frontend/src/stores/` — Zustand stores for UI-only state.
 - `backend/` — FastAPI backend application.
-- `backend/api/` — FastAPI routers and request/response boundaries.
-- `backend/models/` — SQLAlchemy ORM models.
-- `backend/schemas/` — Pydantic request and response schemas.
-- `backend/services/` — application services for domain operations, including `timetable_excel_export.py` (Unit 93 saved-timetable `.xlsx` rendering).
+- `backend/api/` — FastAPI routers and request/response boundaries, including `lecturer_preferences.py` (Unit 98 preference CRUD: `GET /lecturers/{lecturer_id}/preferences`, `PUT`/`DELETE /lecturer-preferences`).
+- `backend/models/` — SQLAlchemy ORM models, including `lecturer_preference.py` (`LecturerPreference` + `PreferenceLevel`).
+- `backend/schemas/` — Pydantic request and response schemas, including `lecturer_preference.py` (upsert/delete/response schemas).
+- `backend/services/` — application services for domain operations, including `timetable_excel_export.py` (Unit 93 saved-timetable `.xlsx` rendering) and `lecturer_preference.py` (Unit 98 list/upsert/delete persistence).
 - `backend/export_templates/` — the repo-owned static export template (`campion_timetable_export_template.xlsx`) and the one-off `build_template.py` that derives it from the uploaded source workbook. The uploaded source lives under `backend/assets/excel/`.
 - `backend/constraints/` — hard constraint definitions, conflict graph generation, and validation logic, including the `timetable_slot_blocked` constraint mirror.
-- `backend/solver/` — OR-Tools model compilation and solver execution functions. The snapshot builder, CP-SAT model, and result application all consume blocked cells so generated assignments never occupy a blocked cell.
+- `backend/solver/` — OR-Tools model compilation and solver execution functions. The snapshot builder, CP-SAT model, and result application all consume blocked cells so generated assignments never occupy a blocked cell. The snapshot also carries lecturer preference cells (`PreferenceSnapshot`), which the model folds into a strictly-secondary objective tie-breaker (Unit 101) — never a feasibility constraint and never a result-application rejection path.
 - `jobs/` — Trigger.dev job definitions and background orchestration. This is a standalone top-level Node/TypeScript project (Trigger.dev is Node-based) and therefore lives beside `backend/` rather than inside the Python `backend/` package, matching the `jobs/` boundary in `architecture-context.md`.
 - `backend/db/` — database session setup, migrations integration, and persistence utilities.
 - `backend/auth/` — authentication helpers and current-user dependencies.
