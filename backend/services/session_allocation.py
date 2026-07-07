@@ -150,20 +150,22 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
         rows_by_pair[(row.session_id, row.student_id)] = row
 
     # Lectures: every enrolled student in every lecture session.
+    lecture_id_set = set(lecture_ids)
     lecture_target = {sid: set(enrolled) for sid in lecture_ids}
     lecture_rows = {
         pair: row
         for pair, row in rows_by_pair.items()
-        if pair[0] in set(lecture_ids)
+        if pair[0] in lecture_id_set
     }
     _reconcile(db, lecture_target, lecture_rows)
 
     # Tutorials: evenly divide enrolled students across the tutorial sessions.
+    tutorial_id_set = set(tutorial_ids)
     tutorial_target = _tutorial_target(tutorial_ids, enrolled, existing_by_session)
     tutorial_rows = {
         pair: row
         for pair, row in rows_by_pair.items()
-        if pair[0] in set(tutorial_ids)
+        if pair[0] in tutorial_id_set
     }
     _reconcile(db, tutorial_target, tutorial_rows)
 

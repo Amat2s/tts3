@@ -6,8 +6,8 @@ or updating a block over saved assignments intentionally unschedules those
 assignments in the same transaction and reports the affected session IDs;
 deleting a block frees its cells without rescheduling anything.
 
-This is the backend data/API contract only — frontend validation and solver
-integration arrive in later units.
+Frontend placement validation (Unit 86) and the solver/backend hard-constraint
+mirror (Unit 87) build on the blocks persisted here.
 """
 import structlog
 from sqlalchemy.exc import IntegrityError

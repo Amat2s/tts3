@@ -6,7 +6,6 @@ querying the database.
 """
 
 from constraints.graph import build_conflict_graph
-from constraints.graph import ORDERED_SLOTS as CONSTRAINT_SLOTS
 from constraints.types import (
     ConstraintType,
     SessionInput as ConstraintSessionInput,

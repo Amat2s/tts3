@@ -14,7 +14,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -56,7 +56,7 @@ interface TimetableActionBarProps {
   onDownloadTimetable?: () => void
   downloadNotice?: string | null
   onDismissDownloadNotice?: () => void
-  // Solver lifecycle (merged from SolverStatusPanel)
+  // Solver lifecycle
   solverRunStatus: SolverRunStatusResponse | null
   isSolverStarting: boolean
   solverStartError: string | null
@@ -137,7 +137,6 @@ export function TimetableActionBar({
 }: TimetableActionBarProps) {
   const [showDetails, setShowDetails] = useState(false)
   const [clearDialogOpen, setClearDialogOpen] = useState(false)
-  const detailsRef = useRef<HTMLDivElement>(null)
 
   const violationCount = violationMessages.length
   const warningCount = warningMessages.length
@@ -621,7 +620,6 @@ export function TimetableActionBar({
         {/* Details overlay — absolutely positioned, does not add layout height */}
         {showDetails && hasIssues && (
           <div
-            ref={detailsRef}
             id="timetable-validation-details"
             role="region"
             aria-label="Validation details"

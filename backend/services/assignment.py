@@ -20,11 +20,10 @@ _AM_SLOT_COUNT = 3
 
 
 def _reject_save(code: str, message: str, *, status_code: int = 422, **fields: object) -> None:
-    """Log a defensive save rejection then raise the structured API error.
+    """Log a defensive save rejection, then raise the structured ``AppError``.
 
-    Observability only: this records *that* a blocked-placement invariant was
-    violated using IDs and counts (never student payloads), and re-raises the
-    same ``AppError`` the caller already returned. It does not change behavior.
+    The log line records which invariant was violated using IDs and counts
+    only — never student payloads.
     """
     logger.warning("assignment_save_rejected", code=code, **fields)
     raise AppError(code, message, status_code=status_code)

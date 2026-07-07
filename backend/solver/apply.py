@@ -15,7 +15,8 @@ Behaviour contract:
 - Partial success is valid and is represented explicitly in the returned
   metadata.
 
-This service is intentionally *not* wired to any request handler or job yet.
+Invoked by the async solver job runner (``solver/job.py``, Unit 45) after a
+solve; it is never called directly from a request handler.
 """
 
 from dataclasses import dataclass

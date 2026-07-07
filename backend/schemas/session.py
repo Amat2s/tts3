@@ -60,7 +60,7 @@ class SchedulableSessionResponse(BaseModel):
     lecturer_display_name: str
     # Unit 60: derived from the hidden session-student allocation rows.
     student_count: int
-    # Internal validation payload for later frontend units. The UI must NOT
-    # display tutorial allocation membership; these ids exist only so the
-    # frontend can validate placements (e.g. student conflicts).
+    # Internal validation payload. The UI must NOT display tutorial allocation
+    # membership; these ids exist only so the frontend can validate placements
+    # (e.g. student conflicts).
     allocated_student_ids: list[str] = []

@@ -182,9 +182,12 @@ def _paint(
     template's own class/event exemplar cells (baked into the template by
     build_template.py); this function never constructs approximated styles.
     """
-    if top < 6 or bottom > 21 or 12 <= top <= 13 or 12 <= bottom <= 13:
+    if top < 6 or bottom > 21 or (top <= 13 and bottom >= 12):
         # App slot bands never touch the static Mass/Lunch rows (12-13); guard
-        # against a malformed placement clobbering static template content.
+        # against a malformed placement clobbering static template content. The
+        # intersection check catches rectangles spanning the rows (e.g. a
+        # lunch-crossing placement painting rows 10-15), not just those whose
+        # endpoints land on them.
         raise AppError(
             "export_overlaps_static_content",
             "A timetable placement unexpectedly overlaps static template content.",
@@ -275,7 +278,7 @@ def _block_rectangles(
     # Per (day, room_index): the set of slot top-rows occupied.
     by_day_room: dict[tuple[str, int], list[int]] = {}
     for day, slot, room_name in cells:
-        anchor_row, col = cell_anchor(day, room_name, slot)
+        anchor_row, _ = cell_anchor(day, room_name, slot)
         by_day_room.setdefault((day, _room_index(room_name)), []).append(anchor_row)
 
     # Build vertical runs keyed by (day, top_row, bottom_row) -> set of room indices.
