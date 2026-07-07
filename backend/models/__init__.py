@@ -10,4 +10,8 @@ from models.timetable_block import (  # noqa: F401
     TimetableBlockCell,
     TimetableBlockGroup,
 )
+from models.lecturer_preference import (  # noqa: F401
+    LecturerPreference,
+    PreferenceLevel,
+)
 from models.solver_run import SolverRun  # noqa: F401
