@@ -20,6 +20,7 @@ from solver.types import (
     AvailabilitySnapshot,
     BlockedCellSnapshot,
     LockedAssignment,
+    PreferenceSnapshot,
     RoomSnapshot,
     SessionSnapshot,
     SolverInputSnapshot,
@@ -193,18 +194,23 @@ def build_snapshot_from_data(
     availability: list[AvailabilitySnapshot],
     saved_assignments: list[LockedAssignment],
     blocked_cells: list[BlockedCellSnapshot] | None = None,
+    preferences: list[PreferenceSnapshot] | None = None,
 ) -> SolverInputSnapshot:
     """Build a deterministic solver input snapshot from ORM-detached input data.
 
     Raises SnapshotIntegrityError if any saved assignment violates blocking
     integrity rules (including overlapping a timetable block). Does not create
     or modify assignments.
+
+    Unit 101: preference cells are carried through as-is. They carry no
+    feasibility meaning, so no integrity validation is performed against them.
     """
     room_map = {r.room_id: r for r in rooms}
     session_map = {s.session_id: s for s in sessions}
 
     blocked_cells = blocked_cells or []
     blocked_cell_keys = {(b.day, b.slot, b.room_id) for b in blocked_cells}
+    preferences = preferences or []
 
     _validate_saved_assignments(
         saved_assignments, session_map, room_map, blocked_cell_keys
@@ -247,6 +253,15 @@ def build_snapshot_from_data(
         blocked_cells,
         key=lambda b: (_day_index(b.day), b.room_id, _slot_index(b.slot)),
     )
+    sorted_preferences = sorted(
+        preferences,
+        key=lambda p: (
+            p.lecturer_id,
+            _day_index(p.day),
+            p.room_id,
+            _slot_index(p.slot),
+        ),
+    )
 
     return SolverInputSnapshot(
         rooms=sorted_rooms,
@@ -259,6 +274,7 @@ def build_snapshot_from_data(
         unit_session_conflict_pairs=unit_pairs,
         timetable_constants=TIMETABLE_CONSTANTS,
         blocked_cells=sorted_blocked_cells,
+        preferences=sorted_preferences,
     )
 
 
@@ -286,6 +302,7 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
     from models.session_allocation import SessionStudentAllocation
     from models.assignment import TimetableAssignment
     from models.timetable_block import TimetableBlockCell
+    from models.lecturer_preference import LecturerPreference
 
     # --- rooms ---
     rooms_orm = db.execute(select(Room)).scalars().all()
@@ -414,6 +431,21 @@ def build_solver_input_snapshot(db) -> SolverInputSnapshot:
         for c in block_cells_orm
     ]
 
+    # --- lecturer preferences: load all preference cells (soft constraint) ---
+    # Preferences carry no feasibility meaning, so they are loaded as-is with no
+    # integrity validation against availability, blocks, or existing sessions.
+    preference_rows = db.execute(select(LecturerPreference)).scalars().all()
+    preferences = [
+        PreferenceSnapshot(
+            lecturer_id=p.lecturer_id,
+            day=p.day.value,
+            slot=p.slot.value,
+            room_id=p.room_id,
+            level=p.level.value,
+        )
+        for p in preference_rows
+    ]
+
     return build_snapshot_from_data(
-        rooms, sessions, availability, saved_assignments, blocked_cells
+        rooms, sessions, availability, saved_assignments, blocked_cells, preferences
     )

@@ -81,6 +81,24 @@ class BlockedCellSnapshot:
 
 
 @dataclass(frozen=True)
+class PreferenceSnapshot:
+    """A single room-specific lecturer scheduling preference mirrored into the solver.
+
+    Unit 101: preferences are the first soft constraint. A preference cell is
+    ``lecturer_id + day + slot + room_id`` with exactly one ``level``
+    (``preferred`` | ``avoid``). Preferences carry no feasibility meaning — they
+    never block, restrict, or remove a candidate assignment; they only bias the
+    secondary objective term among equally-maximal scheduling outcomes.
+    """
+
+    lecturer_id: str
+    day: str
+    slot: str
+    room_id: str
+    level: str
+
+
+@dataclass(frozen=True)
 class TimetableConstants:
     days: tuple[str, ...]
     slots: tuple[str, ...]
@@ -120,6 +138,10 @@ class SolverInputSnapshot:
     # Unit 87: room-specific cells reserved by timetable blocks. The CP-SAT
     # model never creates a candidate occupying one of these cells.
     blocked_cells: list[BlockedCellSnapshot] = field(default_factory=list)
+    # Unit 101: room-specific lecturer scheduling preferences. These are soft
+    # constraints — they only bias the secondary objective term and never affect
+    # candidate feasibility.
+    preferences: list[PreferenceSnapshot] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
