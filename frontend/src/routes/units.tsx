@@ -45,6 +45,7 @@ import { listUnits, createUnit, updateUnit, deleteUnit } from '@/lib/api/units'
 import type { Unit, UnitUpdate } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import type { Lecturer } from '@/lib/api/lecturers'
+import { LecturerUnitUpload } from '@/features/lecturers/LecturerUnitUpload'
 import { listStudents } from '@/lib/api/students'
 import type { Student, YearLevel } from '@/lib/api/students'
 import {
@@ -1093,10 +1094,13 @@ export default function UnitsPage() {
         title="Units"
         description="Manage course units and their sessions. Sessions created here appear in the timetable scheduling pool."
         action={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Create unit
-          </Button>
+          <div className="flex items-center gap-2">
+            <LecturerUnitUpload />
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Create unit
+            </Button>
+          </div>
         }
       />
 

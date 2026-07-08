@@ -37,6 +37,17 @@ export interface LecturerAvailabilitySet {
   unavailable: AvailabilityEntry[]
 }
 
+// Unit 104/105: aggregate outcome of a lecturer/unit spreadsheet import. Mirrors
+// the backend `LecturerImportResult` — counts only, never lecturer/unit lists or
+// raw rows. `added_team_memberships` excludes links that already existed.
+export interface LecturerImportResult {
+  created_lecturers: number
+  created_units: number
+  added_team_memberships: number
+  skipped_invalid_rows: number
+  deduped_rows: number
+}
+
 function parseLecturerError(err: unknown): never {
   if (err instanceof ApiRequestError) {
     const rawDetail =
@@ -113,4 +124,23 @@ export async function setLecturerAvailability(
   } catch (err) {
     parseLecturerError(err)
   }
+}
+
+/**
+ * Upload a lecturer/unit CSV or Excel file to the protected Unit 104 import
+ * endpoint.
+ *
+ * Sends a multipart request through the authenticated API client (which omits
+ * the JSON `Content-Type` for `FormData` so the browser sets the multipart
+ * boundary). Structured backend errors arrive as `AppError` envelopes whose
+ * human message is already surfaced on `ApiRequestError.message`, so we let them
+ * propagate for the caller to display — mirroring `uploadStudentCsv`.
+ */
+export async function uploadLecturerCsv(file: File): Promise<LecturerImportResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiRequest<LecturerImportResult>('/lecturers/import-csv', {
+    method: 'POST',
+    body: formData,
+  })
 }

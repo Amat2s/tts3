@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AvailabilityEditor } from '@/features/lecturers/AvailabilityEditor'
+import { LecturerUnitUpload } from '@/features/lecturers/LecturerUnitUpload'
 import {
   listLecturers,
   createLecturer,
@@ -536,16 +537,19 @@ export default function LecturersPage() {
         title="Lecturers"
         description="Manage lecturers and their weekly availability. Availability is used as a hard scheduling constraint."
         action={
-          <Button
-            onClick={() => {
-              setCreateOpen(true)
-              setCreateForm(EMPTY_FORM)
-              setCreateError(null)
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            Add lecturer
-          </Button>
+          <div className="flex items-center gap-2">
+            <LecturerUnitUpload />
+            <Button
+              onClick={() => {
+                setCreateOpen(true)
+                setCreateForm(EMPTY_FORM)
+                setCreateError(null)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add lecturer
+            </Button>
+          </div>
         }
       />
 

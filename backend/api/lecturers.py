@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from auth.deps import CurrentAdmin, get_current_admin
@@ -8,10 +8,12 @@ from db.deps import get_db
 from schemas.lecturer import (
     LecturerAvailabilitySet,
     LecturerCreate,
+    LecturerImportResult,
     LecturerResponse,
     LecturerUpdate,
 )
 import services.lecturer as lecturer_service
+import services.lecturer_import as lecturer_import_service
 
 router = APIRouter(prefix="/lecturers", tags=["lecturers"])
 
@@ -22,6 +24,22 @@ def list_lecturers(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[LecturerResponse]:
     return lecturer_service.list_lecturers(db)
+
+
+@router.post("/import-csv", response_model=LecturerImportResult)
+async def import_lecturers_csv(
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+    file: Annotated[UploadFile | None, File()] = None,
+) -> LecturerImportResult:
+    # Read the upload fully and hand the raw bytes to the service, which owns all
+    # structural and row-level validation. The spreadsheet is processed
+    # in-memory and discarded; nothing is written to blob/object storage.
+    filename = file.filename if file is not None else None
+    content = await file.read() if file is not None else b""
+    return lecturer_import_service.import_lecturers_csv(
+        db, filename=filename, content=content
+    )
 
 
 @router.post("", response_model=LecturerResponse, status_code=201)

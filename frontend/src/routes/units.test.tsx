@@ -21,6 +21,7 @@ vi.mock('@/lib/api/units', () => ({
 }))
 vi.mock('@/lib/api/lecturers', () => ({
   listLecturers: vi.fn(),
+  uploadLecturerCsv: vi.fn(),
 }))
 vi.mock('@/lib/api/students', () => ({
   listStudents: vi.fn(),
@@ -415,5 +416,28 @@ describe('Unit 82: unit modal two-column layout polish', () => {
     const { dialog } = await openEditDialog()
 
     expect(within(dialog).getAllByText('Session type')).toHaveLength(12)
+  })
+})
+
+describe('UnitsPage — shared lecturer/unit upload trigger (Unit 105)', () => {
+  it('shows the upload trigger and opens the shared dialog', async () => {
+    const user = userEvent.setup()
+    mockListUnits.mockResolvedValue([])
+    mockListLecturers.mockResolvedValue([])
+    mockListStudents.mockResolvedValue([])
+    mockListUnitSessions.mockResolvedValue([])
+    renderUnits()
+
+    const trigger = await screen.findByRole('button', {
+      name: /Upload lecturers & units/,
+    })
+    await user.click(trigger)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        /TITLE, LAST NAME, FIRST NAME, AVAILABILITY, UNIT CODE, UNIT NAME/,
+      ),
+    ).toBeInTheDocument()
   })
 })

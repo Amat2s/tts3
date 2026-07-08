@@ -66,3 +66,17 @@ class LecturerResponse(BaseModel):
     unavailable_slots: list[AvailabilityEntry]
     created_at: datetime
     updated_at: datetime
+
+
+class LecturerImportResult(BaseModel):
+    """Aggregate outcome of a Unit 104 lecturer/unit spreadsheet import.
+
+    Only counts are returned — never lecturer/unit lists or raw spreadsheet
+    rows. ``added_team_memberships`` excludes links that already existed.
+    """
+
+    created_lecturers: int
+    created_units: int
+    added_team_memberships: int
+    skipped_invalid_rows: int
+    deduped_rows: int

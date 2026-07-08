@@ -22,6 +22,7 @@ vi.mock('@/lib/api/lecturers', () => ({
   updateLecturer: vi.fn(),
   deleteLecturer: vi.fn(),
   setLecturerAvailability: vi.fn(),
+  uploadLecturerCsv: vi.fn(),
 }))
 vi.mock('@/lib/api/units', () => ({
   listUnits: vi.fn(),
@@ -220,5 +221,24 @@ describe('LecturersPage — edit modal is read-only for teaching', () => {
     expect(payload).toEqual({ title: 'Dr', first_name: 'Ada', last_name: 'Lovelace' })
     // Defensive: no unit-related key is ever submitted from the lecturer modal.
     expect(Object.keys(payload).some((k) => k.includes('unit'))).toBe(false)
+  })
+})
+
+describe('LecturersPage — shared lecturer/unit upload trigger (Unit 105)', () => {
+  it('shows the upload trigger and opens the shared dialog', async () => {
+    const user = userEvent.setup()
+    renderLecturers()
+
+    const trigger = await screen.findByRole('button', {
+      name: /Upload lecturers & units/,
+    })
+    await user.click(trigger)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        /TITLE, LAST NAME, FIRST NAME, AVAILABILITY, UNIT CODE, UNIT NAME/,
+      ),
+    ).toBeInTheDocument()
   })
 })
