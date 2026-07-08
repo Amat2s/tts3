@@ -5,7 +5,7 @@
 Add a CSV/Excel upload workflow that imports lecturers, units, and teaching-team
 memberships through the Unit 104 backend endpoint. The same upload action appears
 on **both** the `/units` and `/lecturers` pages and does exactly the same thing.
-This mirrors the student upload UI (Unit 91) as a sibling feature.
+This mirrors the student upload UI (Unit 91) as sibling feature.
 
 ## Design
 
