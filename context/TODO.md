@@ -23,23 +23,18 @@ This includes a few things:
 When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
 
 
-
-## Upload Lecturers
-Like the students upload, this will read the Lecturer information and fill it out accordingly
-
 ## Text display in bug features
 - match how the excel file renders it, same format in sessions
 
 ## Bug fixes/ UX problems
 
-- When saving, can get stuck; make sure updates after successful save
-- Lock download table if draft is not saved
-- Clear messages when a new one comes
-- dragging sessions actually works
-- timetable one pixel off
-- can edit blocks when not saved
-- change the way edit blocks works
-- Add a feature to extend timetable???
-- Add course/lecturer/student filter and search to timetable
-- Text smaller; extend view less wide
-- Delete button for data, fix silent errors
+- When saving, save button can freeze; make sure updates after successful save
+- Lock download table button if draft is not saved
+- Clear messages when a new one comes, unless they are timetable clashes
+- dragging sessions; drop slot should be positioned under mouse when dragging
+- add one pixel height for slots per extra hour; too short atm when they cover 2+ hours
+- can edit blocks when not saved; don't disable blocks
+- change the way edit blocks works; click/toggle like preferences in creation mode
+- Add course/lecturer/student filter and search to timetable, same row as extend + day filters, on the left side
+- Room name text smaller when timetable is smaller; make extend view 2x narrower
+- Catch errors when trying to delete something that database doesn't allow; tell user why they can't delete it yet, what is it tied to
