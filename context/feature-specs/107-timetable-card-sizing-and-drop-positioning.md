@@ -25,7 +25,7 @@ Both are **frontend-only** — no schema, API, or solver changes.
     the pointer→slot mapping and drop-target resolution).
   - card height: `frontend/src/features/timetable/ScheduledSessionCard.tsx`,
     `BlockCellCard.tsx`, and the slot-height helper (`slots.ts`/grid metrics).
-- Do not change validation, which cell a drop is *allowed* into, or persistence —
+- Do not change validation, which cell a drop is _allowed_ into, or persistence —
   only the pointer→slot mapping and the rendered card height.
 
 ## Implementation

@@ -15,11 +15,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { TimetableActionBar } from '@/features/timetable/TimetableActionBar'
+import type { TransientNotice } from '@/features/timetable/TimetableActionBar'
 import { TimetableGrid } from '@/features/timetable/TimetableGrid'
 import { GridViewControls } from '@/features/timetable/GridViewControls'
 import { useGridViewState } from '@/features/timetable/gridView'
 import { UnscheduledPool } from '@/features/timetable/UnscheduledPool'
 import { DragPreviewCard } from '@/features/timetable/DragPreviewCard'
+import { pointerSlotCollision } from '@/features/timetable/dragCollision'
 import { useSolverRun } from '@/features/timetable/useSolverRun'
 import type { TimetableAssignment } from '@/features/timetable/assignment'
 import {
@@ -212,7 +214,6 @@ export default function TimetablePage() {
   const [editingBlock, setEditingBlock] = useState<TimetableBlock | null>(null)
   const [blockDialogOpen, setBlockDialogOpen] = useState(false)
   const [blockMutationError, setBlockMutationError] = useState<string | null>(null)
-  const [blockNotice, setBlockNotice] = useState<string | null>(null)
   // Block-selection mode (Unit 86): anchor + the selected cell keys, plus the
   // create dialog state.
   const [blockMode, setBlockMode] = useState(false)
@@ -225,7 +226,10 @@ export default function TimetablePage() {
   // Timetable Excel download (Unit 94).
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [downloadNotice, setDownloadNotice] = useState<string | null>(null)
+  // Consolidated one-time transient notice shared by block edit/delete/create
+  // and the timetable download (Unit 106). Setting a new notice replaces the
+  // previous one, so stale notices never pile up behind newer ones.
+  const [notice, setNotice] = useState<TransientNotice | null>(null)
 
   // Keep a ref of the latest draft so data-change effects can read it without
   // adding draft to their dependency arrays (which would cause validation loops).
@@ -343,6 +347,12 @@ export default function TimetablePage() {
         })),
       }),
     onSuccess: () => {
+      // Settle the Save button immediately: mark the draft clean and drop any
+      // prior save error so the button returns to its idle "Saved" state without
+      // waiting on the assignments refetch below (Unit 106). The refetch then
+      // re-initialises the draft from the persisted state as usual.
+      setIsDirty(false)
+      setSaveError(null)
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
     },
     onError: (err: unknown) => {
@@ -353,6 +363,9 @@ export default function TimetablePage() {
         )
       )
     },
+    // The busy/disabled state is driven purely by the mutation lifecycle
+    // (`isPending`), so it always clears on both success and error — the button
+    // can never get stuck spinning after a settled save (Unit 106).
   })
 
   const updateBlockMutation = useMutation({
@@ -437,7 +450,7 @@ export default function TimetablePage() {
       triggerBlobDownload(result.blob, filename)
       setDownloadDialogOpen(false)
       setExportError(null)
-      setDownloadNotice('Timetable downloaded.')
+      setNotice({ text: 'Timetable downloaded.', tone: 'success' })
     },
     onError: (err: unknown) => {
       // Keep the dialog open and surface a readable message inside it.
@@ -452,17 +465,21 @@ export default function TimetablePage() {
 
   function surfaceUnscheduledNotice(count: number) {
     if (count > 0) {
-      setBlockNotice(
-        `Block saved — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`
-      )
+      setNotice({
+        text: `Block saved — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`,
+        tone: 'info',
+      })
     }
   }
 
   function surfaceBlockCreatedNotice(count: number) {
-    setBlockNotice(
+    setNotice(
       count > 0
-        ? `Block created — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`
-        : 'Block created.'
+        ? {
+            text: `Block created — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`,
+            tone: 'info',
+          }
+        : { text: 'Block created.', tone: 'success' }
     )
   }
 
@@ -471,7 +488,7 @@ export default function TimetablePage() {
     const block = blocks?.find((b) => b.id === blockId)
     if (!block) return
     setBlockMutationError(null)
-    setBlockNotice(null)
+    setNotice(null)
     setEditingBlock(block)
     setBlockDialogOpen(true)
   }
@@ -491,7 +508,7 @@ export default function TimetablePage() {
     // session selection so the two interaction modes never overlap.
     setPendingSessionId(null)
     setBlockingError(null)
-    setBlockNotice(null)
+    setNotice(null)
     setBlockAnchor(null)
     setBlockSelectionKeys(new Set())
     setBlockCreateError(null)
@@ -615,7 +632,7 @@ export default function TimetablePage() {
   function handleOpenDownload() {
     if (!canDownload) return
     setExportError(null)
-    setDownloadNotice(null)
+    setNotice(null)
     setDownloadDialogOpen(true)
   }
 
@@ -769,12 +786,16 @@ export default function TimetablePage() {
 
   function handleSave() {
     if (editingDisabled) return
+    // A new save supersedes any lingering one-time notice (Unit 106).
+    setNotice(null)
     setSaveError(null)
     saveMutation.mutate()
   }
 
   function handleRunSolver() {
     if (!canRunSolver) return
+    // A new solver run supersedes any lingering one-time notice (Unit 106).
+    setNotice(null)
     solver.start()
   }
 
@@ -970,6 +991,7 @@ export default function TimetablePage() {
       <h1 className="sr-only">Timetable</h1>
       <DndContext
         sensors={sensors}
+        collisionDetection={pointerSlotCollision}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
@@ -1002,8 +1024,6 @@ export default function TimetablePage() {
             downloadDisabledReason={downloadDisabledReason}
             isExporting={exportMutation.isPending}
             onDownloadTimetable={handleOpenDownload}
-            downloadNotice={downloadNotice}
-            onDismissDownloadNotice={() => setDownloadNotice(null)}
             solverRunStatus={solver.runStatus}
             isSolverStarting={solver.isStarting}
             solverStartError={solver.startError}
@@ -1027,8 +1047,8 @@ export default function TimetablePage() {
                 : null
             }
             onRetryBlocks={() => refetchBlocks()}
-            blockNotice={blockNotice}
-            onDismissBlockNotice={() => setBlockNotice(null)}
+            notice={notice}
+            onDismissNotice={() => setNotice(null)}
             draftNotice={draftNotice}
             onDismissDraftNotice={() => setDraftNotice(null)}
           />

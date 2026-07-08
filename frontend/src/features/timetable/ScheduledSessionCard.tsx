@@ -2,15 +2,12 @@ import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, X } from 'lucide-react'
 import type { TimetableAssignment } from './assignment'
 import type { UnitColorTokens } from './unitColors'
+import { slotSpanHeight } from './slots'
 
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lec',
   tutorial: 'Tut',
 }
-
-// CELL_HEIGHT must match the h-14 (3.5rem) used in GridCell.
-// A card spanning N slots uses calc(N * 3.5rem) so it visually covers N rows.
-const CELL_HEIGHT_REM = 3.5
 
 interface ScheduledSessionCardProps {
   assignment: TimetableAssignment
@@ -49,7 +46,7 @@ export function ScheduledSessionCard({
       {...attributes}
       className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
       style={{
-        height: `calc(${assignment.duration} * ${CELL_HEIGHT_REM}rem)`,
+        height: slotSpanHeight(assignment.duration),
         backgroundColor: colorTokens.background,
         borderColor: hasWarning ? 'var(--state-warning)' : colorTokens.border,
         borderLeftWidth: '4px',

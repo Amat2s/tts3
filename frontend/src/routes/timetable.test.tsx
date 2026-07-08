@@ -1620,3 +1620,168 @@ describe('TimetablePage — timetable Excel download (Unit 94)', () => {
     expect(downloadButton()).toBeEnabled()
   })
 })
+
+describe('TimetablePage — Unit 106: action bar save/download/message fixes', () => {
+  function downloadButton(): HTMLElement {
+    return screen.getByRole('button', {
+      name: /^(Download Timetable|Downloading…)$/,
+    })
+  }
+
+  function gridCell(
+    container: HTMLElement,
+    day: string,
+    roomId: string,
+    slot: string
+  ): HTMLElement {
+    return container.querySelector(
+      `[data-day="${day}"][data-room="${roomId}"][data-slot="${slot}"]`
+    ) as HTMLElement
+  }
+
+  async function placeOneSession(container: HTMLElement) {
+    await screen.findAllByText('Ancient History')
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    fireEvent.click(gridCell(container, 'Monday', 'room-1', 's1'))
+    await screen.findByText('HIS101')
+  }
+
+  const SCHEDULABLE = [
+    makeSchedulableSession({
+      session_id: 'sess-1',
+      unit_code: 'HIS101',
+      unit_name: 'Ancient History',
+      duration: 1,
+      student_count: 10,
+    }),
+  ]
+
+  it('settles the Save button to an idle, reusable state after a successful save', async () => {
+    mockListSchedulable.mockResolvedValue(SCHEDULABLE)
+    // The refetch after a successful save returns the persisted placement.
+    const saved = [
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ]
+    mockSaveAssignments.mockResolvedValue(saved)
+
+    const { container } = renderTimetable()
+    await placeOneSession(container)
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+
+    mockListAssignments.mockResolvedValue(saved)
+    fireEvent.click(saveButton())
+
+    // The button never gets stuck spinning: it lands on the idle "Saved" label
+    // and the draft is clean (nothing left to persist).
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Saved'))
+    expect(saveButton()).not.toHaveTextContent('Saving...')
+    expect(saveButton()).toBeDisabled()
+
+    // ...and it is immediately reusable: a further edit re-enables Save.
+    fireEvent.click(screen.getByText('HIS101'))
+    fireEvent.click(gridCell(container, 'Monday', 'room-1', 's3'))
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Save Timetable'))
+    expect(saveButton()).toBeEnabled()
+  })
+
+  it('locks download while the draft is dirty and re-enables it after saving', async () => {
+    mockListSchedulable.mockResolvedValue(SCHEDULABLE)
+    const saved = [
+      makeAssignmentResponse({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        day: 'Monday',
+        start_slot: 's1',
+        room_id: 'room-1',
+      }),
+    ]
+    mockSaveAssignments.mockResolvedValue(saved)
+
+    const { container } = renderTimetable()
+    await screen.findAllByText('Ancient History')
+    expect(downloadButton()).toBeEnabled()
+
+    // A draft change locks the download with the standard reason.
+    await placeOneSession(container)
+    expect(downloadButton()).toBeDisabled()
+    expect(downloadButton()).toHaveAttribute(
+      'title',
+      'Save timetable changes before downloading.'
+    )
+
+    // Saving clears the dirty flag → the download unlocks again.
+    mockListAssignments.mockResolvedValue(saved)
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(saveButton()).toHaveTextContent('Saved'))
+    await waitFor(() => expect(downloadButton()).toBeEnabled())
+  })
+
+  it('replaces the previous transient notice when a newer one arrives', async () => {
+    const user = userEvent.setup()
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    // First transient notice: create a block.
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(gridCell(container, 'Monday', 'room-1', 's1'))
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+    expect(await screen.findByText('Block created.')).toBeInTheDocument()
+
+    // Second transient notice: download the timetable. It replaces the first.
+    await user.click(downloadButton())
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+
+    expect(await screen.findByText('Timetable downloaded.')).toBeInTheDocument()
+    expect(screen.queryByText('Block created.')).not.toBeInTheDocument()
+  })
+
+  it('keeps a clash warning visible alongside a transient notice until validation clears it', async () => {
+    mockListRooms.mockResolvedValue([
+      makeRoom({ id: 'room-1', capacity: 30 }),
+      makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
+    ])
+    // Two saved sessions sharing a lecturer at the same time → scheduling warning.
+    mockListAssignments.mockResolvedValue([
+      makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', lecturer_id: 'lec-1' }),
+      makeAssignmentResponse({ assignment_id: 'asg-2', session_id: 'sess-2', unit_id: 'unit-2', unit_code: 'MAT200', room_id: 'room-2', day: 'Monday', start_slot: 's1', lecturer_id: 'lec-1' }),
+    ])
+    mockListLecturers.mockResolvedValue([makeLecturer()])
+
+    const user = userEvent.setup()
+    const { queryClient } = renderTimetable()
+
+    // The clash warning is present and the saved timetable is exportable.
+    await screen.findByText(/scheduling warning/)
+    expect(downloadButton()).toBeEnabled()
+
+    // A transient download notice arrives — the warning must stay put beside it.
+    await user.click(downloadButton())
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+    expect(await screen.findByText('Timetable downloaded.')).toBeInTheDocument()
+    expect(screen.getByText(/scheduling warning/)).toBeVisible()
+
+    // The warning only clears when validation stops reporting it (the clashing
+    // assignment is removed); the transient notice is unaffected.
+    await act(async () => {
+      queryClient.setQueryData(
+        ['assignments'],
+        [
+          makeAssignmentResponse({ assignment_id: 'asg-1', session_id: 'sess-1', unit_id: 'unit-1', unit_code: 'HIS101', room_id: 'room-1', day: 'Monday', start_slot: 's1', lecturer_id: 'lec-1' }),
+        ]
+      )
+    })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/scheduling warning/)).not.toBeInTheDocument()
+    )
+    expect(screen.getByText('Timetable downloaded.')).toBeInTheDocument()
+  })
+})

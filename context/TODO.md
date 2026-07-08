@@ -28,9 +28,9 @@ When the Generate Timetable runs, it checks the last saved timetable. If the ses
 
 ## Bug fixes/ UX problems
 
-- When saving, save button can freeze; make sure updates after successful save
-- Lock download table button if draft is not saved
-- Clear messages when a new one comes, unless they are timetable clashes
+- [x] When saving, save button can freeze; make sure updates after successful save — done (Unit 106)
+- [x] Lock download table button if draft is not saved — done (Unit 106)
+- [x] Clear messages when a new one comes, unless they are timetable clashes — done (Unit 106)
 - dragging sessions; drop slot should be positioned under mouse when dragging
 - add one pixel height for slots per extra hour; too short atm when they cover 2+ hours
 - can edit blocks when not saved; don't disable blocks
