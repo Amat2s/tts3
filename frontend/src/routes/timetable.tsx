@@ -98,22 +98,39 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
   }
 }
 
-// Pointer-align modifier: centers the overlay width-wise on the cursor and
-// positions the cursor at the center of the first slot vertically.
-// Works for both unscheduled-pool drags and scheduled-card moves.
+// Pointer-align modifier: snaps the drag preview onto the exact grid cell
+// currently under the pointer (the drop target resolved by pointerWithin), so
+// the card visibly sits where it will land. Falls back to centering the overlay
+// on the cursor when there is no droppable cell under the pointer (e.g. over a
+// gap or an occupied cell). Works for both pool drags and scheduled-card moves.
 function createPointerAlignModifier(metrics: TimetableGridMetrics | null) {
   return function pointerAlignModifier({
     activatorEvent,
     draggingNodeRect,
     overlayNodeRect,
+    over,
     transform,
   }: {
     activatorEvent: Event | null
     draggingNodeRect: { left: number; top: number; width: number; height: number } | null
     overlayNodeRect: { width: number; height: number } | null
+    over: { rect: { left: number; top: number; width: number; height: number } } | null
     transform: { x: number; y: number; scaleX: number; scaleY: number }
   }) {
-    if (!activatorEvent || !draggingNodeRect) return transform
+    if (!draggingNodeRect) return transform
+
+    // The DragOverlay is a viewport-fixed clone whose on-screen top-left equals
+    // the transform. Setting it to the hovered cell's top-left snaps the preview
+    // onto that exact cell (its first slot), so what you see is where it drops.
+    if (over?.rect) {
+      return {
+        ...transform,
+        x: over.rect.left,
+        y: over.rect.top,
+      }
+    }
+
+    if (!activatorEvent) return transform
     const event = activatorEvent as PointerEvent
     if (!('clientX' in event)) return transform
 
@@ -121,7 +138,7 @@ function createPointerAlignModifier(metrics: TimetableGridMetrics | null) {
     const offsetX = event.clientX - draggingNodeRect.left
     const offsetY = event.clientY - draggingNodeRect.top
 
-    // Target pointer position within the overlay:
+    // Fallback target pointer position within the overlay:
     // - horizontal center of the overlay
     // - vertical center of the first slot only (rowHeight / 2)
     const overlayWidth = overlayNodeRect?.width ?? (metrics?.cellWidth ?? 200)

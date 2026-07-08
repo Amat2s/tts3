@@ -1743,7 +1743,7 @@ describe('TimetablePage — Unit 106: action bar save/download/message fixes', (
     expect(screen.queryByText('Block created.')).not.toBeInTheDocument()
   })
 
-  it('keeps a clash warning visible alongside a transient notice until validation clears it', async () => {
+  it('shows a transient notice on top of a clash warning without removing the clash', async () => {
     mockListRooms.mockResolvedValue([
       makeRoom({ id: 'room-1', capacity: 30 }),
       makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
@@ -1758,18 +1758,28 @@ describe('TimetablePage — Unit 106: action bar save/download/message fixes', (
     const user = userEvent.setup()
     const { queryClient } = renderTimetable()
 
-    // The clash warning is present and the saved timetable is exportable.
+    // The clash warning is the message shown, and the saved timetable is exportable.
     await screen.findByText(/scheduling warning/)
     expect(downloadButton()).toBeEnabled()
 
-    // A transient download notice arrives — the warning must stay put beside it.
+    // A transient download notice arrives — it sits ON TOP of the warning, which
+    // is now hidden (only one message shown at a time). The clash is NOT removed:
+    // the solver stays disabled and the details toggle remains available.
     await user.click(downloadButton())
     await user.click(screen.getByRole('button', { name: 'Download' }))
     expect(await screen.findByText('Timetable downloaded.')).toBeInTheDocument()
-    expect(screen.getByText(/scheduling warning/)).toBeVisible()
+    expect(screen.queryByText(/scheduling warning/)).not.toBeInTheDocument()
+    expect(runSolverButton()).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: /view details/i })
+    ).toBeInTheDocument()
+
+    // Dismissing the transient notice brings the persistent clash message back.
+    await user.click(screen.getByRole('button', { name: /dismiss message/i }))
+    expect(await screen.findByText(/scheduling warning/)).toBeVisible()
 
     // The warning only clears when validation stops reporting it (the clashing
-    // assignment is removed); the transient notice is unaffected.
+    // assignment is removed).
     await act(async () => {
       queryClient.setQueryData(
         ['assignments'],
@@ -1782,6 +1792,5 @@ describe('TimetablePage — Unit 106: action bar save/download/message fixes', (
     await waitFor(() =>
       expect(screen.queryByText(/scheduling warning/)).not.toBeInTheDocument()
     )
-    expect(screen.getByText('Timetable downloaded.')).toBeInTheDocument()
   })
 })

@@ -73,13 +73,6 @@ export function ScheduledSessionCard({
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {hasWarning && (
-            <AlertTriangle
-              className="h-3 w-3"
-              style={{ color: 'var(--state-warning)' }}
-              aria-label="Scheduling warning"
-            />
-          )}
           {!editingDisabled && (
             <button
               className="flex items-center justify-center h-4 w-4 rounded-sm transition-colors"
@@ -106,6 +99,15 @@ export function ScheduledSessionCard({
         >
           {assignment.student_count} student{assignment.student_count !== 1 ? 's' : ''}
         </span>
+      )}
+      {/* Warning marker sits at the bottom of the card so it never overlaps the
+          top-right unschedule (✕) button. */}
+      {hasWarning && (
+        <AlertTriangle
+          className="absolute bottom-1 right-1 h-3 w-3"
+          style={{ color: 'var(--state-warning)' }}
+          aria-label="Scheduling warning"
+        />
       )}
     </div>
   )

@@ -168,9 +168,12 @@ export function TimetableGrid({
 
   return (
     <div className="w-full overflow-x-auto">
+    {/* overflow-hidden clips the absolutely-positioned session/block cards to the
+        grid box so a sub-pixel span at the last row/column can never spill past
+        the table border or trigger a spurious vertical scrollbar. */}
     <div
       ref={containerRef}
-      className="w-full border rounded-none"
+      className="w-full border rounded-none overflow-hidden"
       style={{ borderColor: 'var(--grid-border-emphasis)', minWidth }}
     >
       {/* Day header row */}

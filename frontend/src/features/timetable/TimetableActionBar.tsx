@@ -461,6 +461,13 @@ export function TimetableActionBar({
 
   const primaryMsg = getPrimaryMessage()
 
+  // Only one message is shown at a time. A transient message (error, solver
+  // lifecycle, notice, hint) sits *on top of* the persistent clash line rather
+  // than beside it; the clash itself is never removed — it keeps gating the
+  // solver and stays reachable via "View details", and re-appears here as soon
+  // as the transient message is dismissed or cleared.
+  const displayMsg = primaryMsg ?? clashMessage
+
   function handleConfirmClear() {
     onClearAll()
     setClearDialogOpen(false)
@@ -483,70 +490,62 @@ export function TimetableActionBar({
           }}
         >
           <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            {/* Left: newest transient message on top, persistent clash line
-                (with the details trigger) beneath it (Unit 106). */}
+            {/* Left: a single message at a time — the newest transient message
+                sits on top of the persistent clash line; the "View details"
+                trigger stays available whenever a clash exists, even while a
+                transient message is covering it. */}
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              {primaryMsg && (
-                <div
-                  className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm"
-                  role={primaryMsg.isAlert ? 'alert' : 'status'}
-                  aria-live={primaryMsg.isAlert ? 'assertive' : 'polite'}
-                  style={{ color: primaryMsg.color }}
-                >
-                  {primaryMsg.icon}
-                  <span className="min-w-0">{primaryMsg.text}</span>
-                  {primaryMsg.retryable &&
-                    (primaryMsg.onRetry ?? onRetryAssignments) && (
-                      <button
-                        type="button"
-                        className="ml-1 shrink-0 text-xs underline"
-                        style={{ color: primaryMsg.color }}
-                        onClick={primaryMsg.onRetry ?? onRetryAssignments}
-                      >
-                        Try again
-                      </button>
-                    )}
-                  {primaryMsg.dismissible && (
-                    <button
-                      type="button"
-                      className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
-                      aria-label="Dismiss message"
-                      style={{ color: primaryMsg.color }}
-                      onClick={primaryMsg.onDismiss ?? onDismissSolver}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {clashMessage && (
+              {displayMsg && (
                 <div className="flex min-w-0 flex-wrap items-center gap-3">
                   <div
-                    className="flex min-w-0 items-center gap-1.5 text-sm"
-                    role={clashMessage.isAlert ? 'alert' : 'status'}
-                    aria-live={clashMessage.isAlert ? 'assertive' : 'polite'}
-                    style={{ color: clashMessage.color }}
+                    className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm"
+                    role={displayMsg.isAlert ? 'alert' : 'status'}
+                    aria-live={displayMsg.isAlert ? 'assertive' : 'polite'}
+                    style={{ color: displayMsg.color }}
                   >
-                    {clashMessage.icon}
-                    <span className="min-w-0">{clashMessage.text}</span>
+                    {displayMsg.icon}
+                    <span className="min-w-0">{displayMsg.text}</span>
+                    {displayMsg.retryable &&
+                      (displayMsg.onRetry ?? onRetryAssignments) && (
+                        <button
+                          type="button"
+                          className="ml-1 shrink-0 text-xs underline"
+                          style={{ color: displayMsg.color }}
+                          onClick={displayMsg.onRetry ?? onRetryAssignments}
+                        >
+                          Try again
+                        </button>
+                      )}
+                    {displayMsg.dismissible && (
+                      <button
+                        type="button"
+                        className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
+                        aria-label="Dismiss message"
+                        style={{ color: displayMsg.color }}
+                        onClick={displayMsg.onDismiss ?? onDismissSolver}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
 
-                  <button
-                    type="button"
-                    className="flex shrink-0 items-center gap-1 text-xs underline"
-                    style={{ color: 'var(--text-muted)' }}
-                    aria-expanded={showDetails}
-                    aria-controls="timetable-validation-details"
-                    onClick={() => setShowDetails((v) => !v)}
-                  >
-                    {showDetails ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                    {showDetails ? 'Hide' : 'View'} details ({totalIssues})
-                  </button>
+                  {hasIssues && (
+                    <button
+                      type="button"
+                      className="flex shrink-0 items-center gap-1 text-xs underline"
+                      style={{ color: 'var(--text-muted)' }}
+                      aria-expanded={showDetails}
+                      aria-controls="timetable-validation-details"
+                      onClick={() => setShowDetails((v) => !v)}
+                    >
+                      {showDetails ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                      {showDetails ? 'Hide' : 'View'} details ({totalIssues})
+                    </button>
+                  )}
                 </div>
               )}
             </div>
