@@ -37,6 +37,7 @@ from models.lecturer import Lecturer, LecturerTitle
 from models.unit import Unit
 from schemas.lecturer import LecturerImportResult
 from schemas.unit import UNIT_CODE_PATTERN
+from services.text import to_title_case
 from services.year_level import InvalidUnitCodeError, parse_unit_year_level
 
 # The required logical columns, already in normalized comparison form (trimmed,
@@ -324,6 +325,10 @@ def _classify_row(
     if not first_name or not last_name or not unit_name or unit_code is None:
         counts["skipped_invalid_rows"] += 1
         return None
+
+    first_name = to_title_case(first_name)
+    last_name = to_title_case(last_name)
+    unit_name = to_title_case(unit_name)
 
     return _CandidateRow(
         name_key=_normalize_name_key(first_name, last_name),

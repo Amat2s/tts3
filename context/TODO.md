@@ -33,3 +33,4 @@ This includes a few things:
 - Format names to title case for unit, lecturer, and student upload
 - Delete all button for units, lecturers, and students. Should be positioned above the actions column, on the right side.
 - Order rooms on timetable (left/right) by order in rooms (top to bottom), be able to move room position
+- Add seminars to session types, same function as tutorials, but they don't overlap their student sorting  

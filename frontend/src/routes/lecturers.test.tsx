@@ -21,6 +21,7 @@ vi.mock('@/lib/api/lecturers', () => ({
   createLecturer: vi.fn(),
   updateLecturer: vi.fn(),
   deleteLecturer: vi.fn(),
+  deleteAllLecturers: vi.fn(),
   setLecturerAvailability: vi.fn(),
   uploadLecturerCsv: vi.fn(),
 }))
@@ -29,7 +30,7 @@ vi.mock('@/lib/api/units', () => ({
 }))
 
 import LecturersPage from './lecturers'
-import { listLecturers, updateLecturer, deleteLecturer } from '@/lib/api/lecturers'
+import { listLecturers, updateLecturer, deleteLecturer, deleteAllLecturers } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
 import type { LecturerSummary } from '@/lib/api/units'
 import { ApiRequestError } from '@/lib/api/client'
@@ -38,6 +39,7 @@ import { makeLecturer, makeUnit } from '@/test/fixtures'
 const mockListLecturers = vi.mocked(listLecturers)
 const mockUpdateLecturer = vi.mocked(updateLecturer)
 const mockDeleteLecturer = vi.mocked(deleteLecturer)
+const mockDeleteAllLecturers = vi.mocked(deleteAllLecturers)
 const mockListUnits = vi.mocked(listUnits)
 
 function renderLecturers() {
@@ -265,7 +267,7 @@ describe('LecturersPage — delete-blocked error surfacing (Unit 112)', () => {
     renderLecturers()
     await screen.findByText('Lovelace')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete lecturer/ }))
 
@@ -287,11 +289,59 @@ describe('LecturersPage — delete-blocked error surfacing (Unit 112)', () => {
     renderLecturers()
     await screen.findByText('Lovelace')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete lecturer/ }))
 
     await waitFor(() => expect(screen.queryByText('Lovelace')).toBeNull())
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('LecturersPage — delete all lecturers', () => {
+  it('shows a Delete all button above the table and removes every row on confirm', async () => {
+    const user = userEvent.setup()
+    mockDeleteAllLecturers.mockResolvedValue(undefined)
+    mockListLecturers
+      .mockResolvedValueOnce([makeLecturer({ id: 'lec-1', last_name: 'Lovelace' })])
+      .mockResolvedValueOnce([])
+    renderLecturers()
+    await screen.findByText('Lovelace')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all lecturers' }))
+
+    expect(mockDeleteAllLecturers).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.queryByText('Lovelace')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('surfaces the backend reason and keeps rows when delete all is blocked', async () => {
+    const user = userEvent.setup()
+    mockListLecturers.mockResolvedValue([makeLecturer({ id: 'lec-1', last_name: 'Lovelace' })])
+    mockDeleteAllLecturers.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete all lecturers yet — some are still assigned to sessions.",
+        detail: {
+          error: {
+            code: 'lecturer_delete_blocked',
+            message: "Can't delete all lecturers yet — some are still assigned to sessions.",
+          },
+        },
+      })
+    )
+    renderLecturers()
+    await screen.findByText('Lovelace')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all lecturers' }))
+
+    expect(
+      await screen.findByText("Can't delete all lecturers yet — some are still assigned to sessions.")
+    ).toBeInTheDocument()
+    expect(screen.getByText('Lovelace')).toBeInTheDocument()
   })
 })

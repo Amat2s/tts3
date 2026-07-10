@@ -18,6 +18,7 @@ vi.mock('@/lib/api/units', () => ({
   createUnit: vi.fn(),
   updateUnit: vi.fn(),
   deleteUnit: vi.fn(),
+  deleteAllUnits: vi.fn(),
 }))
 vi.mock('@/lib/api/lecturers', () => ({
   listLecturers: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock('@/lib/api/sessions', () => ({
 }))
 
 import UnitsPage from './units'
-import { listUnits, createUnit, updateUnit, deleteUnit } from '@/lib/api/units'
+import { listUnits, createUnit, updateUnit, deleteUnit, deleteAllUnits } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import { listStudents } from '@/lib/api/students'
 import {
@@ -54,6 +55,7 @@ const mockListStudents = vi.mocked(listStudents)
 const mockListUnitSessions = vi.mocked(listUnitSessions)
 const mockUpdateUnit = vi.mocked(updateUnit)
 const mockDeleteUnit = vi.mocked(deleteUnit)
+const mockDeleteAllUnits = vi.mocked(deleteAllUnits)
 const mockUpdateSession = vi.mocked(updateSession)
 const mockDeleteSession = vi.mocked(deleteSession)
 
@@ -472,7 +474,7 @@ describe('UnitsPage — delete-blocked error surfacing (Unit 112)', () => {
     renderUnits()
     await screen.findByText('HIS101')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete unit/ }))
 
@@ -492,7 +494,7 @@ describe('UnitsPage — delete-blocked error surfacing (Unit 112)', () => {
     renderUnits()
     await screen.findByText('HIS101')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete unit/ }))
 
@@ -538,6 +540,57 @@ describe('UnitsPage — delete-blocked error surfacing (Unit 112)', () => {
     )
   })
 
+})
+
+describe('UnitsPage — delete all units', () => {
+  it('shows a Delete all button above the table when units exist, and removes every row on confirm', async () => {
+    const user = userEvent.setup()
+    mockDeleteAllUnits.mockResolvedValue(undefined)
+    mockListUnits
+      .mockResolvedValueOnce([makeEditableUnit(), makeEditableUnit({ id: 'unit-2', code: 'PHI201', name: 'Ethics' })])
+      .mockResolvedValueOnce([])
+    renderUnits()
+    await screen.findByText('HIS101')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all units' }))
+
+    expect(mockDeleteAllUnits).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.queryByText('HIS101')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('surfaces the backend reason and keeps rows when delete all is blocked', async () => {
+    const user = userEvent.setup()
+    mockListUnits.mockResolvedValue([makeEditableUnit()])
+    mockDeleteAllUnits.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete all units yet — one or more are still referenced elsewhere.",
+        detail: {
+          error: {
+            code: 'unit_delete_blocked',
+            message: "Can't delete all units yet — one or more are still referenced elsewhere.",
+          },
+        },
+      })
+    )
+    renderUnits()
+    await screen.findByText('HIS101')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all units' }))
+
+    expect(
+      await screen.findByText("Can't delete all units yet — one or more are still referenced elsewhere.")
+    ).toBeInTheDocument()
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+  })
+})
+
+describe('UnitsPage — restore session on blocked save', () => {
   it('does not restore a session that was genuinely removed by a successful save', async () => {
     const session = makeSessionDto({ id: 'sess-1', lecturer_id: 'lec-1' })
     mockListUnitSessions.mockResolvedValueOnce([session])

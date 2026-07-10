@@ -103,6 +103,17 @@ def test_exact_valid_header_accepted(db):
     assert result.added_team_memberships == 1
 
 
+def test_imported_names_are_title_cased(db):
+    content = make_csv(
+        [row(last="LOVELACE", first="ada", name="ancient HISTORY")]
+    )
+    run_import(db, content)
+    lecturer = db.query(Lecturer).filter(Lecturer.first_name == "Ada").one()
+    assert lecturer.last_name == "Lovelace"
+    unit = db.query(Unit).filter(Unit.code == "HIS101").one()
+    assert unit.name == "Ancient History"
+
+
 def test_case_and_spacing_header_variants_accepted(db):
     header = [
         " Title ",

@@ -70,6 +70,14 @@ def delete_lecturer(
     lecturer_service.delete_lecturer(db, lecturer_id)
 
 
+@router.delete("", status_code=204)
+def delete_all_lecturers(
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    lecturer_service.delete_all_lecturers(db)
+
+
 @router.put("/{lecturer_id}/availability", response_model=LecturerResponse)
 def set_availability(
     lecturer_id: str,

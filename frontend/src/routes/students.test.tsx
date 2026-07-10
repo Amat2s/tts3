@@ -21,6 +21,7 @@ vi.mock('@/lib/api/students', () => ({
   createStudent: vi.fn(),
   updateStudent: vi.fn(),
   deleteStudent: vi.fn(),
+  deleteAllStudents: vi.fn(),
   uploadStudentCsv: vi.fn(),
 }))
 vi.mock('@/lib/api/units', () => ({
@@ -34,6 +35,7 @@ import {
   createStudent,
   updateStudent,
   deleteStudent,
+  deleteAllStudents,
   uploadStudentCsv,
 } from '@/lib/api/students'
 import type { StudentImportResult } from '@/lib/api/students'
@@ -46,6 +48,7 @@ const mockListStudents = vi.mocked(listStudents)
 const mockCreateStudent = vi.mocked(createStudent)
 const mockUpdateStudent = vi.mocked(updateStudent)
 const mockDeleteStudent = vi.mocked(deleteStudent)
+const mockDeleteAllStudents = vi.mocked(deleteAllStudents)
 const mockUploadStudentCsv = vi.mocked(uploadStudentCsv)
 const mockListUnits = vi.mocked(listUnits)
 const mockUpdateUnit = vi.mocked(updateUnit)
@@ -537,7 +540,7 @@ describe('StudentsPage — delete-blocked error surfacing (Unit 112)', () => {
     renderStudents()
     await screen.findByText('Edith')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete student/ }))
 
@@ -555,7 +558,7 @@ describe('StudentsPage — delete-blocked error surfacing (Unit 112)', () => {
     renderStudents()
     await screen.findByText('Edith')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete student/ }))
 
@@ -572,11 +575,59 @@ describe('StudentsPage — delete-blocked error surfacing (Unit 112)', () => {
     renderStudents()
     await screen.findByText('Edith')
 
-    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
     await screen.findByRole('dialog')
     await user.click(screen.getByRole('button', { name: /Delete student/ }))
 
     await waitFor(() => expect(screen.queryByText('Edith')).toBeNull())
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+describe('StudentsPage — delete all students', () => {
+  it('shows a Delete all button above the table and removes every row on confirm', async () => {
+    const user = userEvent.setup()
+    mockDeleteAllStudents.mockResolvedValue(undefined)
+    mockListStudents
+      .mockResolvedValueOnce([makeStudent({ id: 'stu-1', first_name: 'Edith' })])
+      .mockResolvedValueOnce([])
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all students' }))
+
+    expect(mockDeleteAllStudents).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.queryByText('Edith')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('surfaces the backend reason and keeps rows when delete all is blocked', async () => {
+    const user = userEvent.setup()
+    mockListStudents.mockResolvedValue([makeStudent({ id: 'stu-1', first_name: 'Edith' })])
+    mockDeleteAllStudents.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete all students yet — some are still referenced elsewhere.",
+        detail: {
+          error: {
+            code: 'student_delete_blocked',
+            message: "Can't delete all students yet — some are still referenced elsewhere.",
+          },
+        },
+      })
+    )
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: 'Delete all' }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: 'Delete all students' }))
+
+    expect(
+      await screen.findByText("Can't delete all students yet — some are still referenced elsewhere.")
+    ).toBeInTheDocument()
+    expect(screen.getByText('Edith')).toBeInTheDocument()
   })
 })

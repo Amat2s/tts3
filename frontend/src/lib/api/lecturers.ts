@@ -112,6 +112,10 @@ export async function deleteLecturer(lecturerId: string): Promise<void> {
   return apiRequest<void>(`/lecturers/${lecturerId}`, { method: 'DELETE' })
 }
 
+export async function deleteAllLecturers(): Promise<void> {
+  return apiRequest<void>('/lecturers', { method: 'DELETE' })
+}
+
 export async function setLecturerAvailability(
   lecturerId: string,
   data: LecturerAvailabilitySet

@@ -108,6 +108,47 @@ def delete_lecturer(db: Session, lecturer_id: str) -> None:
         )
 
 
+def delete_all_lecturers(db: Session) -> int:
+    """Delete every lecturer, atomically. Returns the number of lecturers deleted.
+
+    Blocked (all-or-nothing) if any lecturer is still assigned to a session via
+    ``Session.lecturer_id`` (that reference has no cascade). Team-only
+    membership (``unit_lecturers``) cascades away and never blocks.
+    """
+    blocking_ids = {
+        row[0]
+        for row in db.query(TimetableSession.lecturer_id)
+        .filter(TimetableSession.lecturer_id.isnot(None))
+        .distinct()
+        .all()
+    }
+    if blocking_ids:
+        raise AppError(
+            "lecturer_delete_blocked",
+            (
+                "Can't delete all lecturers yet — "
+                f"{len(blocking_ids)} lecturer(s) are still assigned to "
+                "sessions. Reassign or remove those sessions first."
+            ),
+            status_code=409,
+        )
+
+    lecturers = db.query(Lecturer).all()
+    count = len(lecturers)
+    for lecturer in lecturers:
+        db.delete(lecturer)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "lecturer_delete_blocked",
+            "Can't delete all lecturers yet — some are still referenced elsewhere.",
+            status_code=409,
+        )
+    return count
+
+
 def set_availability(
     db: Session, lecturer_id: str, data: LecturerAvailabilitySet
 ) -> Lecturer:

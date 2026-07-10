@@ -67,3 +67,11 @@ def delete_student(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     student_service.delete_student(db, student_id)
+
+
+@router.delete("", status_code=204)
+def delete_all_students(
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    student_service.delete_all_students(db)

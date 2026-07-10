@@ -96,3 +96,25 @@ def delete_student(db: Session, student_id: str) -> None:
             "Can't delete this student yet — they're still referenced elsewhere.",
             status_code=409,
         )
+
+
+def delete_all_students(db: Session) -> int:
+    """Delete every student, atomically. Returns the number of students deleted."""
+    students = db.query(Student).all()
+    affected_unit_ids = {unit.id for student in students for unit in student.units}
+    count = len(students)
+    for student in students:
+        db.delete(student)
+    try:
+        db.flush()
+        for unit_id in affected_unit_ids:
+            rebalance_unit_session_allocations(db, unit_id)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "student_delete_blocked",
+            "Can't delete all students yet — some are still referenced elsewhere.",
+            status_code=409,
+        )
+    return count

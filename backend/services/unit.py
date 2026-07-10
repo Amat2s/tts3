@@ -171,3 +171,21 @@ def delete_unit(db: Session, unit_id: str) -> None:
             "Can't delete this unit yet — it's still referenced elsewhere.",
             status_code=409,
         )
+
+
+def delete_all_units(db: Session) -> int:
+    """Delete every unit, atomically. Returns the number of units deleted."""
+    units = db.query(Unit).all()
+    count = len(units)
+    for unit in units:
+        db.delete(unit)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "unit_delete_blocked",
+            "Can't delete all units yet — one or more are still referenced elsewhere.",
+            status_code=409,
+        )
+    return count

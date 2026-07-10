@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { listUnits, createUnit, updateUnit, deleteUnit } from '@/lib/api/units'
+import { listUnits, createUnit, updateUnit, deleteUnit, deleteAllUnits } from '@/lib/api/units'
 import type { Unit, UnitUpdate } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import type { Lecturer } from '@/lib/api/lecturers'
@@ -788,6 +788,9 @@ export default function UnitsPage() {
   const [deletingUnit, setDeletingUnit] = useState<Unit | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null)
+
   const [filters, setFilters] = useState<UnitFilters>(EMPTY_UNIT_FILTERS)
 
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
@@ -954,6 +957,18 @@ export default function UnitsPage() {
     onError: (err: unknown) => setDeleteError(deleteBlockedMessage(err)),
   })
 
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllUnits,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['units'] })
+      queryClient.invalidateQueries({ queryKey: ['lecturers'] })
+      queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setDeleteAllOpen(false)
+    },
+    onError: (err: unknown) => setDeleteAllError(deleteBlockedMessage(err)),
+  })
+
   function applyUpdate(
     setter: React.Dispatch<React.SetStateAction<UnitFormState>>,
     update: FormUpdater
@@ -1041,6 +1056,17 @@ export default function UnitsPage() {
     if (!deletingUnit) return
     setDeleteError(null)
     deleteMutation.mutate(deletingUnit.id)
+  }
+
+  function openDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.reset()
+    setDeleteAllOpen(true)
+  }
+
+  function handleDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.mutate()
   }
 
   function renderTableBody() {
@@ -1170,6 +1196,17 @@ export default function UnitsPage() {
           backgroundColor: 'var(--bg-surface)',
         }}
       >
+        {unitsQuery.data && unitsQuery.data.length > 0 && (
+          <div
+            className="flex justify-end px-4 py-2 border-b"
+            style={{ borderColor: 'var(--border-default)' }}
+          >
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
@@ -1285,6 +1322,43 @@ export default function UnitsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete unit'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete all confirmation dialog */}
+      <Dialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAllOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete all units</DialogTitle>
+            <DialogDescription>
+              Delete all {unitsQuery.data?.length ?? 0} units? All units and their sessions
+              will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteAllError && (
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteAllError}</span>
+            </p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deleteAllMutation.isPending}
+            >
+              {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all units'}
             </Button>
           </DialogFooter>
         </DialogContent>

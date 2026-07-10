@@ -46,6 +46,7 @@ import {
   createStudent,
   updateStudent,
   deleteStudent as deleteStudentApi,
+  deleteAllStudents,
   uploadStudentCsv,
 } from '@/lib/api/students'
 import type { Student, YearLevel, StudentImportResult } from '@/lib/api/students'
@@ -430,6 +431,9 @@ export default function StudentsPage() {
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null)
+
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -568,6 +572,18 @@ export default function StudentsPage() {
     },
   })
 
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllStudents,
+    onSuccess: () => {
+      invalidateDependentQueries()
+      setDeleteAllOpen(false)
+      setDeleteAllError(null)
+    },
+    onError: (err: unknown) => {
+      setDeleteAllError(deleteBlockedMessage(err))
+    },
+  })
+
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadStudentCsv(file),
     onSuccess: (result) => {
@@ -660,6 +676,17 @@ export default function StudentsPage() {
     if (!studentToDelete) return
     setDeleteError(null)
     deleteMutation.mutate(studentToDelete.id)
+  }
+
+  function openDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.reset()
+    setDeleteAllOpen(true)
+  }
+
+  function handleDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.mutate()
   }
 
   function applyUpdate(
@@ -834,6 +861,17 @@ export default function StudentsPage() {
           backgroundColor: 'var(--bg-surface)',
         }}
       >
+        {students && students.length > 0 && (
+          <div
+            className="flex justify-end px-4 py-2 border-b"
+            style={{ borderColor: 'var(--border-default)' }}
+          >
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
@@ -958,6 +996,43 @@ export default function StudentsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete student'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete all confirmation dialog */}
+      <Dialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAllOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete all students</DialogTitle>
+            <DialogDescription>
+              Delete all {students?.length ?? 0} students? They and their unit enrolments
+              and session allocations will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteAllError && (
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteAllError}</span>
+            </p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deleteAllMutation.isPending}
+            >
+              {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all students'}
             </Button>
           </DialogFooter>
         </DialogContent>

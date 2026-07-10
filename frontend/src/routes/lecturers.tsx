@@ -39,6 +39,7 @@ import {
   createLecturer,
   updateLecturer,
   deleteLecturer,
+  deleteAllLecturers,
   setLecturerAvailability,
 } from '@/lib/api/lecturers'
 import type { Lecturer, LecturerTitle, LecturerUpdate, AvailabilityEntry } from '@/lib/api/lecturers'
@@ -254,6 +255,9 @@ export default function LecturersPage() {
   const [lecturerToDelete, setLecturerToDelete] = useState<Lecturer | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null)
+
   const [lecturerForAvailability, setLecturerForAvailability] = useState<Lecturer | null>(null)
   const [availabilityEntries, setAvailabilityEntries] = useState<AvailabilityEntry[]>([])
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
@@ -359,6 +363,20 @@ export default function LecturersPage() {
     },
   })
 
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllLecturers,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lecturers'] })
+      qc.invalidateQueries({ queryKey: ['units'] })
+      qc.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      qc.invalidateQueries({ queryKey: ['assignments'] })
+      setDeleteAllOpen(false)
+    },
+    onError: (err: unknown) => {
+      setDeleteAllError(deleteBlockedMessage(err))
+    },
+  })
+
   const availabilityMutation = useMutation({
     mutationFn: ({ lecturerId, entries }: { lecturerId: string; entries: AvailabilityEntry[] }) =>
       setLecturerAvailability(lecturerId, { unavailable: entries }),
@@ -418,6 +436,17 @@ export default function LecturersPage() {
   function handleDelete() {
     if (!lecturerToDelete) return
     deleteMutation.mutate(lecturerToDelete.id)
+  }
+
+  function openDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.reset()
+    setDeleteAllOpen(true)
+  }
+
+  function handleDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.mutate()
   }
 
   function handleSaveAvailability() {
@@ -594,6 +623,17 @@ export default function LecturersPage() {
           backgroundColor: 'var(--bg-surface)',
         }}
       >
+        {lecturers && lecturers.length > 0 && (
+          <div
+            className="flex justify-end px-4 py-2 border-b"
+            style={{ borderColor: 'var(--border-default)' }}
+          >
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
@@ -708,6 +748,43 @@ export default function LecturersPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete lecturer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete all confirmation dialog */}
+      <Dialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAllOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete all lecturers</DialogTitle>
+            <DialogDescription>
+              Delete all {lecturers?.length ?? 0} lecturers? They and their availability
+              settings will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteAllError && (
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteAllError}</span>
+            </p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deleteAllMutation.isPending}
+            >
+              {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all lecturers'}
             </Button>
           </DialogFooter>
         </DialogContent>
