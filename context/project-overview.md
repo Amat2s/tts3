@@ -171,7 +171,7 @@ This application is a university timetable scheduling system for administrators.
   - **Unnamed block**: no name and no colour; renders grey/disabled with a lock icon.
   - **Named block**: a name plus one of three colours — `gold`, `light_blue`, or `light_pink` — and renders with a lock icon, the name, and its colour.
 - Blocks are created from a block-selection mode in the sticky timetable action bar: the admin selects a same-day rectangular range of adjacent cells across slots and visible room columns, optionally names it, picks a colour when named, and saves. Selected cells are saved individually as `{ day, slot, room_id }`.
-- Blocks persist immediately through the backend block API, independently of the timetable draft Save. Because they persist immediately, block create/edit/delete is disabled while the timetable draft is dirty (the admin must save or discard timetable changes first).
+- Block edits (create, rename/recolour, delete) are part of the **unsaved timetable draft** and persist on the single **Save** action, together with assignment edits (Unit 109). The admin can edit blocks whether or not the draft is dirty — there is no dirty-draft block-editing guard. Block create/edit/delete only mutates the draft; nothing is sent to the backend until Save persists blocks and assignments as one user action. Locally, draft blocks still enforce the hard-constraint rules (manual placement into a draft-blocked cell is rejected, and creating a block over a draft-scheduled cell auto-unschedules the overlapping draft assignment). On Save, block changes are reconciled through the backend block API (delete → create → update) and then the assignments are persisted; a failed save keeps both pending layers intact and surfaces the error.
 - Blocks are a hard constraint everywhere:
   - the frontend rejects manual placement (click and drag/drop) into any blocked cell, and an invalid hover over a blocked target shows no highlight and no pre-drop reason;
   - draft restoration and data-change cleanup automatically unschedule any assignment overlapping a block;
@@ -270,7 +270,7 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Frontend unit-code parser deriving subject, colour, and year for display, filtering, and validation UX.
 - Browser-persisted unsaved timetable draft with schema versioning, cleared after a successful save.
 - Room-specific timetable blocks as hard constraints (unnamed grey blocks; named gold/light-blue/light-pink blocks).
-- Block-selection mode for reserving adjacent room-specific cells, with immediate block persistence and a dirty-draft editing guard.
+- Block-selection mode for reserving adjacent room-specific cells; block edits live in the unsaved timetable draft and persist on Save alongside assignments (Unit 109), editable regardless of draft dirtiness.
 - Blocks enforced as a hard constraint in frontend placement, defensive backend save validation, and the solver model.
 - Hard constraint evaluation.
 - Constraint violation highlighting.

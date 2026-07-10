@@ -77,8 +77,14 @@ import {
   computeSavedAssignmentFingerprint,
   saveStoredDraft,
 } from '@/features/timetable/draftStorage'
+import {
+  computeSavedBlockFingerprint,
+  savedBlockToDraft,
+} from '@/features/timetable/draftBlocks'
 
-const DRAFT_STORAGE_KEY = 'tts3.timetable.draft.v1'
+const DRAFT_STORAGE_KEY = 'tts3.timetable.draft.v2'
+// Empty saved-block fingerprint used when seeding stored drafts in tests.
+const EMPTY_BLOCK_FP = computeSavedBlockFingerprint([])
 
 const mockListRooms = vi.mocked(listRooms)
 const mockListSchedulable = vi.mocked(listSchedulableSessions)
@@ -693,7 +699,7 @@ describe('TimetablePage — Unit 79: local draft persistence', () => {
       const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
       expect(raw).not.toBeNull()
       const parsed = JSON.parse(raw as string)
-      expect(parsed.schemaVersion).toBe(1)
+      expect(parsed.schemaVersion).toBe(2)
       expect(parsed.assignments).toHaveLength(1)
       expect(parsed.assignments[0].session_id).toBe('sess-1')
     })
@@ -737,7 +743,9 @@ describe('TimetablePage — Unit 79: local draft persistence', () => {
     // Saved state is empty; seed a stored draft whose fingerprint matches it.
     saveStoredDraft(
       [makeAssignment({ session_id: 'sess-1', student_count: 10 })],
-      computeSavedAssignmentFingerprint([])
+      [],
+      computeSavedAssignmentFingerprint([]),
+      EMPTY_BLOCK_FP
     )
 
     renderTimetable()
@@ -846,7 +854,9 @@ describe('TimetablePage — Unit 79: local draft persistence', () => {
     // Seed a draft fingerprinted against an out-of-date (empty) saved state.
     saveStoredDraft(
       [makeAssignment({ session_id: 'sess-1', start_slot: 's5' })],
-      'stale-fingerprint'
+      [],
+      'stale-fingerprint',
+      EMPTY_BLOCK_FP
     )
 
     renderTimetable()
@@ -875,7 +885,9 @@ describe('TimetablePage — Unit 79: local draft persistence', () => {
     // Restore a valid draft (fits the 30-capacity room) from storage.
     saveStoredDraft(
       [makeAssignment({ session_id: 'sess-1', student_count: 10 })],
-      computeSavedAssignmentFingerprint([])
+      [],
+      computeSavedAssignmentFingerprint([]),
+      EMPTY_BLOCK_FP
     )
 
     const { queryClient } = renderTimetable()
@@ -967,7 +979,7 @@ describe('TimetablePage — Unit 80: empty-draft save and clear', () => {
       }),
     ]
     mockListAssignments.mockResolvedValue(saved)
-    saveStoredDraft([], computeSavedAssignmentFingerprint(saved))
+    saveStoredDraft([], [], computeSavedAssignmentFingerprint(saved), EMPTY_BLOCK_FP)
 
     renderTimetable()
 
@@ -1088,7 +1100,7 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
     ).toBeInTheDocument()
   })
 
-  it('opens the edit dialog on block click and saves name/colour changes', async () => {
+  it('edits a block into the draft and persists it only on Save (Unit 109)', async () => {
     const user = userEvent.setup()
     mockListTimetableBlocks.mockResolvedValue([
       makeTimetableBlock({
@@ -1111,6 +1123,14 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
     await user.type(nameInput, 'Mass')
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
+    // The rename lives in the draft: the block now reads "Mass", the draft is
+    // dirty, and nothing was sent to the backend yet.
+    expect(await screen.findByText('Mass')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(mockUpdateTimetableBlock).not.toHaveBeenCalled()
+
+    // Saving the timetable persists the block change alongside assignments.
+    fireEvent.click(saveButton())
     await waitFor(() =>
       expect(mockUpdateTimetableBlock).toHaveBeenCalledWith('b1', {
         name: 'Mass',
@@ -1118,12 +1138,18 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
         cells: [{ day: 'Monday', slot: 's1', room_id: 'room-1' }],
       })
     )
+    await waitFor(() => expect(mockSaveAssignments).toHaveBeenCalled())
   })
 
-  it('deletes a block from the edit dialog', async () => {
+  it('deletes a block into the draft and persists the deletion only on Save', async () => {
     const user = userEvent.setup()
     mockListTimetableBlocks.mockResolvedValue([
-      makeTimetableBlock({ id: 'b1', name: 'Chapel', colour: 'gold' }),
+      makeTimetableBlock({
+        id: 'b1',
+        name: 'Chapel',
+        colour: 'gold',
+        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+      }),
     ])
     renderTimetable()
 
@@ -1131,12 +1157,20 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
     await user.click(await screen.findByText('Chapel'))
     await user.click(await screen.findByRole('button', { name: /Delete block/ }))
 
+    // The block leaves the draft immediately; the backend delete is deferred.
+    await waitFor(() =>
+      expect(screen.queryByText('Chapel')).not.toBeInTheDocument()
+    )
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(mockDeleteTimetableBlock).not.toHaveBeenCalled()
+
+    fireEvent.click(saveButton())
     await waitFor(() =>
       expect(mockDeleteTimetableBlock).toHaveBeenCalledWith('b1')
     )
   })
 
-  it('does not open the edit dialog while the timetable draft is dirty', async () => {
+  it('opens the block edit dialog even while the timetable draft is dirty (Unit 109)', async () => {
     mockListSchedulable.mockResolvedValue([
       makeSchedulableSession({
         session_id: 'sess-1',
@@ -1165,9 +1199,9 @@ describe('TimetablePage — Unit 85: timetable block rendering', () => {
     await screen.findByText('HIS101')
     expect(saveButton()).toHaveTextContent('Save Timetable')
 
-    // Clicking the block now does nothing — block edits are guarded while dirty.
+    // Blocks are editable while the draft is dirty now — the dialog opens.
     fireEvent.click(screen.getByText('Chapel'))
-    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+    expect(await screen.findByLabelText('Name')).toBeInTheDocument()
   })
 })
 
@@ -1191,7 +1225,7 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     ).toBeEnabled()
   })
 
-  it('disables Add block while the timetable draft is dirty with the documented reason', async () => {
+  it('keeps Add block enabled while the timetable draft is dirty (Unit 109)', async () => {
     mockListSchedulable.mockResolvedValue([
       makeSchedulableSession({
         session_id: 'sess-1',
@@ -1206,16 +1240,14 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
     fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
     await screen.findByText('HIS101')
+    expect(saveButton()).toHaveTextContent('Save Timetable')
 
-    const addBlock = screen.getByRole('button', { name: 'Add block' })
-    expect(addBlock).toBeDisabled()
-    expect(addBlock).toHaveAttribute(
-      'title',
-      'Save or discard timetable changes before editing blocked slots.'
-    )
+    // Block edits are part of the same draft now, so Add block stays available
+    // while there are unsaved assignment changes.
+    expect(screen.getByRole('button', { name: 'Add block' })).toBeEnabled()
   })
 
-  it('selects a rectangle of cells and creates a named block', async () => {
+  it('selects a rectangle, adds a named block to the draft, and persists it only on Save', async () => {
     const user = userEvent.setup()
     const { container } = renderTimetable()
     await screen.findByText('Monday')
@@ -1237,6 +1269,14 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     await user.type(within(dialog).getByLabelText('Name'), 'Chapel')
     await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
 
+    // The block is added to the draft (rendered on the grid, draft dirty) but the
+    // backend is not touched until Save (Unit 109).
+    expect(await screen.findByText('Chapel')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(mockCreateTimetableBlock).not.toHaveBeenCalled()
+
+    // Saving persists the new block through the create API.
+    fireEvent.click(saveButton())
     await waitFor(() => expect(mockCreateTimetableBlock).toHaveBeenCalledTimes(1))
     const arg = mockCreateTimetableBlock.mock.calls[0][0]
     expect(arg.name).toBe('Chapel')
@@ -1248,9 +1288,10 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
       ])
     )
     expect(arg.cells).toHaveLength(2)
+    await waitFor(() => expect(mockSaveAssignments).toHaveBeenCalled())
   })
 
-  it('creates an unnamed, colourless block when the name is left blank', async () => {
+  it('adds an unnamed, colourless block to the draft and persists it on Save', async () => {
     const user = userEvent.setup()
     const { container } = renderTimetable()
     await screen.findByText('Monday')
@@ -1264,6 +1305,13 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     expect(within(dialog).queryByText('Colour')).not.toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
 
+    // The unnamed block appears in the draft; the backend is untouched until Save.
+    await waitFor(() =>
+      expect(document.querySelector('[data-block-cell="true"]')).not.toBeNull()
+    )
+    expect(mockCreateTimetableBlock).not.toHaveBeenCalled()
+
+    fireEvent.click(saveButton())
     await waitFor(() => expect(mockCreateTimetableBlock).toHaveBeenCalledTimes(1))
     expect(mockCreateTimetableBlock.mock.calls[0][0]).toEqual({
       name: null,
@@ -1320,8 +1368,8 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
   })
 
   it('cleans up a restored draft assignment that overlaps a block', async () => {
-    // A persisted draft places sess-1 on Monday/room-1/s1; a block now reserves
-    // that exact cell, so the restored draft must auto-unschedule it.
+    // A persisted draft places sess-1 on Monday/room-1/s1; a block reserves that
+    // exact cell, so the restored draft must auto-unschedule it.
     mockListSchedulable.mockResolvedValue([
       makeSchedulableSession({
         session_id: 'sess-1',
@@ -1330,16 +1378,16 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
         duration: 1,
       }),
     ])
-    mockListTimetableBlocks.mockResolvedValue([
-      makeTimetableBlock({
-        id: 'b1',
-        name: 'Chapel',
-        colour: 'gold',
-        cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
-      }),
-    ])
-    // Saved assignments are empty, so the stored-draft fingerprint matches.
-    const fingerprint = computeSavedAssignmentFingerprint([])
+    const block = makeTimetableBlock({
+      id: 'b1',
+      name: 'Chapel',
+      colour: 'gold',
+      cells: [{ id: 'c1', day: 'Monday', slot: 's1', room_id: 'room-1' }],
+    })
+    mockListTimetableBlocks.mockResolvedValue([block])
+    // Saved assignments are empty and the saved block set matches, so both
+    // fingerprints line up and the draft (which carried the block in its block
+    // layer) restores.
     saveStoredDraft(
       [
         makeAssignment({
@@ -1351,7 +1399,9 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
           duration: 1,
         }),
       ],
-      fingerprint
+      [savedBlockToDraft(block)],
+      computeSavedAssignmentFingerprint([]),
+      computeSavedBlockFingerprint([block])
     )
 
     renderTimetable()
@@ -1727,20 +1777,28 @@ describe('TimetablePage — Unit 106: action bar save/download/message fixes', (
     const { container } = renderTimetable()
     await screen.findByText('Monday')
 
-    // First transient notice: create a block.
+    // First transient notice: add a block to the draft. Because block edits are
+    // draft edits now (Unit 109), the draft becomes dirty — so the second notice
+    // comes from another draft-level block edit rather than a download (which is
+    // blocked while the draft is dirty).
     await user.click(screen.getByRole('button', { name: 'Add block' }))
     fireEvent.click(gridCell(container, 'Monday', 'room-1', 's1'))
     await user.click(screen.getByRole('button', { name: /Create block/ }))
-    const dialog = await screen.findByRole('dialog')
+    let dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
-    expect(await screen.findByText('Block created.')).toBeInTheDocument()
+    expect(await screen.findByText('Block added to the draft.')).toBeInTheDocument()
 
-    // Second transient notice: download the timetable. It replaces the first.
-    await user.click(downloadButton())
-    await user.click(screen.getByRole('button', { name: 'Download' }))
+    // Second transient notice: add another block. It replaces the first.
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(gridCell(container, 'Monday', 'room-1', 's3'))
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Name'), 'Mass')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
 
-    expect(await screen.findByText('Timetable downloaded.')).toBeInTheDocument()
-    expect(screen.queryByText('Block created.')).not.toBeInTheDocument()
+    // Only the newest notice is shown; the earlier one is gone.
+    expect(await screen.findByText('Block added to the draft.')).toBeInTheDocument()
+    expect(screen.getAllByText('Block added to the draft.')).toHaveLength(1)
   })
 
   it('shows a transient notice on top of a clash warning without removing the clash', async () => {
@@ -1792,5 +1850,118 @@ describe('TimetablePage — Unit 106: action bar save/download/message fixes', (
     await waitFor(() =>
       expect(screen.queryByText(/scheduling warning/)).not.toBeInTheDocument()
     )
+  })
+})
+
+describe('TimetablePage — Unit 109: blocks folded into the draft', () => {
+  function cellAt(
+    container: HTMLElement,
+    day: string,
+    roomId: string,
+    slot: string
+  ): HTMLElement {
+    return container.querySelector(
+      `[data-day="${day}"][data-room="${roomId}"][data-slot="${slot}"]`
+    ) as HTMLElement
+  }
+
+  it('auto-unschedules a draft assignment when a new draft block covers its cell', async () => {
+    const user = userEvent.setup()
+    mockListSchedulable.mockResolvedValue([
+      makeSchedulableSession({
+        session_id: 'sess-1',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+        duration: 1,
+        student_count: 10,
+      }),
+    ])
+    const { container } = renderTimetable()
+
+    // Place sess-1 at Monday/room-1/s2 in the draft.
+    await screen.findAllByText('Ancient History')
+    fireEvent.click(screen.getByText('Dr. Ada Lovelace'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's2'))
+    await screen.findByText('HIS101')
+    expect(screen.queryByText('Ancient History')).not.toBeInTheDocument()
+
+    // Block a rectangle (s1–s3) that spans the scheduled cell. Anchor and extend
+    // on empty cells so the selection reliably covers the occupied s2.
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's3'))
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+
+    // The overlapping draft assignment is auto-unscheduled locally (its scheduled
+    // card and Unschedule control disappear) and returns to the pool. Nothing was
+    // persisted — blocks + assignments both wait for Save.
+    await waitFor(() =>
+      expect(screen.queryByTitle('Unschedule')).not.toBeInTheDocument()
+    )
+    expect(
+      (await screen.findAllByText('Ancient History')).length
+    ).toBeGreaterThan(0)
+    expect(mockCreateTimetableBlock).not.toHaveBeenCalled()
+    expect(mockSaveAssignments).not.toHaveBeenCalled()
+  })
+
+  it('round-trips pending block changes across a remount', async () => {
+    const user = userEvent.setup()
+    const first = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(first.container, 'Monday', 'room-1', 's1'))
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Name'), 'Chapel')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+    expect(await screen.findByText('Chapel')).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull()
+    )
+    first.unmount()
+
+    // Remount with the same (empty) saved state — the stored block draft restores.
+    renderTimetable()
+    expect(await screen.findByText('Chapel')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved draft restored.')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+  })
+
+  it('keeps both pending layers intact and shows an error when the save fails', async () => {
+    const user = userEvent.setup()
+    // The block-create step of the save fails.
+    mockCreateTimetableBlock.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: 'One or more of those cells is already blocked.',
+      })
+    )
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    // Add a draft block.
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Name'), 'Chapel')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+    expect(await screen.findByText('Chapel')).toBeInTheDocument()
+
+    // Saving fails at the block step; both draft layers stay intact and the error
+    // is surfaced. The assignment save is never reached.
+    fireEvent.click(saveButton())
+    expect(
+      await screen.findByText('One or more of those cells is already blocked.')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Chapel')).toBeInTheDocument()
+    expect(saveButton()).toHaveTextContent('Save Timetable')
+    expect(saveButton()).toBeEnabled()
+    expect(mockSaveAssignments).not.toHaveBeenCalled()
   })
 })

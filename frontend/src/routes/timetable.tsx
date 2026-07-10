@@ -53,7 +53,6 @@ import {
 } from '@/lib/api/sessions'
 import {
   type BlockCellInput,
-  type TimetableBlock,
   type TimetableBlockColour,
   createTimetableBlock,
   deleteTimetableBlock,
@@ -62,11 +61,20 @@ import {
 } from '@/lib/api/timetableBlocks'
 import { buildBlockedCellMap } from '@/features/timetable/blocks'
 import {
+  type BlockDiff,
+  type DraftBlock,
+  computeBlockDiff,
+  computeSavedBlockFingerprint,
+  makeNewBlockId,
+  savedBlocksToDraft,
+} from '@/features/timetable/draftBlocks'
+import {
   type SelectionCell,
   computeRectangleSelection,
   parseSelectionKey,
   singleCellSelection,
 } from '@/features/timetable/blockSelection'
+import { ApiRequestError } from '@/lib/api/client'
 import { BlockEditDialog } from '@/features/timetable/BlockEditDialog'
 import { BlockCreateDialog } from '@/features/timetable/BlockCreateDialog'
 import { TimetableDownloadDialog } from '@/features/timetable/TimetableDownloadDialog'
@@ -100,6 +108,37 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
     day: r.day,
     start_slot: r.start_slot,
     room_id: r.room_id,
+  }
+}
+
+/**
+ * Reconcile the saved backend blocks with the draft's pending block changes
+ * (Unit 109). Deletes run first so freed cells are available before creates
+ * claim them, then creates, then name/colour updates. A delete of an
+ * already-removed block (e.g. retrying a save after a partial failure) is
+ * tolerated as a no-op so the reconciliation stays idempotent.
+ */
+async function persistBlockDiff(diff: BlockDiff): Promise<void> {
+  for (const id of diff.deletes) {
+    try {
+      await deleteTimetableBlock(id)
+    } catch (err) {
+      if (!(err instanceof ApiRequestError && err.status === 404)) throw err
+    }
+  }
+  for (const block of diff.creates) {
+    await createTimetableBlock({
+      name: block.name,
+      colour: block.colour,
+      cells: block.cells,
+    })
+  }
+  for (const block of diff.updates) {
+    await updateTimetableBlock(block.id, {
+      name: block.name,
+      colour: block.colour,
+      cells: block.cells,
+    })
   }
 }
 
@@ -223,6 +262,10 @@ export default function TimetablePage() {
   const [gridSearch, setGridSearch] = useState('')
 
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
+  // Unit 109: block edits live in the draft alongside assignment edits. This is
+  // the *effective* desired block set; it is diffed against the saved backend
+  // blocks at Save time to compute the block API calls.
+  const [draftBlocks, setDraftBlocks] = useState<DraftBlock[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [blockingError, setBlockingError] = useState<string | null>(null)
@@ -236,8 +279,8 @@ export default function TimetablePage() {
   const [draftNotice, setDraftNotice] = useState<'restored' | 'discarded' | null>(
     null
   )
-  // Existing-block edit/delete (Unit 85).
-  const [editingBlock, setEditingBlock] = useState<TimetableBlock | null>(null)
+  // Existing-block edit/delete (Unit 85, now draft-scoped in Unit 109).
+  const [editingBlock, setEditingBlock] = useState<DraftBlock | null>(null)
   const [blockDialogOpen, setBlockDialogOpen] = useState(false)
   const [blockMutationError, setBlockMutationError] = useState<string | null>(null)
   // Block-selection mode (Unit 86): anchor + the selected cell keys, plus the
@@ -270,19 +313,26 @@ export default function TimetablePage() {
   const hydratedRef = useRef(false)
 
   useEffect(() => {
-    if (savedAssignments === undefined) return
+    // Both saved layers must be loaded before hydrating: the draft now carries
+    // block edits as well as assignments, and a stored-draft restore needs both
+    // the saved-assignment and saved-block fingerprints (Unit 109).
+    if (savedAssignments === undefined || blocks === undefined) return
 
     const savedDraftList = savedAssignments.map(toTimetableAssignment)
+    const savedDraftBlocks = savedBlocksToDraft(blocks)
 
     if (!hydratedRef.current) {
       hydratedRef.current = true
-      const fingerprint = computeSavedAssignmentFingerprint(savedAssignments)
-      const result = loadStoredDraft(fingerprint)
+      const result = loadStoredDraft(
+        computeSavedAssignmentFingerprint(savedAssignments),
+        computeSavedBlockFingerprint(blocks)
+      )
 
       if (result.status === 'restored') {
-        // Restore the unsaved draft; it is dirty by definition and must flow
-        // through the existing blocking-cleanup and warning derivation paths.
+        // Restore both unsaved layers; the draft is dirty by definition and must
+        // flow through the existing blocking-cleanup and warning derivation paths.
         setDraft(result.draft.assignments)
+        setDraftBlocks(result.draft.blocks)
         setIsDirty(true)
         setSaveError(null)
         setBlockingError(null)
@@ -296,6 +346,7 @@ export default function TimetablePage() {
       }
       // 'none' and 'discarded' both initialize from saved backend state below.
       setDraft(savedDraftList)
+      setDraftBlocks(savedDraftBlocks)
       setIsDirty(false)
       setSaveError(null)
       setBlockingError(null)
@@ -303,34 +354,46 @@ export default function TimetablePage() {
       return
     }
 
-    // Subsequent saved-assignment refetches (after a save or solver run):
-    // re-init from saved state, clear any stale restore notice, never resurrect.
+    // Subsequent saved-state refetches (after a save or solver run): re-init both
+    // layers from saved state, clear any stale restore notice, never resurrect.
     setDraft(savedDraftList)
+    setDraftBlocks(savedDraftBlocks)
     setIsDirty(false)
     setSaveError(null)
     setBlockingError(null)
     setPendingSessionId(null)
     setDraftNotice(null)
-  }, [savedAssignments])
+  }, [savedAssignments, blocks])
 
   // Persist the draft whenever it is dirty; clear storage once it is clean again
   // (e.g. after a successful save). Gated on hydration so the initial load never
   // wipes a draft before the restore attempt has run.
   useEffect(() => {
-    if (!hydratedRef.current || savedAssignments === undefined) return
+    if (
+      !hydratedRef.current ||
+      savedAssignments === undefined ||
+      blocks === undefined
+    )
+      return
     if (isDirty) {
-      saveStoredDraft(draft, computeSavedAssignmentFingerprint(savedAssignments))
+      saveStoredDraft(
+        draft,
+        draftBlocks,
+        computeSavedAssignmentFingerprint(savedAssignments),
+        computeSavedBlockFingerprint(blocks)
+      )
     } else {
       clearStoredDraft()
     }
-  }, [draft, isDirty, savedAssignments])
+  }, [draft, draftBlocks, isDirty, savedAssignments, blocks])
 
-  // Flatten block groups into a `day:roomId:slot` lookup for rendering and the
-  // `timetable_slot_blocked` validation rule. Only build the map when blocks
-  // data is actually available to prevent silent bypass of validation.
+  // Flatten the *draft* block set into a `day:roomId:slot` lookup for rendering
+  // and the `timetable_slot_blocked` validation rule. The map is only built once
+  // the saved blocks query has resolved (so it seeds `draftBlocks`); until then
+  // it stays undefined to prevent silent bypass of block validation.
   const blockedCellMap = useMemo(
-    () => (blocks ? buildBlockedCellMap(blocks) : undefined),
-    [blocks]
+    () => (blocks !== undefined ? buildBlockedCellMap(draftBlocks) : undefined),
+    [blocks, draftBlocks]
   )
 
   // Auto-unschedule any draft assignments that now violate blocking rules after
@@ -363,25 +426,42 @@ export default function TimetablePage() {
   }, [rooms, schedulableSessions, blockedCellMap, draft])
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      saveAssignments({
+    // Unit 109: block edits and assignment edits persist as one user action.
+    //
+    // Chosen order — blocks first (delete → create → update), then assignments:
+    // reconciling blocks before writing the assignment set keeps the backend's
+    // "creating/updating a block unschedules overlapping saved assignments"
+    // behaviour consistent with the just-saved assignments. By the time the
+    // assignment set is written, the backend block state already matches the
+    // draft blocks the assignments were validated against locally (so the
+    // defensive `assignment_overlaps_timetable_block` check passes), and the
+    // full-replace assignment save is authoritative over any saved assignment a
+    // block-create may have unscheduled moments earlier.
+    mutationFn: async () => {
+      await persistBlockDiff(computeBlockDiff(draftBlocks, blocks ?? []))
+      return saveAssignments({
         assignments: draft.map((a) => ({
           session_id: a.session_id,
           day: a.day,
           start_slot: a.start_slot,
           room_id: a.room_id,
         })),
-      }),
+      })
+    },
     onSuccess: () => {
-      // Settle the Save button immediately: mark the draft clean and drop any
+      // Settle the Save button immediately: mark both layers clean and drop any
       // prior save error so the button returns to its idle "Saved" state without
-      // waiting on the assignments refetch below (Unit 106). The refetch then
-      // re-initialises the draft from the persisted state as usual.
+      // waiting on the refetches below (Unit 106). The refetches then
+      // re-initialise the draft from the persisted state (including the real ids
+      // now assigned to newly-created blocks).
       setIsDirty(false)
       setSaveError(null)
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
     },
     onError: (err: unknown) => {
+      // Keep both pending layers (blocks + assignments) intact so nothing is
+      // partially cleared; surface the error for retry.
       setSaveError(
         getErrorMessage(
           err,
@@ -392,78 +472,6 @@ export default function TimetablePage() {
     // The busy/disabled state is driven purely by the mutation lifecycle
     // (`isPending`), so it always clears on both success and error — the button
     // can never get stuck spinning after a settled save (Unit 106).
-  })
-
-  const updateBlockMutation = useMutation({
-    mutationFn: (input: {
-      blockId: string
-      name: string | null
-      colour: TimetableBlockColour | null
-      cells: TimetableBlock['cells']
-    }) =>
-      updateTimetableBlock(input.blockId, {
-        name: input.name,
-        colour: input.colour,
-        // Cell re-selection is not offered in this unit; preserve saved cells.
-        cells: input.cells.map((c) => ({
-          day: c.day,
-          slot: c.slot,
-          room_id: c.room_id,
-        })),
-      }),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
-      queryClient.invalidateQueries({ queryKey: ['assignments'] })
-      setBlockDialogOpen(false)
-      setEditingBlock(null)
-      surfaceUnscheduledNotice(result.unscheduled_session_ids.length)
-    },
-    onError: (err: unknown) => {
-      setBlockMutationError(
-        getErrorMessage(err, 'The block could not be updated. Please try again.')
-      )
-    },
-  })
-
-  const deleteBlockMutation = useMutation({
-    mutationFn: (blockId: string) => deleteTimetableBlock(blockId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
-      queryClient.invalidateQueries({ queryKey: ['assignments'] })
-      setBlockDialogOpen(false)
-      setEditingBlock(null)
-    },
-    onError: (err: unknown) => {
-      setBlockMutationError(
-        getErrorMessage(err, 'The block could not be deleted. Please try again.')
-      )
-    },
-  })
-
-  const createBlockMutation = useMutation({
-    mutationFn: (input: {
-      name: string | null
-      colour: TimetableBlockColour | null
-      cells: BlockCellInput[]
-    }) =>
-      createTimetableBlock({
-        name: input.name,
-        colour: input.colour,
-        cells: input.cells,
-      }),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['timetable-blocks'] })
-      queryClient.invalidateQueries({ queryKey: ['assignments'] })
-      // Exit block mode and clear the selection on success.
-      exitBlockMode()
-      setBlockCreateOpen(false)
-      surfaceBlockCreatedNotice(result.unscheduled_session_ids.length)
-    },
-    onError: (err: unknown) => {
-      setBlockCreateError(
-        getErrorMessage(err, 'The block could not be created. Please try again.')
-      )
-    },
   })
 
   // Export the SAVED timetable as Excel. The backend renders the workbook; we
@@ -489,29 +497,11 @@ export default function TimetablePage() {
     },
   })
 
-  function surfaceUnscheduledNotice(count: number) {
-    if (count > 0) {
-      setNotice({
-        text: `Block saved — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`,
-        tone: 'info',
-      })
-    }
-  }
-
-  function surfaceBlockCreatedNotice(count: number) {
-    setNotice(
-      count > 0
-        ? {
-            text: `Block created — ${count} overlapping session${count !== 1 ? 's were' : ' was'} returned to the unscheduled pool.`,
-            tone: 'info',
-          }
-        : { text: 'Block created.', tone: 'success' }
-    )
-  }
-
   function handleBlockClick(blockId: string) {
-    if (blockEditingDisabled) return
-    const block = blocks?.find((b) => b.id === blockId)
+    // Block edits are draft edits now (Unit 109); only a running solver locks
+    // them, never a dirty draft.
+    if (editingDisabled) return
+    const block = draftBlocks.find((b) => b.id === blockId)
     if (!block) return
     setBlockMutationError(null)
     setNotice(null)
@@ -588,12 +578,22 @@ export default function TimetablePage() {
     colour: TimetableBlockColour | null
   }) {
     if (blockSelectionKeys.size === 0) return
-    setBlockCreateError(null)
-    createBlockMutation.mutate({
+    const newBlock: DraftBlock = {
+      id: makeNewBlockId(),
+      isNew: true,
       name: input.name,
       colour: input.colour,
       cells: [...blockSelectionKeys].map(parseSelectionKey),
-    })
+    }
+    // Add the block to the draft; it persists with the rest of the draft on
+    // Save. Any draft assignment it now overlaps is auto-unscheduled by the
+    // blocking-cleanup effect (computed against the draft blocks).
+    setDraftBlocks((prev) => [...prev, newBlock])
+    setIsDirty(true)
+    setBlockCreateError(null)
+    exitBlockMode()
+    setBlockCreateOpen(false)
+    setNotice({ text: 'Block added to the draft.', tone: 'info' })
   }
 
   // Selected cells parsed into persistable cell inputs, for the create dialog
@@ -616,21 +616,17 @@ export default function TimetablePage() {
   // Editing and saving are locked while a run is starting or active.
   const editingDisabled = solver.isStarting || solver.isActive
 
-  // Block edit/delete persists immediately and is independent of the timetable
-  // draft Save. Because it mutates saved state, it is disabled while the draft is
-  // dirty (the admin must save or clear timetable changes first) or mid-solver.
-  const blockEditingDisabled = isDirty || editingDisabled
-
-  // "Add block" gating (Unit 86). Block creation persists immediately, so it is
-  // disabled while the draft is dirty, mid-solver, before data is ready, when
-  // blocks failed to load, or when there are no rooms to block.
+  // "Add block" gating (Unit 86/109). Block edits now live in the unsaved draft
+  // and persist on Save alongside assignments, so a dirty draft no longer
+  // disables block editing. It is still gated mid-solver, before data is ready,
+  // when the saved blocks failed to load (there is no baseline to diff against
+  // on Save), or when there are no rooms to block.
   const addBlockDisabledReason: string | null = (() => {
     if (editingDisabled) return 'A solver run is in progress.'
     if (blocksIsError) return 'Timetable blocks could not be loaded.'
     if (rooms === undefined || blocks === undefined)
       return 'Timetable data is still loading.'
     if (rooms.length === 0) return 'Add at least one room before blocking slots.'
-    if (isDirty) return 'Save or discard timetable changes before editing blocked slots.'
     return null
   })()
   const canAddBlock = addBlockDisabledReason === null
@@ -1000,7 +996,7 @@ export default function TimetablePage() {
           rooms={rooms}
           assignments={draft}
           blockedCells={blockedCellMap}
-          isBlockInteractive={!blockEditingDisabled && !blockMode}
+          isBlockInteractive={!editingDisabled && !blockMode}
           onBlockClick={handleBlockClick}
           pendingSessionId={pendingSessionId}
           warningSessionIds={warningSessionIds}
@@ -1124,21 +1120,30 @@ export default function TimetablePage() {
         }}
         onSave={({ name, colour }) => {
           if (!editingBlock) return
+          // Update the block in the draft; it persists on Save (Unit 109).
+          setDraftBlocks((prev) =>
+            prev.map((b) =>
+              b.id === editingBlock.id ? { ...b, name, colour } : b
+            )
+          )
+          setIsDirty(true)
           setBlockMutationError(null)
-          updateBlockMutation.mutate({
-            blockId: editingBlock.id,
-            name,
-            colour,
-            cells: editingBlock.cells,
-          })
+          setBlockDialogOpen(false)
+          setEditingBlock(null)
+          setNotice({ text: 'Block updated in the draft.', tone: 'info' })
         }}
         onDelete={() => {
           if (!editingBlock) return
+          // Remove the block from the draft; the deletion persists on Save.
+          setDraftBlocks((prev) => prev.filter((b) => b.id !== editingBlock.id))
+          setIsDirty(true)
           setBlockMutationError(null)
-          deleteBlockMutation.mutate(editingBlock.id)
+          setBlockDialogOpen(false)
+          setEditingBlock(null)
+          setNotice({ text: 'Block removed from the draft.', tone: 'info' })
         }}
-        isSaving={updateBlockMutation.isPending}
-        isDeleting={deleteBlockMutation.isPending}
+        isSaving={false}
+        isDeleting={false}
         error={blockMutationError}
       />
       <BlockCreateDialog
@@ -1152,7 +1157,7 @@ export default function TimetablePage() {
           if (!open) setBlockCreateError(null)
         }}
         onCreate={handleCreateBlock}
-        isSaving={createBlockMutation.isPending}
+        isSaving={false}
         error={blockCreateError}
       />
       <TimetableDownloadDialog

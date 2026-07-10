@@ -11,14 +11,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type {
-  TimetableBlock,
-  TimetableBlockColour,
-} from '@/lib/api/timetableBlocks'
+import type { TimetableBlockColour } from '@/lib/api/timetableBlocks'
 import { getBlockColorTokens } from './blocks'
+import type { DraftBlock } from './draftBlocks'
 
 interface BlockEditDialogProps {
-  block: TimetableBlock | null
+  // Unit 109: the block being edited now lives in the unsaved draft, not the
+  // backend. Only its name/colour are edited here; cells are preserved by the
+  // parent and the change is persisted with the rest of the draft on Save.
+  block: DraftBlock | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onSave: (input: { name: string | null; colour: TimetableBlockColour | null }) => void
