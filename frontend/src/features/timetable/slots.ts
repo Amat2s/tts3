@@ -29,7 +29,7 @@ export const TIME_SLOTS: TimeSlot[] = [
 export const AM_SLOTS = TIME_SLOTS.filter((s) => s.block === 'am')
 export const PM_SLOTS = TIME_SLOTS.filter((s) => s.block === 'pm')
 
-export const LUNCH_LABEL = '12:00'
+export const LUNCH_LABEL = '12:00-1:30'
 
 // Rendered height of a single grid slot row, in rem. Must match the h-14
 // (3.5rem × 16px = 56px) used by GridCell.
