@@ -5,6 +5,7 @@ import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
 import { buildBlockAnchorData, type BlockedCell } from './blocks'
+import { computeTutorialLetters } from './tutorialLetters'
 
 export interface RoomColumn {
   id: string
@@ -116,7 +117,7 @@ export function TimetableGrid({
 }: TimetableGridProps) {
   // Unit 108: room sub-header shrinks further in the narrow (non-extended)
   // layout, keeping truncation; the extended layout keeps the Unit 103 size.
-  const roomHeaderTextSize = extended ? 'text-[0.65rem]' : 'text-[0.55rem]'
+  const roomHeaderTextSize = extended ? 'text-[0.65rem]' : 'text-[0.4rem]'
   // Hooks must run unconditionally and before any early return so the hook
   // order stays stable when `rooms` changes from empty to non-empty.
   // Measure the first grid cell and report dimensions to the parent.
@@ -160,6 +161,13 @@ export function TimetableGrid({
             suppressSet: new Set<string>(),
           },
     [blockedCells, rooms]
+  )
+
+  // Excel-export-style tutorial order letters ("Tutorial A"), recomputed
+  // whenever the visible assignment set or room order changes.
+  const tutorialLetters = useMemo(
+    () => computeTutorialLetters(assignments, rooms),
+    [assignments, rooms]
   )
 
   if (rooms.length === 0) return null
@@ -258,6 +266,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  tutorialLetter={a ? tutorialLetters.get(a.session_id) : undefined}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
                   blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
                   blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
@@ -337,6 +346,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  tutorialLetter={a ? tutorialLetters.get(a.session_id) : undefined}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
                   blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
                   blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}

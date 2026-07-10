@@ -3,15 +3,14 @@ import { AlertTriangle, X } from 'lucide-react'
 import type { TimetableAssignment } from './assignment'
 import type { UnitColorTokens } from './unitColors'
 import { slotSpanHeight } from './slots'
-
-const SESSION_TYPE_LABEL: Record<string, string> = {
-  lecture: 'Lec',
-  tutorial: 'Tut',
-}
+import { getLecturerInitials } from '@/lib/lecturerInitials'
 
 interface ScheduledSessionCardProps {
   assignment: TimetableAssignment
   colorTokens: UnitColorTokens
+  // Excel-export-style tutorial order letter ("Tutorial A"); undefined for
+  // lectures or when this is the only tutorial in its unit.
+  tutorialLetter?: string
   isPending?: boolean
   hasWarning?: boolean
   // Unit 108: fade this card when it does not match the active session search.
@@ -22,9 +21,23 @@ interface ScheduledSessionCardProps {
   onMoveSelect?: () => void
 }
 
+// Matches the Unit 93 Excel export's session label format exactly
+// ("HIS101 Lecture (SC)" / "THE202 Tutorial A (LH)") so the grid and the
+// exported timetable read the same way. See `_session_label` in
+// services/timetable_excel_export.py.
+function sessionTypeLabel(assignment: TimetableAssignment, tutorialLetter?: string): string {
+  const initials = getLecturerInitials(assignment.lecturer_display_name)
+  if (assignment.session_type === 'tutorial') {
+    const suffix = tutorialLetter ? ` ${tutorialLetter}` : ''
+    return `Tutorial${suffix} (${initials})`
+  }
+  return `Lecture (${initials})`
+}
+
 export function ScheduledSessionCard({
   assignment,
   colorTokens,
+  tutorialLetter,
   isPending = false,
   hasWarning = false,
   isDimmed = false,
@@ -72,10 +85,10 @@ export function ScheduledSessionCard({
             {assignment.unit_code}
           </span>
           <span
-            className="text-xs shrink-0"
+            className="text-xs truncate"
             style={{ color: 'var(--text-muted)' }}
           >
-            {SESSION_TYPE_LABEL[assignment.session_type] ?? assignment.session_type}
+            {sessionTypeLabel(assignment, tutorialLetter)}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -92,12 +105,6 @@ export function ScheduledSessionCard({
           )}
         </div>
       </div>
-      <span
-        className="text-xs truncate"
-        style={{ color: 'var(--text-secondary)' }}
-      >
-        {assignment.lecturer_display_name}
-      </span>
       {assignment.duration > 1 && (
         <span
           className="text-xs"

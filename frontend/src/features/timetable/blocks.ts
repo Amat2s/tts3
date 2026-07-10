@@ -98,6 +98,12 @@ const SLOT_INDEX: Record<string, number> = {
 }
 const SLOT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
 
+// First PM slot index (s4). The grid renders a Lunch/Mass divider row between
+// s3 and s4 that is not part of the slot sequence visually — a merged block
+// rectangle must never bridge that gap, or its absolutely-positioned card
+// would stretch tall enough to cover the divider instead of skipping over it.
+const PM_START_INDEX = SLOT_INDEX.s4
+
 /**
  * For each block group, compute the minimal set of visual "rectangles" (one
  * per distinct contiguous slot-run × contiguous room-run combination) and
@@ -171,9 +177,14 @@ export function buildBlockAnchorData(
     )
     let runStart = 0
     for (let i = 1; i <= sorted.length; i++) {
+      const prevIdx = SLOT_INDEX[sorted[i - 1]] ?? 99
+      const curIdx = i < sorted.length ? (SLOT_INDEX[sorted[i]] ?? 99) : 99
       const isRunEnd =
         i === sorted.length ||
-        (SLOT_INDEX[sorted[i]] ?? 99) !== (SLOT_INDEX[sorted[i - 1]] ?? 99) + 1
+        curIdx !== prevIdx + 1 ||
+        // Break the run across the lunch boundary (s3 -> s4) even though the
+        // slot indices are numerically consecutive.
+        (prevIdx < PM_START_INDEX && curIdx >= PM_START_INDEX)
       if (isRunEnd) {
         const run = sorted.slice(runStart, i)
         allRuns.push({

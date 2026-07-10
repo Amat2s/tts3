@@ -6,8 +6,6 @@ The project is looking good, but there are a few final things to do before its r
 
 - Add a go back to previous saves feature
 - Add a soft constraint to make the timetable as similar as possible to the last save.
-
-- Add another upload feature for lecture information.
 - Text display in scheduled sessions
 - Bug fixes
 
@@ -20,21 +18,18 @@ This includes a few things:
 
 ## Similar timetable
 
-When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
+- When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
 
-
-## Text display in bug features
-- match how the excel file renders it, same format in sessions
 
 ## Bug fixes/ UX problems
 
-- [x] When saving, save button can freeze; make sure updates after successful save — done (Unit 106)
-- [x] Lock download table button if draft is not saved — done (Unit 106)
-- [x] Clear messages when a new one comes, unless they are timetable clashes — done (Unit 106)
-- dragging sessions; drop slot should be positioned under mouse when dragging
-- add one pixel height for slots per extra hour; too short atm when they cover 2+ hours
-- can edit blocks when not saved; don't disable blocks
-- change the way edit blocks works; click/toggle like preferences in creation mode
-- Add course/lecturer/student filter and search to timetable, same row as extend + day filters, on the left side
-- Room name text smaller when timetable is smaller; make extend view 2x narrower
-- Catch errors when trying to delete something that database doesn't allow; tell user why they can't delete it yet, what is it tied to
+- blocks scheduled over lunch are currently covering lunch rather than skipping over it. Make sure they don't cover lunch
+- smaller text
+- match how the excel file renders scheduled classes, same format in sessions (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
+
+
+## FINAL THINGS
+
+- Format names to title case for unit, lecturer, and student upload
+- Delete all button for units, lecturers, and students. Should be positioned above the actions column, on the right side.
+- Order rooms on timetable (left/right) by order in rooms (top to bottom), be able to move room position

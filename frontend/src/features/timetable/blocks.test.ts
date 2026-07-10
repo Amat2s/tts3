@@ -158,6 +158,29 @@ describe('buildBlockAnchorData', () => {
     expect(suppressSet.has('Wednesday:r4:s4')).toBe(true)
   })
 
+  it('splits a block spanning the lunch boundary (s3 -> s4) into two rectangles instead of merging over lunch', () => {
+    const blockedCells = buildBlockedCellMap([
+      makeTimetableBlock({
+        id: 'b1',
+        cells: [
+          { id: 'c1', day: 'Monday', slot: 's2', room_id: 'r1' },
+          { id: 'c2', day: 'Monday', slot: 's3', room_id: 'r1' },
+          { id: 'c3', day: 'Monday', slot: 's4', room_id: 'r1' },
+          { id: 'c4', day: 'Monday', slot: 's5', room_id: 'r1' },
+        ],
+      }),
+    ])
+    const { anchorMap, suppressSet } = buildBlockAnchorData(blockedCells, rooms)
+
+    // s2-s3 (AM) merges into one rectangle; s4-s5 (PM) merges into another —
+    // neither spans across the Lunch/Mass divider row.
+    expect(anchorMap.get('Monday:r1:s2')).toEqual({ roomSpan: 1, slotSpan: 2 })
+    expect(anchorMap.get('Monday:r1:s4')).toEqual({ roomSpan: 1, slotSpan: 2 })
+    expect(anchorMap.size).toBe(2)
+    expect(suppressSet.has('Monday:r1:s3')).toBe(true)
+    expect(suppressSet.has('Monday:r1:s5')).toBe(true)
+  })
+
   it('skips rooms that are not present in the rooms list', () => {
     const blockedCells = buildBlockedCellMap([
       makeTimetableBlock({

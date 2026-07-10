@@ -54,7 +54,7 @@ describe('TimetableGrid — room-created grid rendering', () => {
     renderGrid(<TimetableGrid rooms={rooms} extended={false} />)
     const header = screen.getAllByText('Room A')[0]
     // The size class sits on the header cell; the label keeps truncation.
-    expect(header.closest('div')?.className).toContain('text-[0.55rem]')
+    expect(header.closest('div')?.className).toContain('text-[0.4rem]')
     expect(header.className).toContain('truncate')
   })
 

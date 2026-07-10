@@ -158,7 +158,10 @@ Rendering rules:
   The top-left cell is the anchor; it renders the card with `width = N_rooms × cell width`
   and `height = N_slots × 3.5rem`. All other cells in the rectangle render no card visually
   but remain functionally blocked. Non-rectangular or gapped block groups produce multiple
-  independent rectangles, each with its own anchor.
+  independent rectangles, each with its own anchor. A block group's cells that span the
+  lunch boundary (`s3` → `s4`) never merge across it, even though the slot ids are
+  numerically consecutive: the AM portion and PM portion render as two separate rectangles
+  so the Lunch/Mass divider row always shows through between them instead of being covered.
 - Block cells live in the timetable grid, never in the unscheduled pool, and must stay
   visually distinct from session cards. During block-selection mode, selected cells use
   temporary token-based styling.
@@ -212,7 +215,7 @@ The `/timetable` and `/preferences` grids share two **view-only** controls (see
 Both are purely visual: hiding a day or extending the grid never mutates saved
 assignments, blocks, or preferences, and validation/the solver still operate on the full
 dataset. Room sub-header text uses a reduced size in both grids while keeping truncation:
-`text-[0.65rem]` in the extended layout and a further-reduced `text-[0.55rem]` in the
+`text-[0.65rem]` in the extended layout and a further-reduced `text-[0.4rem]` in the
 narrow (non-extended) layout (day headers and time labels are not shrunk).
 
 ### Timetable session search / filter (Unit 108)
@@ -236,6 +239,21 @@ Clearing the query restores full opacity on the grid and all sessions in the poo
 extended layout is also less aggressive than before (its per-column minimum width was
 halved, ~2× narrower overall) while still overflowing the container and scrolling within
 the grid box only.
+
+### Scheduled session card label
+
+A scheduled session card's type line reads `Lecture (INITIALS)` or
+`Tutorial [LETTER] (INITIALS)` — matching the Unit 93 Excel export's session label
+(`_session_label` in `services/timetable_excel_export.py`) — sitting next to the
+bold unit code, so the card reads e.g. `HIS101 Lecture (SC)` / `THE202 Tutorial A (LH)`.
+Lecturer initials are derived client-side from `lecturer_display_name`
+(`lib/lecturerInitials.ts`, dropping the leading title token). The tutorial order
+letter is computed client-side per unit (`features/timetable/tutorialLetters.ts`),
+ordered by day, start slot, then the fixed export room order, mirroring — but computed
+independently from — the export-only letters the backend assigns at export time; letters
+can therefore differ between the editor and a given export when the draft has unsaved
+tutorial placements. The separate full lecturer-name line was removed in favour of this
+single combined label.
 
 ## AI / Solver Accent Variants
 
