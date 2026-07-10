@@ -3,12 +3,13 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import { makeSchedulableSession, makeUnit } from '@/test/fixtures'
+import { makeSchedulableSession, makeStudent, makeUnit } from '@/test/fixtures'
 import { UnscheduledPool } from './UnscheduledPool'
 import {
   buildUnitBuckets,
   filterUnscheduledSessions,
 } from './unscheduledPoolView'
+import { buildStudentSearchIndex } from './sessionFilter'
 
 function renderPool(ui: React.ReactElement) {
   return render(
@@ -80,6 +81,59 @@ describe('unscheduled pool view model', () => {
     )
 
     expect(result.map((s) => s.session_id)).toEqual(['his-lec'])
+  })
+
+  it('matches an allocated student by name and number (Unit 108)', () => {
+    const studentIndex = buildStudentSearchIndex([
+      makeStudent({
+        id: 'stu-1',
+        first_name: 'Sam',
+        last_name: 'Carter',
+        student_number: '20257777',
+      }),
+    ])
+    const studentSessions = [
+      makeSchedulableSession({
+        session_id: 'has-student',
+        unit_id: 'unit-1',
+        allocated_student_ids: ['stu-1'],
+      }),
+      makeSchedulableSession({
+        session_id: 'no-student',
+        unit_id: 'unit-2',
+        unit_code: 'PHI201',
+        unit_name: 'Philosophy',
+        allocated_student_ids: [],
+      }),
+    ]
+
+    expect(
+      filterUnscheduledSessions(
+        studentSessions,
+        { search: 'carter', yearLevel: 'all' },
+        undefined,
+        studentIndex
+      ).map((s) => s.session_id)
+    ).toEqual(['has-student'])
+
+    expect(
+      filterUnscheduledSessions(
+        studentSessions,
+        { search: '20257777', yearLevel: 'all' },
+        undefined,
+        studentIndex
+      ).map((s) => s.session_id)
+    ).toEqual(['has-student'])
+  })
+
+  it('does not mutate the input sessions (view-only filtering)', () => {
+    const input = [
+      makeSchedulableSession({ session_id: 'a', unit_code: 'HIS101' }),
+      makeSchedulableSession({ session_id: 'b', unit_code: 'PHI201' }),
+    ]
+    const snapshot = input.map((s) => s.session_id)
+    filterUnscheduledSessions(input, { search: 'his101', yearLevel: 'all' })
+    expect(input.map((s) => s.session_id)).toEqual(snapshot)
   })
 
   it('filters by year level', () => {
@@ -351,6 +405,50 @@ describe('UnscheduledPool rendering', () => {
     expect(
       screen.getByText('No unscheduled sessions match your filters.')
     ).toBeInTheDocument()
+  })
+
+  it('hides non-matching pool sessions for the grid search and restores them when cleared', () => {
+    const sessions = [
+      makeSchedulableSession({
+        session_id: 'his',
+        unit_id: 'unit-his',
+        unit_code: 'HIS101',
+        unit_name: 'Ancient History',
+      }),
+      makeSchedulableSession({
+        session_id: 'phi',
+        unit_id: 'unit-phi',
+        unit_code: 'PHI201',
+        unit_name: 'Philosophy',
+      }),
+    ]
+
+    const { rerender } = renderPool(
+      <UnscheduledPool
+        sessions={sessions}
+        totalSchedulableCount={2}
+        externalSearch="his101"
+      />
+    )
+
+    // Only the matching unit remains visible while the grid search is active.
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+    expect(screen.queryByText('PHI201')).not.toBeInTheDocument()
+
+    // Clearing the grid search restores every session in the pool.
+    rerender(
+      <MemoryRouter>
+        <DndContext>
+          <UnscheduledPool
+            sessions={sessions}
+            totalSchedulableCount={2}
+            externalSearch=""
+          />
+        </DndContext>
+      </MemoryRouter>
+    )
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+    expect(screen.getByText('PHI201')).toBeInTheDocument()
   })
 
   it('clears a pending selection when filters hide that session', async () => {

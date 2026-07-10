@@ -1,5 +1,6 @@
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SearchInput } from '@/components/filters/SearchInput'
 import { DAYS, type Day } from './slots'
 
 interface GridViewControlsProps {
@@ -7,6 +8,11 @@ interface GridViewControlsProps {
   onToggleExtended: () => void
   visibleDays: Day[]
   onToggleDay: (day: Day) => void
+  // Unit 108: optional view-only session search (course / lecturer / student).
+  // Only rendered when a change handler is supplied, so /preferences — which
+  // reuses this toolbar without a search — is unaffected.
+  searchQuery?: string
+  onSearchChange?: (value: string) => void
   className?: string
 }
 
@@ -14,22 +20,46 @@ interface GridViewControlsProps {
 // which weekdays are shown and toggle the extended (wider, horizontally
 // scrollable) grid layout. Filtering days is purely visual — it never changes
 // saved assignments, blocks, or preferences.
+//
+// Unit 108: /timetable also passes a session search that sits on the LEFT of
+// the row; it dims non-matching grid cards and hides non-matching pool sessions
+// (also view-only — the solver/validation still run on the full dataset).
 export function GridViewControls({
   extended,
   onToggleExtended,
   visibleDays,
   onToggleDay,
+  searchQuery,
+  onSearchChange,
   className,
 }: GridViewControlsProps) {
   const visible = new Set(visibleDays)
   const onlyOneVisible = visibleDays.length <= 1
+  const hasSearch = !!onSearchChange
 
   return (
     <div
-      className={['flex flex-wrap items-center gap-3', className]
+      className={[
+        'flex flex-wrap items-center gap-3',
+        // When search is present, span the row so search sits left and the
+        // day/extend controls group on the right.
+        hasSearch ? 'w-full justify-between' : '',
+        className,
+      ]
         .filter(Boolean)
         .join(' ')}
     >
+      {hasSearch && (
+        <SearchInput
+          value={searchQuery ?? ''}
+          onChange={onSearchChange}
+          label="Search timetable sessions"
+          placeholder="Search course, lecturer, or student"
+          className="w-full sm:w-72"
+        />
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
       <div
         className="flex items-center gap-1"
         role="group"
@@ -78,6 +108,7 @@ export function GridViewControls({
         )}
         {extended ? 'Collapse' : 'Extend'}
       </Button>
+      </div>
     </div>
   )
 }

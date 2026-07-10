@@ -50,6 +50,40 @@ describe('TimetableGrid — room-created grid rendering', () => {
     expect(screen.getByText('HIS101')).toBeInTheDocument()
   })
 
+  it('uses a smaller room-header text size in the narrow (non-extended) layout and truncates', () => {
+    renderGrid(<TimetableGrid rooms={rooms} extended={false} />)
+    const header = screen.getAllByText('Room A')[0]
+    // The size class sits on the header cell; the label keeps truncation.
+    expect(header.closest('div')?.className).toContain('text-[0.55rem]')
+    expect(header.className).toContain('truncate')
+  })
+
+  it('keeps the larger room-header text size in the extended layout', () => {
+    renderGrid(<TimetableGrid rooms={rooms} extended />)
+    const header = screen.getAllByText('Room A')[0]
+    expect(header.closest('div')?.className).toContain('text-[0.65rem]')
+  })
+
+  it('dims a non-matching scheduled card and leaves a matching one at full opacity', () => {
+    const assignments = [
+      makeAssignment({ session_id: 'sess-1', day: 'Monday', start_slot: 's1', room_id: 'room-1' }),
+      makeAssignment({ session_id: 'sess-2', unit_code: 'PHI201', day: 'Monday', start_slot: 's2', room_id: 'room-1' }),
+    ]
+    renderGrid(
+      <TimetableGrid
+        rooms={rooms}
+        assignments={assignments}
+        dimmedSessionIds={new Set(['sess-2'])}
+      />
+    )
+    expect(screen.getByText('HIS101').closest('div[style]')).toHaveStyle({
+      opacity: '1',
+    })
+    expect(screen.getByText('PHI201').closest('div[style]')).toHaveStyle({
+      opacity: '0.4',
+    })
+  })
+
   it('flags a scheduled card with a warning indicator when its session has a warning', () => {
     const assignments = [
       makeAssignment({ session_id: 'sess-1', day: 'Monday', start_slot: 's1', room_id: 'room-1' }),

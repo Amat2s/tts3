@@ -211,8 +211,31 @@ The `/timetable` and `/preferences` grids share two **view-only** controls (see
 
 Both are purely visual: hiding a day or extending the grid never mutates saved
 assignments, blocks, or preferences, and validation/the solver still operate on the full
-dataset. Room sub-header text uses a reduced size (`text-[0.65rem]`) in both grids while
-keeping truncation.
+dataset. Room sub-header text uses a reduced size in both grids while keeping truncation:
+`text-[0.65rem]` in the extended layout and a further-reduced `text-[0.55rem]` in the
+narrow (non-extended) layout (day headers and time labels are not shrunk).
+
+### Timetable session search / filter (Unit 108)
+
+The `/timetable` grid controls row also carries a **view-only session search** on its
+**left** end (a `SearchInput` in `GridViewControls.tsx`, only rendered when the page
+supplies a change handler — `/preferences` does not, so its toolbar is unchanged). It
+matches by unit/course (code or name), lecturer (session-level name, or the unit's
+teaching team in the pool), and any allocated student (name or student number, resolved
+from the session's hidden allocations). Matching is shared through
+`features/timetable/sessionFilter.ts`:
+
+- **On the grid**, non-matching scheduled cards are **dimmed in place** (reduced opacity,
+  never hidden or moved); an empty query dims nothing. Dimming is a de-emphasis focus aid,
+  not a status, and does not rely on colour alone.
+- **In the unscheduled pool**, non-matching sessions are **hidden** while the query is
+  active — layered on top of the pool's own Unit 76 search + year filter (which is itself
+  extended to also match students), keeping the existing group-by-unit layout.
+
+Clearing the query restores full opacity on the grid and all sessions in the pool. The
+extended layout is also less aggressive than before (its per-column minimum width was
+halved, ~2× narrower overall) while still overflowing the container and scrolling within
+the grid box only.
 
 ## AI / Solver Accent Variants
 

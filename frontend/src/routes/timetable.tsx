@@ -41,7 +41,12 @@ import {
 } from '@/lib/api/assignments'
 import { listLecturers } from '@/lib/api/lecturers'
 import { listRooms } from '@/lib/api/rooms'
+import { listStudents } from '@/lib/api/students'
 import { listUnits } from '@/lib/api/units'
+import {
+  buildStudentSearchIndex,
+  sessionMatchesSearch,
+} from '@/features/timetable/sessionFilter'
 import {
   type SchedulableSession,
   listSchedulableSessions,
@@ -98,31 +103,37 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
   }
 }
 
-// Pointer-align modifier: centers the overlay width-wise on the cursor and puts
-// the cursor at the vertical center of the first slot. It only ever adjusts the
-// default `transform` by a delta (never replaces it), so it stays independent of
-// the overlay's coordinate origin and keeps the preview visible and tracking the
-// pointer for both pool drags and scheduled-card moves. The actual drop target
-// resolves to the cell directly under the pointer via `pointerSlotCollision`.
+// Pointer-align modifier: centers the preview width-wise on the cursor and puts
+// the cursor at the vertical center of the first slot, so the card sits under the
+// mouse. The drop target itself resolves to the cell directly under the pointer
+// via `pointerSlotCollision`, so the preview matches where it lands.
+//
+// The grab offset is measured from `activeNodeRect` — the ORIGINAL draggable's
+// rect. dnd-kit positions the DragOverlay relative to that same rect (its
+// `initialRect`), and it stays put during the drag. Measuring from the overlay's
+// own rect (`draggingNodeRect`) instead makes the offset drift as the overlay
+// moves — and, for pool cards, the overlay is a different width than the pool
+// card — so the preview slides out from under the cursor. It only ever adjusts
+// the default `transform` by a delta (never replaces it).
 function createPointerAlignModifier(metrics: TimetableGridMetrics | null) {
   return function pointerAlignModifier({
     activatorEvent,
-    draggingNodeRect,
+    activeNodeRect,
     overlayNodeRect,
     transform,
   }: {
     activatorEvent: Event | null
-    draggingNodeRect: { left: number; top: number; width: number; height: number } | null
+    activeNodeRect: { left: number; top: number; width: number; height: number } | null
     overlayNodeRect: { width: number; height: number } | null
     transform: { x: number; y: number; scaleX: number; scaleY: number }
   }) {
-    if (!activatorEvent || !draggingNodeRect) return transform
+    if (!activatorEvent || !activeNodeRect) return transform
     const event = activatorEvent as PointerEvent
     if (!('clientX' in event)) return transform
 
-    // Where the pointer was within the original draggable at drag-start
-    const offsetX = event.clientX - draggingNodeRect.left
-    const offsetY = event.clientY - draggingNodeRect.top
+    // Where the pointer was within the original draggable at drag-start.
+    const offsetX = event.clientX - activeNodeRect.left
+    const offsetY = event.clientY - activeNodeRect.top
 
     // Target pointer position within the overlay:
     // - horizontal center of the overlay
@@ -186,6 +197,13 @@ export default function TimetablePage() {
     queryFn: listUnits,
   })
 
+  // Unit 108: students power the session search's student (name / number)
+  // matching, resolving each session's hidden allocation ids to searchable text.
+  const { data: students } = useQuery({
+    queryKey: ['students'],
+    queryFn: listStudents,
+  })
+
   const {
     data: blocks,
     isError: blocksIsError,
@@ -198,6 +216,11 @@ export default function TimetablePage() {
 
   // View-only grid controls (day filter + extend/scroll), shared with /preferences.
   const gridView = useGridViewState()
+
+  // Unit 108: view-only session search (course / lecturer / student). It dims
+  // non-matching grid cards and hides non-matching pool sessions — it never
+  // mutates the draft, and validation/the solver still run on the full dataset.
+  const [gridSearch, setGridSearch] = useState('')
 
   const [draft, setDraft] = useState<TimetableAssignment[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -652,6 +675,26 @@ export default function TimetablePage() {
     (s) => !scheduledIds.has(s.session_id)
   ) ?? []
 
+  // Unit 108: student id → searchable "name number" text for the session search.
+  const studentIndex = useMemo(
+    () => buildStudentSearchIndex(students ?? []),
+    [students]
+  )
+
+  // Scheduled cards whose session does NOT match the active search are dimmed in
+  // place. An empty query dims nothing (undefined = nothing to dim).
+  const gridSearchQuery = gridSearch.trim()
+  const dimmedSessionIds = useMemo(() => {
+    if (gridSearchQuery.length === 0) return undefined
+    const dimmed = new Set<string>()
+    for (const a of draft) {
+      if (!sessionMatchesSearch(a, gridSearchQuery, studentIndex)) {
+        dimmed.add(a.session_id)
+      }
+    }
+    return dimmed
+  }, [gridSearchQuery, draft, studentIndex])
+
   const warningIssues = checkDraftForWarnings(draft, lecturers)
   const warningSessionIds = new Set(
     warningIssues.flatMap((i) => i.affected_session_ids)
@@ -949,6 +992,8 @@ export default function TimetablePage() {
             onToggleExtended={gridView.toggleExtended}
             visibleDays={gridView.visibleDays}
             onToggleDay={gridView.toggleDay}
+            searchQuery={gridSearch}
+            onSearchChange={setGridSearch}
           />
         </div>
         <TimetableGrid
@@ -970,6 +1015,7 @@ export default function TimetablePage() {
           onMetricsChange={handleMetricsChange}
           visibleDays={gridView.visibleDays}
           extended={gridView.extended}
+          dimmedSessionIds={dimmedSessionIds}
         />
         <UnscheduledPool
           sessions={unscheduledSessions}
@@ -981,6 +1027,8 @@ export default function TimetablePage() {
           pendingSessionId={pendingSessionId}
           editingDisabled={editingDisabled}
           onSelectSession={handleSelectSession}
+          studentIndex={studentIndex}
+          externalSearch={gridSearch}
         />
       </div>
     )

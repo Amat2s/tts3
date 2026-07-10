@@ -14,6 +14,9 @@ interface ScheduledSessionCardProps {
   colorTokens: UnitColorTokens
   isPending?: boolean
   hasWarning?: boolean
+  // Unit 108: fade this card when it does not match the active session search.
+  // A view-only focus aid — the card keeps its place and stays interactive.
+  isDimmed?: boolean
   editingDisabled?: boolean
   onUnschedule?: () => void
   onMoveSelect?: () => void
@@ -24,6 +27,7 @@ export function ScheduledSessionCard({
   colorTokens,
   isPending = false,
   hasWarning = false,
+  isDimmed = false,
   editingDisabled = false,
   onUnschedule,
   onMoveSelect,
@@ -52,7 +56,9 @@ export function ScheduledSessionCard({
         borderLeftWidth: '4px',
         outline: isPending ? `2px solid ${colorTokens.border}` : undefined,
         outlineOffset: isPending ? '1px' : undefined,
-        opacity: isPending ? 0.8 : isDragging ? 0.3 : 1,
+        // Dragging and pending states keep their existing emphasis; otherwise a
+        // non-matching (dimmed) card fades to de-emphasise it without hiding it.
+        opacity: isDragging ? 0.3 : isPending ? 0.8 : isDimmed ? 0.4 : 1,
         cursor: editingDisabled ? 'default' : 'pointer',
       }}
       onClick={editingDisabled ? undefined : onMoveSelect}

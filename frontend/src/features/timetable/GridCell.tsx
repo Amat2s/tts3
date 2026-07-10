@@ -26,6 +26,9 @@ interface GridCellProps {
   isOccupied?: boolean
   pendingSessionId?: string | null
   hasWarning?: boolean
+  // Unit 108: dim this cell's scheduled card (non-matching for the active
+  // search). View-only de-emphasis — the card stays in place.
+  isDimmed?: boolean
   editingDisabled?: boolean
   isHoverHighlighted?: boolean
   // Unit 86: block-selection mode. When active, clicking any cell toggles/extends
@@ -54,6 +57,7 @@ export function GridCell({
   isOccupied = !!assignment,
   pendingSessionId,
   hasWarning = false,
+  isDimmed = false,
   editingDisabled = false,
   isHoverHighlighted = false,
   blockSelectionMode = false,
@@ -138,6 +142,7 @@ export function GridCell({
           colorTokens={getSubjectTokens(assignment.unit_code)}
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}
+          isDimmed={isDimmed}
           // In block mode the card must not absorb clicks or drags — block
           // selection over an occupied cell is allowed (it unschedules on save).
           editingDisabled={editingDisabled || blockSelectionMode}
