@@ -49,6 +49,7 @@ import {
   uploadStudentCsv,
 } from '@/lib/api/students'
 import type { Student, YearLevel, StudentImportResult } from '@/lib/api/students'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
 import {
@@ -562,8 +563,8 @@ export default function StudentsPage() {
       setStudentToDelete(null)
       setDeleteError(null)
     },
-    onError: (err: Error) => {
-      setDeleteError(err.message)
+    onError: (err: unknown) => {
+      setDeleteError(deleteBlockedMessage(err))
     },
   })
 
@@ -941,8 +942,13 @@ export default function StudentsPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>

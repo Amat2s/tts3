@@ -34,10 +34,16 @@ vi.mock('@/lib/api/sessions', () => ({
 }))
 
 import UnitsPage from './units'
-import { listUnits, createUnit } from '@/lib/api/units'
+import { listUnits, createUnit, updateUnit, deleteUnit } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import { listStudents } from '@/lib/api/students'
-import { listUnitSessions, createUnitSession } from '@/lib/api/sessions'
+import {
+  listUnitSessions,
+  createUnitSession,
+  updateSession,
+  deleteSession,
+} from '@/lib/api/sessions'
+import { ApiRequestError } from '@/lib/api/client'
 import { makeLecturer, makeStudent, makeUnit } from '@/test/fixtures'
 import type { Session } from '@/lib/api/sessions'
 import type { Unit } from '@/lib/api/units'
@@ -46,6 +52,10 @@ const mockListUnits = vi.mocked(listUnits)
 const mockListLecturers = vi.mocked(listLecturers)
 const mockListStudents = vi.mocked(listStudents)
 const mockListUnitSessions = vi.mocked(listUnitSessions)
+const mockUpdateUnit = vi.mocked(updateUnit)
+const mockDeleteUnit = vi.mocked(deleteUnit)
+const mockUpdateSession = vi.mocked(updateSession)
+const mockDeleteSession = vi.mocked(deleteSession)
 
 const lecturers = [
   makeLecturer({ id: 'lec-1', first_name: 'Ada', last_name: 'Lovelace' }),
@@ -439,5 +449,107 @@ describe('UnitsPage — shared lecturer/unit upload trigger (Unit 105)', () => {
         /TITLE, LAST NAME, FIRST NAME, AVAILABILITY, UNIT CODE, UNIT NAME/,
       ),
     ).toBeInTheDocument()
+  })
+})
+
+// Unit 112: surfacing the Unit 111 structured delete-blocked reason.
+describe('UnitsPage — delete-blocked error surfacing (Unit 112)', () => {
+  it('shows the backend reason and keeps the row when a unit delete is blocked', async () => {
+    const user = userEvent.setup()
+    mockListUnits.mockResolvedValue([makeEditableUnit()])
+    mockDeleteUnit.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete this unit yet — it's still referenced elsewhere.",
+        detail: {
+          error: {
+            code: 'unit_delete_blocked',
+            message: "Can't delete this unit yet — it's still referenced elsewhere.",
+          },
+        },
+      })
+    )
+    renderUnits()
+    await screen.findByText('HIS101')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete unit/ }))
+
+    expect(
+      await screen.findByText("Can't delete this unit yet — it's still referenced elsewhere.")
+    ).toBeInTheDocument()
+    // The row must stay present; a blocked delete never optimistically removes it.
+    expect(screen.getByText('HIS101')).toBeInTheDocument()
+  })
+
+  it('removes the row with no error on a successful unit delete', async () => {
+    const user = userEvent.setup()
+    mockDeleteUnit.mockResolvedValue(undefined)
+    mockListUnits
+      .mockResolvedValueOnce([makeEditableUnit()])
+      .mockResolvedValueOnce([])
+    renderUnits()
+    await screen.findByText('HIS101')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete unit/ }))
+
+    await waitFor(() => expect(screen.queryByText('HIS101')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('restores a removed session in the edit form when the save is blocked', async () => {
+    const session = makeSessionDto({ id: 'sess-1', lecturer_id: 'lec-1' })
+    mockListUnitSessions.mockResolvedValueOnce([session])
+    mockUpdateUnit.mockResolvedValue(makeEditableUnit())
+    mockDeleteSession.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete this session yet — it's still referenced elsewhere.",
+        detail: {
+          error: {
+            code: 'session_delete_blocked',
+            message: "Can't delete this session yet — it's still referenced elsewhere.",
+          },
+        },
+      })
+    )
+    // The reconciliation refetch after the failed save reports the session as
+    // still present on the backend (the delete never actually took effect).
+    mockListUnitSessions.mockResolvedValueOnce([session])
+
+    const { user, dialog } = await openEditDialog()
+    expect(within(dialog).getByRole('button', { name: 'Remove session' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove session' }))
+    // Locally removed from the pending draft immediately.
+    expect(within(dialog).queryByRole('button', { name: 'Remove session' })).toBeNull()
+
+    await user.click(within(dialog).getByRole('button', { name: /Save changes/ }))
+
+    expect(
+      await within(dialog).findByText("Can't delete this session yet — it's still referenced elsewhere.")
+    ).toBeInTheDocument()
+    // The session reappears once the form reconciles against backend truth.
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { name: 'Remove session' })).toBeInTheDocument()
+    )
+  })
+
+  it('does not restore a session that was genuinely removed by a successful save', async () => {
+    const session = makeSessionDto({ id: 'sess-1', lecturer_id: 'lec-1' })
+    mockListUnitSessions.mockResolvedValueOnce([session])
+    mockUpdateUnit.mockResolvedValue(makeEditableUnit())
+    mockDeleteSession.mockResolvedValue(undefined)
+    mockUpdateSession.mockResolvedValue(session)
+
+    const { user, dialog } = await openEditDialog()
+    await user.click(within(dialog).getByRole('button', { name: 'Remove session' }))
+    await user.click(within(dialog).getByRole('button', { name: /Save changes/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(mockDeleteSession).toHaveBeenCalledWith('sess-1')
   })
 })

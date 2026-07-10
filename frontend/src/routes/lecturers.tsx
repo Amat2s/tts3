@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserCheck, Plus, Pencil, Trash2, CalendarDays } from 'lucide-react'
+import { UserCheck, Plus, Pencil, Trash2, CalendarDays, AlertTriangle } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { FilterBar } from '@/components/filters/FilterBar'
@@ -44,6 +44,7 @@ import {
 import type { Lecturer, LecturerTitle, LecturerUpdate, AvailabilityEntry } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import {
   EMPTY_LECTURER_FILTERS,
   filterLecturers,
@@ -353,8 +354,8 @@ export default function LecturersPage() {
       setLecturerToDelete(null)
       setDeleteError(null)
     },
-    onError: (err: Error) => {
-      setDeleteError(err.message)
+    onError: (err: unknown) => {
+      setDeleteError(deleteBlockedMessage(err))
     },
   })
 
@@ -691,8 +692,13 @@ export default function LecturersPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>

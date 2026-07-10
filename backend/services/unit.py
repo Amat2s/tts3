@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.errors import AppError
@@ -161,4 +162,12 @@ def update_unit(db: Session, unit_id: str, data: UnitUpdate) -> Unit:
 def delete_unit(db: Session, unit_id: str) -> None:
     unit = get_unit(db, unit_id)
     db.delete(unit)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "unit_delete_blocked",
+            "Can't delete this unit yet — it's still referenced elsewhere.",
+            status_code=409,
+        )

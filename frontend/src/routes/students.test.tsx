@@ -33,16 +33,19 @@ import {
   listStudents,
   createStudent,
   updateStudent,
+  deleteStudent,
   uploadStudentCsv,
 } from '@/lib/api/students'
 import type { StudentImportResult } from '@/lib/api/students'
 import { listUnits, updateUnit } from '@/lib/api/units'
 import type { StudentSummary } from '@/lib/api/units'
+import { ApiRequestError } from '@/lib/api/client'
 import { makeStudent, makeUnit } from '@/test/fixtures'
 
 const mockListStudents = vi.mocked(listStudents)
 const mockCreateStudent = vi.mocked(createStudent)
 const mockUpdateStudent = vi.mocked(updateStudent)
+const mockDeleteStudent = vi.mocked(deleteStudent)
 const mockUploadStudentCsv = vi.mocked(uploadStudentCsv)
 const mockListUnits = vi.mocked(listUnits)
 const mockUpdateUnit = vi.mocked(updateUnit)
@@ -511,5 +514,69 @@ describe('StudentsPage — CSV upload (Unit 91)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['units'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['schedulable-sessions'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['assignments'] })
+  })
+})
+
+// Unit 112: surfacing the Unit 111 structured delete-blocked reason.
+describe('StudentsPage — delete-blocked error surfacing (Unit 112)', () => {
+  it('shows the backend reason and keeps the row when the delete is blocked', async () => {
+    const user = userEvent.setup()
+    mockListStudents.mockResolvedValue([makeStudent({ id: 'stu-1', first_name: 'Edith' })])
+    mockDeleteStudent.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete this student yet — they're still referenced elsewhere.",
+        detail: {
+          error: {
+            code: 'student_delete_blocked',
+            message: "Can't delete this student yet — they're still referenced elsewhere.",
+          },
+        },
+      })
+    )
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete student/ }))
+
+    expect(
+      await screen.findByText("Can't delete this student yet — they're still referenced elsewhere.")
+    ).toBeInTheDocument()
+    // The row must stay present; a blocked delete never optimistically removes it.
+    expect(screen.getByText('Edith')).toBeInTheDocument()
+  })
+
+  it('falls back to a generic reason when no structured message is present', async () => {
+    const user = userEvent.setup()
+    mockListStudents.mockResolvedValue([makeStudent({ id: 'stu-1', first_name: 'Edith' })])
+    mockDeleteStudent.mockRejectedValue(new Error('boom'))
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete student/ }))
+
+    expect(await screen.findByText("Couldn't delete — it's still in use.")).toBeInTheDocument()
+    expect(screen.getByText('Edith')).toBeInTheDocument()
+  })
+
+  it('removes the row with no error on a successful delete', async () => {
+    const user = userEvent.setup()
+    mockDeleteStudent.mockResolvedValue(undefined)
+    mockListStudents
+      .mockResolvedValueOnce([makeStudent({ id: 'stu-1', first_name: 'Edith' })])
+      .mockResolvedValueOnce([])
+    renderStudents()
+    await screen.findByText('Edith')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete student/ }))
+
+    await waitFor(() => expect(screen.queryByText('Edith')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

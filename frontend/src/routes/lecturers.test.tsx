@@ -29,13 +29,15 @@ vi.mock('@/lib/api/units', () => ({
 }))
 
 import LecturersPage from './lecturers'
-import { listLecturers, updateLecturer } from '@/lib/api/lecturers'
+import { listLecturers, updateLecturer, deleteLecturer } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
 import type { LecturerSummary } from '@/lib/api/units'
+import { ApiRequestError } from '@/lib/api/client'
 import { makeLecturer, makeUnit } from '@/test/fixtures'
 
 const mockListLecturers = vi.mocked(listLecturers)
 const mockUpdateLecturer = vi.mocked(updateLecturer)
+const mockDeleteLecturer = vi.mocked(deleteLecturer)
 const mockListUnits = vi.mocked(listUnits)
 
 function renderLecturers() {
@@ -240,5 +242,56 @@ describe('LecturersPage — shared lecturer/unit upload trigger (Unit 105)', () 
         /TITLE, LAST NAME, FIRST NAME, AVAILABILITY, UNIT CODE, UNIT NAME/,
       ),
     ).toBeInTheDocument()
+  })
+})
+
+// Unit 112: surfacing the Unit 111 structured delete-blocked reason.
+describe('LecturersPage — delete-blocked error surfacing (Unit 112)', () => {
+  it('shows the backend reason and keeps the row when the delete is blocked', async () => {
+    const user = userEvent.setup()
+    mockListLecturers.mockResolvedValue([makeLecturer({ id: 'lec-1', last_name: 'Lovelace' })])
+    mockDeleteLecturer.mockRejectedValue(
+      new ApiRequestError({
+        status: 409,
+        message: "Can't delete this lecturer yet — they're on the teaching team of HIS101, PHI201.",
+        detail: {
+          error: {
+            code: 'lecturer_delete_blocked',
+            message: "Can't delete this lecturer yet — they're on the teaching team of HIS101, PHI201.",
+          },
+        },
+      })
+    )
+    renderLecturers()
+    await screen.findByText('Lovelace')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete lecturer/ }))
+
+    expect(
+      await screen.findByText(
+        "Can't delete this lecturer yet — they're on the teaching team of HIS101, PHI201."
+      )
+    ).toBeInTheDocument()
+    // The row must stay present; a blocked delete never optimistically removes it.
+    expect(screen.getByText('Lovelace')).toBeInTheDocument()
+  })
+
+  it('removes the row with no error on a successful delete', async () => {
+    const user = userEvent.setup()
+    mockDeleteLecturer.mockResolvedValue(undefined)
+    mockListLecturers
+      .mockResolvedValueOnce([makeLecturer({ id: 'lec-1', last_name: 'Lovelace' })])
+      .mockResolvedValueOnce([])
+    renderLecturers()
+    await screen.findByText('Lovelace')
+
+    await user.click(screen.getByRole('button', { name: /Delete/ }))
+    await screen.findByRole('dialog')
+    await user.click(screen.getByRole('button', { name: /Delete lecturer/ }))
+
+    await waitFor(() => expect(screen.queryByText('Lovelace')).toBeNull())
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

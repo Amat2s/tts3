@@ -53,4 +53,12 @@ def update_room(db: Session, room_id: str, data: RoomUpdate) -> Room:
 def delete_room(db: Session, room_id: str) -> None:
     room = get_room(db, room_id)
     db.delete(room)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "room_delete_blocked",
+            "Can't delete this room yet — it's still referenced elsewhere.",
+            status_code=409,
+        )

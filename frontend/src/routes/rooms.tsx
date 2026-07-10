@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { DoorOpen, Plus, Pencil, Trash2 } from 'lucide-react'
+import { DoorOpen, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { FilterBar } from '@/components/filters/FilterBar'
@@ -38,6 +38,7 @@ import {
   updateRoom,
   deleteRoom as deleteRoomApi,
 } from '@/lib/api/rooms'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import type { Room, RoomType, RoomUpdate } from '@/lib/api/rooms'
 import {
   EMPTY_ROOM_FILTERS,
@@ -197,8 +198,8 @@ export default function RoomsPage() {
       setRoomToDelete(null)
       setDeleteError(null)
     },
-    onError: (err: Error) => {
-      setDeleteError(err.message)
+    onError: (err: unknown) => {
+      setDeleteError(deleteBlockedMessage(err))
     },
   })
 
@@ -464,8 +465,13 @@ export default function RoomsPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>

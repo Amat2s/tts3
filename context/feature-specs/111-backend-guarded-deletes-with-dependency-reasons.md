@@ -14,8 +14,7 @@ Backend-only. The frontend display of these messages is **Unit 112**.
 ## Design
 
 - System boundary: `backend/` only.
-- Return the existing structured error envelope (`AppError(code, message,
-  status_code)`) with **status 409**, a stable machine `code`, and a
+- Return the existing structured error envelope (`AppError(code, message, status_code)`) with **status 409**, a stable machine `code`, and a
   human-readable `message` that lists the blocking dependencies.
 - Prefer a **pre-delete dependency check** (query the referencing relationships
   and build the message) over relying solely on catching `IntegrityError`; keep

@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.errors import AppError
@@ -83,7 +84,15 @@ def delete_student(db: Session, student_id: str) -> None:
     # removed student's slot is redistributed.
     affected_unit_ids = [unit.id for unit in student.units]
     db.delete(student)
-    db.flush()
-    for unit_id in affected_unit_ids:
-        rebalance_unit_session_allocations(db, unit_id)
-    db.commit()
+    try:
+        db.flush()
+        for unit_id in affected_unit_ids:
+            rebalance_unit_session_allocations(db, unit_id)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "student_delete_blocked",
+            "Can't delete this student yet — they're still referenced elsewhere.",
+            status_code=409,
+        )

@@ -55,6 +55,7 @@ import {
   deleteSession as apiDeleteSession,
 } from '@/lib/api/sessions'
 import type { Session, SessionType } from '@/lib/api/sessions'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import {
   parseUnitCode,
   SUBJECTS,
@@ -501,8 +502,13 @@ function UnitFormFields({
   return (
     <div className="grid gap-4">
       {error && (
-        <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-          {error}
+        <p
+          className="text-sm flex items-start gap-1.5"
+          style={{ color: 'var(--state-error)' }}
+          role="alert"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
         </p>
       )}
 
@@ -913,7 +919,27 @@ export default function UnitsPage() {
       invalidateDependentQueries(id)
       setEditOpen(false)
     },
-    onError: (err: Error) => setEditError(err.message),
+    onError: (err: Error, variables) => {
+      setEditError(err.message)
+      // A failed save (e.g. a session removal blocked by Unit 111) must not
+      // leave a pending removal looking permanent: reconcile the form against
+      // the backend's actual session list so anything that didn't really
+      // delete reappears rather than staying silently missing.
+      listUnitSessions(variables.id)
+        .then((backendSessions) => {
+          setEditForm((prev) => {
+            const presentBackendIds = new Set(
+              prev.sessions.filter((s) => s.backendId).map((s) => s.backendId)
+            )
+            const missing = backendSessions.filter((s) => !presentBackendIds.has(s.id))
+            if (missing.length === 0) return prev
+            return { ...prev, sessions: [...prev.sessions, ...missing.map(toShellSession)] }
+          })
+        })
+        .catch(() => {
+          // Best-effort reconciliation; the edit error message above still stands.
+        })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -925,7 +951,7 @@ export default function UnitsPage() {
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
       setDeleteOpen(false)
     },
-    onError: (err: Error) => setDeleteError(err.message),
+    onError: (err: unknown) => setDeleteError(deleteBlockedMessage(err)),
   })
 
   function applyUpdate(
@@ -1243,8 +1269,13 @@ export default function UnitsPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>
