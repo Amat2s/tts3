@@ -70,9 +70,8 @@ import {
 } from '@/features/timetable/draftBlocks'
 import {
   type SelectionCell,
-  computeRectangleSelection,
   parseSelectionKey,
-  singleCellSelection,
+  toggleCellSelection,
 } from '@/features/timetable/blockSelection'
 import { ApiRequestError } from '@/lib/api/client'
 import { BlockEditDialog } from '@/features/timetable/BlockEditDialog'
@@ -283,10 +282,9 @@ export default function TimetablePage() {
   const [editingBlock, setEditingBlock] = useState<DraftBlock | null>(null)
   const [blockDialogOpen, setBlockDialogOpen] = useState(false)
   const [blockMutationError, setBlockMutationError] = useState<string | null>(null)
-  // Block-selection mode (Unit 86): anchor + the selected cell keys, plus the
-  // create dialog state.
+  // Block-selection mode (Unit 86, click-toggle model per Unit 110): the
+  // selected cell keys, plus the create dialog state.
   const [blockMode, setBlockMode] = useState(false)
-  const [blockAnchor, setBlockAnchor] = useState<SelectionCell | null>(null)
   const [blockSelectionKeys, setBlockSelectionKeys] = useState<Set<string>>(
     new Set()
   )
@@ -513,7 +511,6 @@ export default function TimetablePage() {
 
   function exitBlockMode() {
     setBlockMode(false)
-    setBlockAnchor(null)
     setBlockSelectionKeys(new Set())
     setBlockCreateError(null)
   }
@@ -525,7 +522,6 @@ export default function TimetablePage() {
     setPendingSessionId(null)
     setBlockingError(null)
     setNotice(null)
-    setBlockAnchor(null)
     setBlockSelectionKeys(new Set())
     setBlockCreateError(null)
     setBlockMode(true)
@@ -535,6 +531,10 @@ export default function TimetablePage() {
     exitBlockMode()
   }
 
+  // Click-toggle selection (Unit 110): each click toggles that cell's
+  // membership in the pending selection. Already-blocked cells are refused;
+  // a click on a different day than the current selection starts a fresh
+  // single-day selection.
   function handleBlockCellSelect(day: string, slotId: string, roomId: string) {
     if (!blockMode || !blockedCellMap) return
     const cell: SelectionCell = {
@@ -542,29 +542,7 @@ export default function TimetablePage() {
       slot: slotId as SelectionCell['slot'],
       roomId,
     }
-
-    // No anchor yet: this click sets the anchor (single-cell selection).
-    if (!blockAnchor) {
-      const single = singleCellSelection(cell, blockedCellMap)
-      if (single.size === 0) return // anchor landed on an already-blocked cell
-      setBlockAnchor(cell)
-      setBlockSelectionKeys(single)
-      return
-    }
-
-    // Clicking a different day re-anchors there.
-    if (blockAnchor.day !== cell.day) {
-      const single = singleCellSelection(cell, blockedCellMap)
-      if (single.size === 0) return
-      setBlockAnchor(cell)
-      setBlockSelectionKeys(single)
-      return
-    }
-
-    // Same day: extend the rectangle from the anchor to this cell.
-    setBlockSelectionKeys(
-      computeRectangleSelection(blockAnchor, cell, rooms ?? [], blockedCellMap)
-    )
+    setBlockSelectionKeys((prev) => toggleCellSelection(prev, cell, blockedCellMap))
   }
 
   function handleOpenCreateBlock() {

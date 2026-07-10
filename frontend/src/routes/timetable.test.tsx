@@ -1247,7 +1247,7 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     expect(screen.getByRole('button', { name: 'Add block' })).toBeEnabled()
   })
 
-  it('selects a rectangle, adds a named block to the draft, and persists it only on Save', async () => {
+  it('click-toggles cells into a selection, adds a named block to the draft, and persists it only on Save', async () => {
     const user = userEvent.setup()
     const { container } = renderTimetable()
     await screen.findByText('Monday')
@@ -1256,7 +1256,7 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
     // Block mode instructions appear.
     expect(screen.getByText(/Block mode/)).toBeInTheDocument()
 
-    // Anchor + extend across two slots in the same room.
+    // Each click toggles that individual cell into the selection.
     fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
     fireEvent.click(cellAt(container, 'Monday', 'room-1', 's2'))
 
@@ -1318,6 +1318,56 @@ describe('TimetablePage — Unit 86: block-selection mode and validation', () =>
       colour: null,
       cells: [{ day: 'Monday', slot: 's1', room_id: 'room-1' }],
     })
+  })
+
+  it('clicking a selected cell again deselects it', async () => {
+    const user = userEvent.setup()
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(1)
+
+    // Clicking the same cell again toggles it back out of the selection.
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(0)
+    expect(screen.getByRole('button', { name: /Create block/ })).toBeDisabled()
+  })
+
+  it('saves a non-contiguous (gapped) selection as separate blocked cells', async () => {
+    const user = userEvent.setup()
+    mockListRooms.mockResolvedValue([
+      makeRoom({ id: 'room-1', capacity: 30 }),
+      makeRoom({ id: 'room-2', name: 'Room B', capacity: 30 }),
+      makeRoom({ id: 'room-3', name: 'Room C', capacity: 30 }),
+    ])
+    const { container } = renderTimetable()
+    await screen.findByText('Monday')
+
+    await user.click(screen.getByRole('button', { name: 'Add block' }))
+    // Click two rooms in the same slot but skip the middle room, and a
+    // non-adjacent slot in the first room — no rectangle is implied.
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-3', 's1'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's3'))
+    expect(container.querySelectorAll('[data-block-selected="true"]').length).toBe(3)
+
+    await user.click(screen.getByRole('button', { name: /Create block/ }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Create block' }))
+
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockCreateTimetableBlock).toHaveBeenCalledTimes(1))
+    const arg = mockCreateTimetableBlock.mock.calls[0][0]
+    expect(arg.cells).toEqual(
+      expect.arrayContaining([
+        { day: 'Monday', slot: 's1', room_id: 'room-1' },
+        { day: 'Monday', slot: 's1', room_id: 'room-3' },
+        { day: 'Monday', slot: 's3', room_id: 'room-1' },
+      ])
+    )
+    expect(arg.cells).toHaveLength(3)
   })
 
   it('cancelling block mode clears the selection and restores normal controls', async () => {
@@ -1885,10 +1935,11 @@ describe('TimetablePage — Unit 109: blocks folded into the draft', () => {
     await screen.findByText('HIS101')
     expect(screen.queryByText('Ancient History')).not.toBeInTheDocument()
 
-    // Block a rectangle (s1–s3) that spans the scheduled cell. Anchor and extend
-    // on empty cells so the selection reliably covers the occupied s2.
+    // Toggle-select s1-s3, individually clicking each cell (including the
+    // occupied s2) so the selection covers the scheduled cell.
     await user.click(screen.getByRole('button', { name: 'Add block' }))
     fireEvent.click(cellAt(container, 'Monday', 'room-1', 's1'))
+    fireEvent.click(cellAt(container, 'Monday', 'room-1', 's2'))
     fireEvent.click(cellAt(container, 'Monday', 'room-1', 's3'))
     await user.click(screen.getByRole('button', { name: /Create block/ }))
     const dialog = await screen.findByRole('dialog')

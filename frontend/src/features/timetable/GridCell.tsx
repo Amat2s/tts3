@@ -31,9 +31,9 @@ interface GridCellProps {
   isDimmed?: boolean
   editingDisabled?: boolean
   isHoverHighlighted?: boolean
-  // Unit 86: block-selection mode. When active, clicking any cell toggles/extends
-  // the block selection instead of placing a session; selected cells get a
-  // temporary token-based highlight.
+  // Unit 86/110: block-selection mode. When active, clicking any cell toggles
+  // its membership in the block selection (neutral <-> selected) instead of
+  // placing a session; selected cells get a temporary token-based highlight.
   blockSelectionMode?: boolean
   isBlockSelected?: boolean
   onBlockCellSelect?: () => void

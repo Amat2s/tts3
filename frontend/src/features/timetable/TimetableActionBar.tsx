@@ -227,8 +227,8 @@ export function TimetableActionBar({
     if (blockMode) {
       return {
         text: hasBlockSelection
-          ? 'Block mode — click another cell to extend the selection, then Create block to reserve it.'
-          : 'Block mode — click a cell, then click another to select a rectangle of slots to block. Already-blocked cells can’t be selected.',
+          ? 'Block mode — click cells to select or deselect them, then Create block to reserve the selection.'
+          : 'Block mode — click cells to select them for blocking. Click a selected cell again to deselect it. Already-blocked cells can’t be selected.',
         color: 'var(--accent-primary)',
         icon: <Lock className="h-3.5 w-3.5 shrink-0" />,
         isAlert: false,
