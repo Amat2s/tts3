@@ -3,7 +3,9 @@ import type { LecturerSummary } from '@/lib/api/units'
 import type { YearLevel } from '@/lib/api/students'
 
 // Post-v1 (Unit 60): session types are reduced to lecture and tutorial only.
-export type SessionType = 'lecture' | 'tutorial'
+// Unit 115/116: widened to a third value, seminar, which behaves like tutorial
+// for allocation purposes but is lettered/labelled as its own independent series.
+export type SessionType = 'lecture' | 'tutorial' | 'seminar'
 
 export interface Session {
   id: string

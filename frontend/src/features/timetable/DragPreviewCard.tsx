@@ -5,6 +5,7 @@ import { getSubjectTokens } from './unitColors'
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lec',
   tutorial: 'Tut',
+  seminar: 'Sem',
 }
 
 const FALLBACK_CELL_WIDTH = 200

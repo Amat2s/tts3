@@ -242,18 +242,22 @@ the grid box only.
 
 ### Scheduled session card label
 
-A scheduled session card's type line reads `Lecture (INITIALS)` or
-`Tutorial [LETTER] (INITIALS)` — matching the Unit 93 Excel export's session label
-(`_session_label` in `services/timetable_excel_export.py`) — sitting next to the
-bold unit code, so the card reads e.g. `HIS101 Lecture (SC)` / `THE202 Tutorial A (LH)`.
+A scheduled session card's type line reads `Lecture (INITIALS)`,
+`Tutorial [LETTER] (INITIALS)`, or `Seminar [LETTER] (INITIALS)` (Unit 116) — matching
+the Unit 93/117 Excel export's session label (`_session_label` in
+`services/timetable_excel_export.py`) — sitting next to the bold unit code, so the card
+reads e.g. `HIS101 Lecture (SC)` / `THE202 Tutorial A (LH)` / `THE202 Seminar A (LH)`.
 Lecturer initials are derived client-side from `lecturer_display_name`
-(`lib/lecturerInitials.ts`, dropping the leading title token). The tutorial order
-letter is computed client-side per unit (`features/timetable/tutorialLetters.ts`),
+(`lib/lecturerInitials.ts`, dropping the leading title token). The tutorial and seminar
+order letters are each computed client-side per unit (`features/timetable/tutorialLetters.ts`,
+`computeTutorialLetters`/`computeSeminarLetters` sharing one ordering implementation),
 ordered by day, start slot, then the fixed export room order, mirroring — but computed
 independently from — the export-only letters the backend assigns at export time; letters
 can therefore differ between the editor and a given export when the draft has unsaved
-tutorial placements. The separate full lecturer-name line was removed in favour of this
-single combined label.
+tutorial/seminar placements. Seminar letters are their own independent A/B/C… series per
+unit — never sharing a counter with tutorial letters, so a unit with both starts each
+series at A. The separate full lecturer-name line was removed in favour of this single
+combined label.
 
 ## AI / Solver Accent Variants
 

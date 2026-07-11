@@ -12,9 +12,9 @@ interface GridCellProps {
   roomId: string
   isDayBoundary?: boolean
   assignment?: TimetableAssignment
-  // Excel-export-style tutorial order letter ("Tutorial A") for this cell's
-  // assignment, if it is a tutorial. Undefined for lectures.
-  tutorialLetter?: string
+  // Excel-export-style order letter ("Tutorial A" / "Seminar A") for this
+  // cell's assignment, if it is a tutorial or seminar. Undefined for lectures.
+  orderLetter?: string
   // Unit 85: a reserved (blocked) cell, rendered passively below the session
   // layer. Placement validation against blocks lives in lib/validation/blocking.
   blockedCell?: BlockedCell | null
@@ -51,7 +51,7 @@ export function GridCell({
   roomId,
   isDayBoundary = false,
   assignment,
-  tutorialLetter,
+  orderLetter,
   blockedCell,
   blockRoomSpan,
   blockSlotSpan,
@@ -143,7 +143,7 @@ export function GridCell({
       {assignment && (
         <ScheduledSessionCard
           assignment={assignment}
-          tutorialLetter={tutorialLetter}
+          orderLetter={orderLetter}
           colorTokens={getSubjectTokens(assignment.unit_code)}
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}

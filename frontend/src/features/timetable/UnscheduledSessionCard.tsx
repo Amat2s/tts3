@@ -6,6 +6,7 @@ import type { UnitColorTokens } from './unitColors'
 const SESSION_TYPE_LABEL: Record<string, string> = {
   lecture: 'Lecture',
   tutorial: 'Tutorial',
+  seminar: 'Seminar',
 }
 
 const CARD_CLASS_NAME =

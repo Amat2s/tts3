@@ -7,6 +7,7 @@ import { sessionMatchesSearch, type StudentSearchIndex } from './sessionFilter'
 const SESSION_TYPE_ORDER: Record<SchedulableSession['session_type'], number> = {
   lecture: 0,
   tutorial: 1,
+  seminar: 2,
 }
 
 export type YearLevelFilter = 'all' | `${YearLevel}`

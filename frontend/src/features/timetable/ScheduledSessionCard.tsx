@@ -8,9 +8,12 @@ import { getLecturerInitials } from '@/lib/lecturerInitials'
 interface ScheduledSessionCardProps {
   assignment: TimetableAssignment
   colorTokens: UnitColorTokens
-  // Excel-export-style tutorial order letter ("Tutorial A"); undefined for
-  // lectures or when this is the only tutorial in its unit.
-  tutorialLetter?: string
+  // Excel-export-style order letter ("Tutorial A" / "Seminar A"); undefined
+  // for lectures or when this is the only tutorial/seminar in its unit.
+  // Tutorial and seminar letters are independent per-unit series (Unit 116)
+  // computed by the caller and merged into one map since a session is never
+  // both types at once.
+  orderLetter?: string
   isPending?: boolean
   hasWarning?: boolean
   // Unit 108: fade this card when it does not match the active session search.
@@ -24,12 +27,17 @@ interface ScheduledSessionCardProps {
 // Matches the Unit 93 Excel export's session label format exactly
 // ("HIS101 Lecture (SC)" / "THE202 Tutorial A (LH)") so the grid and the
 // exported timetable read the same way. See `_session_label` in
-// services/timetable_excel_export.py.
-function sessionTypeLabel(assignment: TimetableAssignment, tutorialLetter?: string): string {
+// services/timetable_excel_export.py. Seminars (Unit 116) follow the
+// identical "Seminar{ letter} (initials)" pattern as tutorials.
+function sessionTypeLabel(assignment: TimetableAssignment, orderLetter?: string): string {
   const initials = getLecturerInitials(assignment.lecturer_display_name)
   if (assignment.session_type === 'tutorial') {
-    const suffix = tutorialLetter ? ` ${tutorialLetter}` : ''
+    const suffix = orderLetter ? ` ${orderLetter}` : ''
     return `Tutorial${suffix} (${initials})`
+  }
+  if (assignment.session_type === 'seminar') {
+    const suffix = orderLetter ? ` ${orderLetter}` : ''
+    return `Seminar${suffix} (${initials})`
   }
   return `Lecture (${initials})`
 }
@@ -37,7 +45,7 @@ function sessionTypeLabel(assignment: TimetableAssignment, tutorialLetter?: stri
 export function ScheduledSessionCard({
   assignment,
   colorTokens,
-  tutorialLetter,
+  orderLetter,
   isPending = false,
   hasWarning = false,
   isDimmed = false,
@@ -88,7 +96,7 @@ export function ScheduledSessionCard({
             className="text-[0.65rem] truncate"
             style={{ color: 'var(--text-muted)' }}
           >
-            {sessionTypeLabel(assignment, tutorialLetter)}
+            {sessionTypeLabel(assignment, orderLetter)}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">

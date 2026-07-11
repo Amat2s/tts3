@@ -72,6 +72,7 @@ import type { UnitFilters } from '@/features/units/filters'
 const SESSION_TYPES: { value: SessionType; label: string }[] = [
   { value: 'lecture', label: 'Lecture' },
   { value: 'tutorial', label: 'Tutorial' },
+  { value: 'seminar', label: 'Seminar' },
 ]
 
 const MIN_DURATION = 1

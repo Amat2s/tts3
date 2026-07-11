@@ -66,7 +66,7 @@
 
 ## Invariants
 
-1. Sessions are atomic scheduling units and include unit/course context, a `lecture` or `tutorial` type, integer-slot duration, and a nullable session-level lecturer. A session without a lecturer is not schedulable.
+1. Sessions are atomic scheduling units and include unit/course context, a `lecture`, `tutorial`, or `seminar` type (Unit 115), integer-slot duration, and a nullable session-level lecturer. A session without a lecturer is not schedulable.
 2. Time is discretized into fixed slots; sessions occupy contiguous slot intervals only.
 3. The timetable editor has two assignment layers in v1: saved assignments from the backend and an unsaved frontend draft.
 4. Manual scheduling actions update the frontend draft first. They are persisted only when the admin explicitly saves the timetable.
@@ -84,7 +84,7 @@
 16. No scheduling version history is stored in v1; latest saved state plus current frontend draft are the only timetable states.
 17. Unit year level is derived from the first integer in the unit code and is restricted to 1-3; student year level is also restricted to 1-3.
 18. Unit teaching membership is many-to-many through `unit_lecturers`; each scheduled session uses its own `lecturer_id`, which must belong to that unit's team.
-19. `session_student_allocations` are hidden, system-owned derived rows. Lectures include every enrolled unit student; tutorials are balanced and stable where practical, with each enrolled student in exactly one tutorial.
+19. `session_student_allocations` are hidden, system-owned derived rows. Lectures include every enrolled unit student; tutorials are balanced and stable where practical, with each enrolled student in exactly one tutorial. Seminars (Unit 115) follow the identical balanced/stable rule as a **second, independent** partition of the same enrolled set — computed with no reference to the tutorial partition (and vice versa), so a student's tutorial and seminar group memberships may coincidentally overlap but are never coordinated or anti-correlated.
 20. Unit and student enrolment editing share the canonical `unit_students` relationship.
 21. Clear All changes only the frontend draft until the explicit save operation persists the empty assignment set.
 22. Management search and filters are frontend-only and do not add backend query parameters.

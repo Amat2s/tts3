@@ -13,11 +13,13 @@ PM_SLOTS: list[str] = ["s4", "s5", "s6", "s7"]
 AM_PM_BOUNDARY_INDEX: int = 3
 
 # Session type sort order for deterministic collection ordering. Session types
-# were reduced to lecture/tutorial in Unit 60; unknown types sort last via the
-# caller's `.get(..., 99)` fallback.
+# were reduced to lecture/tutorial in Unit 60, then gained seminar in Unit 115
+# (a pure ordering tie-break with no feasibility meaning); unknown types sort
+# last via the caller's `.get(..., 99)` fallback.
 SESSION_TYPE_ORDER: dict[str, int] = {
     "lecture": 0,
     "tutorial": 1,
+    "seminar": 2,
 }
 
 
