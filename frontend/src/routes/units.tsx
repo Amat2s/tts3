@@ -1160,6 +1160,12 @@ export default function UnitsPage() {
         <FilterBar
           isActive={unitFiltersActive(filters)}
           onClear={() => setFilters(EMPTY_UNIT_FILTERS)}
+          trailing={
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          }
         >
           <SearchInput
             value={filters.search}
@@ -1196,17 +1202,6 @@ export default function UnitsPage() {
           backgroundColor: 'var(--bg-surface)',
         }}
       >
-        {unitsQuery.data && unitsQuery.data.length > 0 && (
-          <div
-            className="flex justify-end px-4 py-2 border-b"
-            style={{ borderColor: 'var(--border-default)' }}
-          >
-            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
-              <Trash2 className="h-4 w-4" />
-              Delete all
-            </Button>
-          </div>
-        )}
         <Table>
           <TableHeader>
             <TableRow>

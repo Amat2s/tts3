@@ -587,6 +587,12 @@ export default function LecturersPage() {
         <FilterBar
           isActive={lecturerFiltersActive(filters)}
           onClear={() => setFilters(EMPTY_LECTURER_FILTERS)}
+          trailing={
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          }
         >
           <SearchInput
             value={filters.search}
@@ -623,17 +629,6 @@ export default function LecturersPage() {
           backgroundColor: 'var(--bg-surface)',
         }}
       >
-        {lecturers && lecturers.length > 0 && (
-          <div
-            className="flex justify-end px-4 py-2 border-b"
-            style={{ borderColor: 'var(--border-default)' }}
-          >
-            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
-              <Trash2 className="h-4 w-4" />
-              Delete all
-            </Button>
-          </div>
-        )}
         <Table>
           <TableHeader>
             <TableRow>

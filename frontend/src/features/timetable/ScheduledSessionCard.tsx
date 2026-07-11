@@ -79,13 +79,13 @@ export function ScheduledSessionCard({
       <div className="flex items-start justify-between gap-0.5 min-w-0">
         <div className="flex items-baseline gap-1 min-w-0 overflow-hidden">
           <span
-            className="text-xs font-semibold shrink-0"
+            className="text-[0.65rem] font-semibold shrink-0"
             style={{ color: colorTokens.text }}
           >
             {assignment.unit_code}
           </span>
           <span
-            className="text-xs truncate"
+            className="text-[0.65rem] truncate"
             style={{ color: 'var(--text-muted)' }}
           >
             {sessionTypeLabel(assignment, tutorialLetter)}
@@ -107,7 +107,7 @@ export function ScheduledSessionCard({
       </div>
       {assignment.duration > 1 && (
         <span
-          className="text-xs"
+          className="text-[0.6rem]"
           style={{ color: 'var(--text-muted)' }}
         >
           {assignment.student_count} student{assignment.student_count !== 1 ? 's' : ''}
