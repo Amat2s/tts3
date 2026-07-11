@@ -5,7 +5,12 @@ from sqlalchemy.orm import Session
 
 from auth.deps import CurrentAdmin, get_current_admin
 from db.deps import get_db
-from schemas.room import RoomCreate, RoomResponse, RoomUpdate
+from schemas.room import (
+    RoomCreate,
+    RoomReorderRequest,
+    RoomResponse,
+    RoomUpdate,
+)
 import services.room as room_service
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -26,6 +31,16 @@ def create_room(
     db: Annotated[Session, Depends(get_db)],
 ) -> RoomResponse:
     return room_service.create_room(db, data)
+
+
+# Declared before PUT /{room_id} so "reorder" is not captured as a room id.
+@router.put("/reorder", response_model=list[RoomResponse])
+def reorder_rooms(
+    data: RoomReorderRequest,
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[RoomResponse]:
+    return room_service.reorder_rooms(db, data.ordered_ids)
 
 
 @router.put("/{room_id}", response_model=RoomResponse)

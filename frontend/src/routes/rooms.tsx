@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { DoorOpen, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react'
+import {
+  DoorOpen,
+  Plus,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { FilterBar } from '@/components/filters/FilterBar'
@@ -37,8 +45,10 @@ import {
   createRoom,
   updateRoom,
   deleteRoom as deleteRoomApi,
+  reorderRooms,
 } from '@/lib/api/rooms'
 import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
+import { getErrorMessage } from '@/lib/errors'
 import type { Room, RoomType, RoomUpdate } from '@/lib/api/rooms'
 import {
   EMPTY_ROOM_FILTERS,
@@ -148,6 +158,8 @@ export default function RoomsPage() {
   const [roomToDelete, setRoomToDelete] = useState<Room | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [reorderError, setReorderError] = useState<string | null>(null)
+
   const [filters, setFilters] = useState<RoomFilters>(EMPTY_ROOM_FILTERS)
 
   const {
@@ -164,6 +176,10 @@ export default function RoomsPage() {
     () => filterRooms(rooms ?? [], filters),
     [rooms, filters]
   )
+
+  // Reorder buttons act on the absolute full-room order, so they are disabled
+  // while any search/type filter narrows the visible rows (Unit 114).
+  const reorderDisabled = roomFiltersActive(filters)
 
   const createMutation = useMutation({
     mutationFn: createRoom,
@@ -202,6 +218,56 @@ export default function RoomsPage() {
       setDeleteError(deleteBlockedMessage(err))
     },
   })
+
+  // Optimistic room reordering (Unit 114). All three room-consuming routes read
+  // the same ['rooms'] query, so a single optimistic cache write re-orders the
+  // Rooms table AND the /timetable + /preferences grids with no refetch. The
+  // persist call fires in the background; the UI never waits on it.
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) => reorderRooms(orderedIds),
+    onMutate: async (orderedIds: string[]) => {
+      setReorderError(null)
+      await qc.cancelQueries({ queryKey: ['rooms'] })
+      const previous = qc.getQueryData<Room[]>(['rooms'])
+      if (previous) {
+        const byId = new Map(previous.map((r) => [r.id, r]))
+        const reordered = orderedIds
+          .map((id, index) => {
+            const room = byId.get(id)
+            return room ? { ...room, position: index } : null
+          })
+          .filter((r): r is Room => r !== null)
+        qc.setQueryData<Room[]>(['rooms'], reordered)
+      }
+      return { previous }
+    },
+    onError: (err, _orderedIds, context) => {
+      // Roll back to the pre-click order so a failed persist never leaves the UI
+      // in the optimistic state.
+      if (context?.previous) {
+        qc.setQueryData(['rooms'], context.previous)
+      }
+      setReorderError(getErrorMessage(err, 'Failed to reorder rooms.'))
+    },
+    // No invalidate on settle: the optimistic cache is the source of truth
+    // between reorders, so the table/grids never flicker on the round-trip
+    // (mirrors the Unit 103 drop-the-refetch decision for preferences).
+  })
+
+  function moveRoom(room: Room, direction: 'up' | 'down') {
+    // Reorder acts on the ABSOLUTE full-room order, never a filtered subset.
+    const full = rooms ?? []
+    const index = full.findIndex((r) => r.id === room.id)
+    if (index === -1) return
+    const target = direction === 'up' ? index - 1 : index + 1
+    if (target < 0 || target >= full.length) return
+    const orderedIds = full.map((r) => r.id)
+    ;[orderedIds[index], orderedIds[target]] = [
+      orderedIds[target],
+      orderedIds[index],
+    ]
+    reorderMutation.mutate(orderedIds)
+  }
 
   function openEdit(room: Room) {
     setRoomToEdit(room)
@@ -311,34 +377,73 @@ export default function RoomsPage() {
       )
     }
 
-    return filteredRooms.map((room) => (
-      <TableRow key={room.id}>
-        <TableCell className="px-4 font-medium">{room.name}</TableCell>
-        <TableCell className="px-4">{room.capacity}</TableCell>
-        <TableCell className="px-4">{roomTypeLabel(room.room_type)}</TableCell>
-        <TableCell className="px-4 text-right">
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => openEdit(room)}
-            >
-              <Pencil className="h-4 w-4" />
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => openDelete(room)}
-              style={{ color: 'var(--state-error)' }}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </Button>
-          </div>
-        </TableCell>
-      </TableRow>
-    ))
+    const total = rooms?.length ?? 0
+    return filteredRooms.map((room) => {
+      // Reorder acts on the absolute full-room order; disable up on the first
+      // room and down on the last, and disable both while a filter is active
+      // (reordering a filtered subset is ambiguous — spec Unit 114).
+      const fullIndex = (rooms ?? []).findIndex((r) => r.id === room.id)
+      const isFirst = fullIndex === 0
+      const isLast = fullIndex === total - 1
+      return (
+        <TableRow key={room.id}>
+          <TableCell className="px-4 font-medium">{room.name}</TableCell>
+          <TableCell className="px-4">{room.capacity}</TableCell>
+          <TableCell className="px-4">
+            {roomTypeLabel(room.room_type)}
+          </TableCell>
+          <TableCell className="px-4 text-right">
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Move ${room.name} up`}
+                title={
+                  reorderDisabled
+                    ? 'Clear filters to reorder rooms'
+                    : 'Move up'
+                }
+                onClick={() => moveRoom(room, 'up')}
+                disabled={reorderDisabled || isFirst}
+              >
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Move ${room.name} down`}
+                title={
+                  reorderDisabled
+                    ? 'Clear filters to reorder rooms'
+                    : 'Move down'
+                }
+                onClick={() => moveRoom(room, 'down')}
+                disabled={reorderDisabled || isLast}
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openEdit(room)}
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openDelete(room)}
+                style={{ color: 'var(--state-error)' }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      )
+    })
   }
 
   return (
@@ -375,6 +480,23 @@ export default function RoomsPage() {
             className="h-9 text-sm w-40"
           />
         </FilterBar>
+      )}
+
+      {reorderError && (
+        <p
+          className="text-sm px-1 flex items-start gap-1.5"
+          style={{ color: 'var(--state-error)' }}
+          role="alert"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{reorderError}</span>
+        </p>
+      )}
+
+      {rooms && rooms.length > 0 && reorderDisabled && (
+        <p className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
+          Clear filters to reorder rooms.
+        </p>
       )}
 
       <div

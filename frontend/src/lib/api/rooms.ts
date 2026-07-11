@@ -7,6 +7,8 @@ export interface Room {
   name: string
   capacity: number
   room_type: RoomType
+  /** Persisted left-to-right timetable column order (Unit 113). */
+  position: number
   created_at: string
   updated_at: string
 }
@@ -84,4 +86,21 @@ export async function updateRoom(roomId: string, data: RoomUpdate): Promise<Room
 
 export async function deleteRoom(roomId: string): Promise<void> {
   return apiRequest<void>(`/rooms/${roomId}`, { method: 'DELETE' })
+}
+
+/**
+ * Persist a new room order (Unit 113/114). `orderedIds` is the full set of room
+ * ids in the desired left-to-right order; the backend assigns each its index as
+ * `position` and returns the reordered rooms. The reorder UI fires this in the
+ * background and never blocks on it.
+ */
+export async function reorderRooms(orderedIds: string[]): Promise<Room[]> {
+  try {
+    return await apiRequest<Room[]>('/rooms/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ ordered_ids: orderedIds }),
+    })
+  } catch (err) {
+    parseRoomError(err)
+  }
 }

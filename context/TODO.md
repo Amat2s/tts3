@@ -33,6 +33,5 @@ This includes a few things:
 - Order rooms on timetable (left/right) by order in rooms (top to bottom), be able to move room position
 - Add seminars to session types, same function as tutorials, but they don't overlap their student sorting  
 
-- Delete button on same row as search and filter
+
 - Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
-- same room text size in /preferences as in /timetable 

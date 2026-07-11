@@ -45,6 +45,13 @@ class RoomUpdate(BaseModel):
         return v
 
 
+class RoomReorderRequest(BaseModel):
+    # The full set of room ids in the desired left-to-right order. The client
+    # always sends the whole list (idempotent; no server-side neighbour math).
+    # Position is only mutated here — never via RoomCreate/RoomUpdate.
+    ordered_ids: list[str]
+
+
 class RoomResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,5 +59,6 @@ class RoomResponse(BaseModel):
     name: str
     capacity: int
     room_type: RoomType
+    position: int
     created_at: datetime
     updated_at: datetime
