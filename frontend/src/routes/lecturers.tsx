@@ -59,7 +59,7 @@ import {
 } from '@/lib/unit-code-parser'
 import type { SubjectPrefix } from '@/lib/unit-code-parser'
 
-const LECTURER_TITLES: LecturerTitle[] = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'A/Prof.', 'Prof.']
+const LECTURER_TITLES: LecturerTitle[] = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'Rev. Dr', 'A/Prof.', 'Prof.']
 
 const YEAR_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All years' },

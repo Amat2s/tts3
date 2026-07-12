@@ -404,7 +404,7 @@ export default function RoomsPage() {
                     : 'Move up'
                 }
                 onClick={() => moveRoom(room, 'up')}
-                disabled={reorderDisabled || isFirst}
+                disabled={reorderDisabled || isFirst || reorderMutation.isPending}
               >
                 <ChevronUp className="h-4 w-4" />
               </Button>
@@ -418,7 +418,7 @@ export default function RoomsPage() {
                     : 'Move down'
                 }
                 onClick={() => moveRoom(room, 'down')}
-                disabled={reorderDisabled || isLast}
+                disabled={reorderDisabled || isLast || reorderMutation.isPending}
               >
                 <ChevronDown className="h-4 w-4" />
               </Button>

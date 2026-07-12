@@ -97,4 +97,4 @@ def delete_room(db: Session, room_id: str) -> None:
             "room_delete_blocked",
             "Can't delete this room yet — it's still referenced elsewhere.",
             status_code=409,
-        )
+        ) from None

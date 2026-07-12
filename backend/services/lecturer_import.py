@@ -80,6 +80,10 @@ _TITLE_VARIANTS: dict[str, LecturerTitle] = {
     "doctor": LecturerTitle.DR,
     "fr": LecturerTitle.FR,
     "father": LecturerTitle.FR,
+    "rev dr": LecturerTitle.REV_DR,
+    "revd dr": LecturerTitle.REV_DR,
+    "reverend dr": LecturerTitle.REV_DR,
+    "reverend doctor": LecturerTitle.REV_DR,
     "prof": LecturerTitle.PROF,
     "professor": LecturerTitle.PROF,
     "a/prof": LecturerTitle.ASSOC_PROF,
@@ -252,7 +256,7 @@ def _read_csv_rows(content: bytes) -> list[list[str]]:
             "import_invalid_encoding",
             "The CSV file is not valid UTF-8 text.",
             status_code=422,
-        )
+        ) from None
     reader = csv.reader(io.StringIO(text))
     return [row for row in reader]
 
@@ -276,7 +280,7 @@ def _read_xlsx_rows(content: bytes) -> list[list[str]]:
             "import_invalid_encoding",
             "The .xlsx file could not be read.",
             status_code=422,
-        )
+        ) from None
     try:
         sheet = workbook.active
         rows: list[list[str]] = []
@@ -413,6 +417,6 @@ def _apply_candidates(
             "import_failed",
             "The lecturer import could not be saved.",
             status_code=500,
-        )
+        ) from None
 
     return created_lecturers, created_units, added

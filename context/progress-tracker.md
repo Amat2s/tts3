@@ -922,6 +922,7 @@ change.
 - **Slot renaming (s5-s8 → s4-s7)**: PM slots are now s4-s7 (s1-s3 AM, s4-s7 PM). Updated `slots.ts`, `lecturers.ts` (frontend), `backend/models/lecturer.py`, and created migration `0004_rename_availability_slots.py` to rename the Postgres enum values in existing databases.
 - **Post-v1 session membership model**: Replaced the stale "optional session students" wording with hidden allocation rows: lectures include all enrolled students, tutorials use balanced groups, and zero-allocation sessions have no student conflicts.
 - **Unit field naming**: Standardised on `id` (DB primary key), `code` (course code e.g. HIS101), `name` (unit name). Updated `units.tsx` form state and specs 21/22/24.
+- **New `Rev. Dr` lecturer title**: Added the two-token `Rev. Dr` title across all layers — `LecturerTitle` enum (`backend/models/lecturer.py`), CSV-import variant map (`services/lecturer_import.py`), migration `0018_add_rev_dr_lecturer_title.py` (enum rebuilt rename-aside/create/cast per 0012/0017), frontend `LecturerTitle` type and `LECTURER_TITLES` list. Because it is the only multi-token title, `getLecturerInitials` was updated to strip the two leading `Rev. Dr` tokens so export-style labels derive the correct name initials; the backend export helper already derives initials from first/last name and needed no change.
 
 ## Architecture Decisions
 

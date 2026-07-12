@@ -6,6 +6,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type Modifier,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
@@ -53,6 +54,7 @@ import {
 } from '@/lib/api/sessions'
 import {
   type BlockCellInput,
+  type TimetableBlock,
   type TimetableBlockColour,
   createTimetableBlock,
   deleteTimetableBlock,
@@ -66,6 +68,7 @@ import {
   computeBlockDiff,
   computeSavedBlockFingerprint,
   makeNewBlockId,
+  savedBlockToDraft,
   savedBlocksToDraft,
 } from '@/features/timetable/draftBlocks'
 import {
@@ -117,7 +120,14 @@ function toTimetableAssignment(r: AssignmentResponse): TimetableAssignment {
  * already-removed block (e.g. retrying a save after a partial failure) is
  * tolerated as a no-op so the reconciliation stays idempotent.
  */
-async function persistBlockDiff(diff: BlockDiff): Promise<void> {
+async function persistBlockDiff(
+  diff: BlockDiff,
+  // Called after each create succeeds, with the synthetic draft id and the
+  // persisted block, so callers can reconcile the just-created block into local
+  // state even if a later operation in the diff fails (avoids re-creating it on
+  // a retry).
+  onCreated?: (draftId: string, saved: TimetableBlock) => void
+): Promise<void> {
   for (const id of diff.deletes) {
     try {
       await deleteTimetableBlock(id)
@@ -126,11 +136,12 @@ async function persistBlockDiff(diff: BlockDiff): Promise<void> {
     }
   }
   for (const block of diff.creates) {
-    await createTimetableBlock({
+    const res = await createTimetableBlock({
       name: block.name,
       colour: block.colour,
       cells: block.cells,
     })
+    onCreated?.(block.id, res.block)
   }
   for (const block of diff.updates) {
     await updateTimetableBlock(block.id, {
@@ -153,17 +164,14 @@ async function persistBlockDiff(diff: BlockDiff): Promise<void> {
 // moves — and, for pool cards, the overlay is a different width than the pool
 // card — so the preview slides out from under the cursor. It only ever adjusts
 // the default `transform` by a delta (never replaces it).
-function createPointerAlignModifier(metrics: TimetableGridMetrics | null) {
+function createPointerAlignModifier(
+  metrics: TimetableGridMetrics | null
+): Modifier {
   return function pointerAlignModifier({
     activatorEvent,
     activeNodeRect,
     overlayNodeRect,
     transform,
-  }: {
-    activatorEvent: Event | null
-    activeNodeRect: { left: number; top: number; width: number; height: number } | null
-    overlayNodeRect: { width: number; height: number } | null
-    transform: { x: number; y: number; scaleX: number; scaleY: number }
   }) {
     if (!activatorEvent || !activeNodeRect) return transform
     const event = activatorEvent as PointerEvent
@@ -436,7 +444,21 @@ export default function TimetablePage() {
     // full-replace assignment save is authoritative over any saved assignment a
     // block-create may have unscheduled moments earlier.
     mutationFn: async () => {
-      await persistBlockDiff(computeBlockDiff(draftBlocks, blocks ?? []))
+      await persistBlockDiff(
+        computeBlockDiff(draftBlocks, blocks ?? []),
+        (draftId, saved) => {
+          // Replace the synthetic draft block with its persisted form, and add
+          // it to the saved-blocks cache, so if a later create or the assignment
+          // save fails, a retry sees this block as already-saved and never
+          // re-creates it (which would 409 on the now-blocked cells).
+          setDraftBlocks((prev) =>
+            prev.map((b) => (b.id === draftId ? savedBlockToDraft(saved) : b))
+          )
+          queryClient.setQueryData<TimetableBlock[]>(['timetable-blocks'], (old) =>
+            old ? [...old, saved] : [saved]
+          )
+        }
+      )
       return saveAssignments({
         assignments: draft.map((a) => ({
           session_id: a.session_id,

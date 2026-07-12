@@ -23,7 +23,6 @@ This includes a few things:
 ## Bug fixes/ UX problems
 
 - Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
-- Add Rev. Dr to lecturer initials
 
 ## FINAL THINGS
 

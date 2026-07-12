@@ -49,7 +49,7 @@ export function GridViewControls({
         .filter(Boolean)
         .join(' ')}
     >
-      {hasSearch && (
+      {onSearchChange && (
         <SearchInput
           value={searchQuery ?? ''}
           onChange={onSearchChange}

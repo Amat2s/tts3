@@ -101,7 +101,7 @@ def test_student_create_list_update_responses_exclude_title(db):
 # Lecturer title migration
 # ---------------------------------------------------------------------------
 
-FINAL_TITLE_VALUES = {"Mr", "Ms", "Mrs", "Dr", "Fr", "A/Prof.", "Prof."}
+FINAL_TITLE_VALUES = {"Mr", "Ms", "Mrs", "Dr", "Fr", "Rev. Dr", "A/Prof.", "Prof."}
 
 
 def test_lecturer_title_enum_exposes_exactly_final_values():
@@ -137,6 +137,7 @@ def test_lecturer_old_value_mapping_matches_approved_targets():
     assert LecturerTitle.ASSOC_PROF.value == "A/Prof."
     assert LecturerTitle.MRS.value == "Mrs"
     assert LecturerTitle.FR.value == "Fr"
+    assert LecturerTitle.REV_DR.value == "Rev. Dr"
 
 
 def test_lecturer_punctuation_preserved_only_for_prof_titles():

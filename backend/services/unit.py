@@ -164,13 +164,13 @@ def delete_unit(db: Session, unit_id: str) -> None:
     db.delete(unit)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
         raise AppError(
             "unit_delete_blocked",
             "Can't delete this unit yet — it's still referenced elsewhere.",
             status_code=409,
-        )
+        ) from err
 
 
 def delete_all_units(db: Session) -> int:
@@ -181,11 +181,11 @@ def delete_all_units(db: Session) -> int:
         db.delete(unit)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
         raise AppError(
             "unit_delete_blocked",
             "Can't delete all units yet — one or more are still referenced elsewhere.",
             status_code=409,
-        )
+        ) from err
     return count
