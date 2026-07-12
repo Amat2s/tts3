@@ -35,6 +35,7 @@ from models.student import Student
 from models.unit import Unit
 from schemas.student import StudentImportResult
 from services.session_allocation import rebalance_unit_session_allocations
+from services.text import to_title_case
 
 SYDNEY_TZ = ZoneInfo("Australia/Sydney")
 
@@ -261,7 +262,9 @@ def _classify_row(
         counts["skipped_invalid_rows"] += 1
         return None
 
-    return _CandidateRow(student_number, first_name, last_name, unit.id)
+    return _CandidateRow(
+        student_number, to_title_case(first_name), to_title_case(last_name), unit.id
+    )
 
 
 def _parse_census_date(value: str) -> date | None:

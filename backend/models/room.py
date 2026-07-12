@@ -21,6 +21,12 @@ class Room(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Persisted left-to-right timetable column order (Unit 113). Non-null; new
+    # rooms are appended to the end by create_room. Positions need not be
+    # contiguous — deletes may leave gaps, which is fine because ordering is by
+    # ascending position. The Python-side default keeps direct construction and
+    # legacy inserts valid; create_room overrides it with the real append value.
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     room_type: Mapped[RoomType] = mapped_column(
         Enum(RoomType, name="roomtype", values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,

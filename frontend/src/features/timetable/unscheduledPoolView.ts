@@ -1,6 +1,7 @@
 import { parseUnitYearLevel } from '@/features/units/yearLevel'
 import type { YearLevel } from '@/lib/api/students'
 import type { SchedulableSession } from '@/lib/api/sessions'
+import { sessionMatchesSearch, type StudentSearchIndex } from './sessionFilter'
 
 // Stable ordering for the session stack inside each unit box.
 const SESSION_TYPE_ORDER: Record<SchedulableSession['session_type'], number> = {
@@ -51,9 +52,10 @@ export function filterUnscheduledSessions(
   sessions: SchedulableSession[],
   filters: UnscheduledPoolFilters,
   unitTeachingTeams?: Map<string, string[]>,
+  // Unit 108: resolves allocated student ids to searchable name/number text so
+  // the pool search also matches students, in addition to unit and lecturer.
+  studentIndex?: StudentSearchIndex,
 ): SchedulableSession[] {
-  const query = filters.search.trim().toLocaleLowerCase()
-
   return sessions.filter((session) => {
     if (
       filters.yearLevel !== 'all' &&
@@ -62,13 +64,11 @@ export function filterUnscheduledSessions(
       return false
     }
 
-    if (query.length === 0) return true
-
-    const teamNames =
-      unitTeachingTeams?.get(session.unit_id) ?? [session.lecturer_display_name]
-
-    return [session.unit_code, session.unit_name, ...teamNames].some((value) =>
-      value.toLocaleLowerCase().includes(query)
+    return sessionMatchesSearch(
+      session,
+      filters.search,
+      studentIndex,
+      unitTeachingTeams?.get(session.unit_id)
     )
   })
 }

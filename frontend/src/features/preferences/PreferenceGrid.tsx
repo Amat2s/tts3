@@ -73,6 +73,10 @@ export function PreferenceGrid({
 }: PreferenceGridProps) {
   if (rooms.length === 0) return null
 
+  // Match /timetable's room sub-header sizing: the narrow layout shrinks the
+  // label further (keeping truncation), the extended layout keeps it legible.
+  const roomHeaderTextSize = extended ? 'text-[0.65rem]' : 'text-[0.4rem]'
+
   const roomName = (id: string) =>
     rooms.find((r) => r.id === id)?.name ?? id
   const minWidth = extended
@@ -123,7 +127,7 @@ export function PreferenceGrid({
             rooms.map((room, rIdx) => (
               <div
                 key={`header-${day}-${room.id}`}
-                className="flex-1 flex items-center justify-center py-1 border-r text-[0.65rem] select-none overflow-hidden"
+                className={`flex-1 flex items-center justify-center py-1 border-r ${roomHeaderTextSize} select-none overflow-hidden`}
                 style={{
                   borderRightColor:
                     rIdx === rooms.length - 1

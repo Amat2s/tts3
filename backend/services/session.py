@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
 from api.errors import AppError
@@ -115,11 +116,20 @@ def delete_session(db: DBSession, session_id: str) -> None:
     session = _require_session(db, session_id)
     unit_id = session.unit_id
     db.delete(session)
-    # The deleted session's allocation rows cascade away; rebalance so a removed
-    # tutorial's students are redistributed across the remaining tutorials.
-    db.flush()
-    rebalance_unit_session_allocations(db, unit_id)
-    db.commit()
+    try:
+        # The deleted session's allocation rows cascade away; rebalance so a
+        # removed tutorial's students are redistributed across the remaining
+        # tutorials.
+        db.flush()
+        rebalance_unit_session_allocations(db, unit_id)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "session_delete_blocked",
+            "Can't delete this session yet — it's still referenced elsewhere.",
+            status_code=409,
+        )
 
 
 def list_schedulable_sessions(db: DBSession) -> list[SchedulableSessionResponse]:

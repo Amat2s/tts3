@@ -2,31 +2,45 @@ import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, X } from 'lucide-react'
 import type { TimetableAssignment } from './assignment'
 import type { UnitColorTokens } from './unitColors'
-
-const SESSION_TYPE_LABEL: Record<string, string> = {
-  lecture: 'Lec',
-  tutorial: 'Tut',
-}
-
-// CELL_HEIGHT must match the h-14 (3.5rem) used in GridCell.
-// A card spanning N slots uses calc(N * 3.5rem) so it visually covers N rows.
-const CELL_HEIGHT_REM = 3.5
+import { slotSpanHeight } from './slots'
+import { getLecturerInitials } from '@/lib/lecturerInitials'
 
 interface ScheduledSessionCardProps {
   assignment: TimetableAssignment
   colorTokens: UnitColorTokens
+  // Excel-export-style tutorial order letter ("Tutorial A"); undefined for
+  // lectures or when this is the only tutorial in its unit.
+  tutorialLetter?: string
   isPending?: boolean
   hasWarning?: boolean
+  // Unit 108: fade this card when it does not match the active session search.
+  // A view-only focus aid — the card keeps its place and stays interactive.
+  isDimmed?: boolean
   editingDisabled?: boolean
   onUnschedule?: () => void
   onMoveSelect?: () => void
 }
 
+// Matches the Unit 93 Excel export's session label format exactly
+// ("HIS101 Lecture (SC)" / "THE202 Tutorial A (LH)") so the grid and the
+// exported timetable read the same way. See `_session_label` in
+// services/timetable_excel_export.py.
+function sessionTypeLabel(assignment: TimetableAssignment, tutorialLetter?: string): string {
+  const initials = getLecturerInitials(assignment.lecturer_display_name)
+  if (assignment.session_type === 'tutorial') {
+    const suffix = tutorialLetter ? ` ${tutorialLetter}` : ''
+    return `Tutorial${suffix} (${initials})`
+  }
+  return `Lecture (${initials})`
+}
+
 export function ScheduledSessionCard({
   assignment,
   colorTokens,
+  tutorialLetter,
   isPending = false,
   hasWarning = false,
+  isDimmed = false,
   editingDisabled = false,
   onUnschedule,
   onMoveSelect,
@@ -49,13 +63,15 @@ export function ScheduledSessionCard({
       {...attributes}
       className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
       style={{
-        height: `calc(${assignment.duration} * ${CELL_HEIGHT_REM}rem)`,
+        height: slotSpanHeight(assignment.duration),
         backgroundColor: colorTokens.background,
         borderColor: hasWarning ? 'var(--state-warning)' : colorTokens.border,
         borderLeftWidth: '4px',
         outline: isPending ? `2px solid ${colorTokens.border}` : undefined,
         outlineOffset: isPending ? '1px' : undefined,
-        opacity: isPending ? 0.8 : isDragging ? 0.3 : 1,
+        // Dragging and pending states keep their existing emphasis; otherwise a
+        // non-matching (dimmed) card fades to de-emphasise it without hiding it.
+        opacity: isDragging ? 0.3 : isPending ? 0.8 : isDimmed ? 0.4 : 1,
         cursor: editingDisabled ? 'default' : 'pointer',
       }}
       onClick={editingDisabled ? undefined : onMoveSelect}
@@ -63,26 +79,19 @@ export function ScheduledSessionCard({
       <div className="flex items-start justify-between gap-0.5 min-w-0">
         <div className="flex items-baseline gap-1 min-w-0 overflow-hidden">
           <span
-            className="text-xs font-semibold shrink-0"
+            className="text-[0.65rem] font-semibold shrink-0"
             style={{ color: colorTokens.text }}
           >
             {assignment.unit_code}
           </span>
           <span
-            className="text-xs shrink-0"
+            className="text-[0.65rem] truncate"
             style={{ color: 'var(--text-muted)' }}
           >
-            {SESSION_TYPE_LABEL[assignment.session_type] ?? assignment.session_type}
+            {sessionTypeLabel(assignment, tutorialLetter)}
           </span>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {hasWarning && (
-            <AlertTriangle
-              className="h-3 w-3"
-              style={{ color: 'var(--state-warning)' }}
-              aria-label="Scheduling warning"
-            />
-          )}
           {!editingDisabled && (
             <button
               className="flex items-center justify-center h-4 w-4 rounded-sm transition-colors"
@@ -96,19 +105,22 @@ export function ScheduledSessionCard({
           )}
         </div>
       </div>
-      <span
-        className="text-xs truncate"
-        style={{ color: 'var(--text-secondary)' }}
-      >
-        {assignment.lecturer_display_name}
-      </span>
       {assignment.duration > 1 && (
         <span
-          className="text-xs"
+          className="text-[0.6rem]"
           style={{ color: 'var(--text-muted)' }}
         >
           {assignment.student_count} student{assignment.student_count !== 1 ? 's' : ''}
         </span>
+      )}
+      {/* Warning marker sits at the bottom of the card so it never overlaps the
+          top-right unschedule (✕) button. */}
+      {hasWarning && (
+        <AlertTriangle
+          className="absolute bottom-1 right-1 h-3 w-3"
+          style={{ color: 'var(--state-warning)' }}
+          aria-label="Scheduling warning"
+        />
       )}
     </div>
   )

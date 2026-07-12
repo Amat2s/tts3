@@ -115,6 +115,10 @@ export async function deleteStudent(studentId: string): Promise<void> {
   return apiRequest<void>(`/students/${studentId}`, { method: 'DELETE' })
 }
 
+export async function deleteAllStudents(): Promise<void> {
+  return apiRequest<void>('/students', { method: 'DELETE' })
+}
+
 /**
  * Upload a student-enrolment CSV to the protected backend import endpoint.
  *

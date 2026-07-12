@@ -96,6 +96,15 @@ def test_exact_valid_header_accepted(db):
     assert result.created_students == 1
 
 
+def test_imported_names_are_title_cased(db):
+    make_unit(db)
+    content = make_csv([["20261234", "ADA", "lovelace", "HIS101", FUTURE]])
+    result = run_import(db, content)
+    assert result.created_students == 1
+    student = db.query(Student).filter(Student.student_number == "20261234").one()
+    assert (student.first_name, student.last_name) == ("Ada", "Lovelace")
+
+
 def test_case_and_spacing_header_variants_accepted(db):
     make_unit(db)
     header = [

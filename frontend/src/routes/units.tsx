@@ -41,10 +41,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { listUnits, createUnit, updateUnit, deleteUnit } from '@/lib/api/units'
+import { listUnits, createUnit, updateUnit, deleteUnit, deleteAllUnits } from '@/lib/api/units'
 import type { Unit, UnitUpdate } from '@/lib/api/units'
 import { listLecturers } from '@/lib/api/lecturers'
 import type { Lecturer } from '@/lib/api/lecturers'
+import { LecturerUnitUpload } from '@/features/lecturers/LecturerUnitUpload'
 import { listStudents } from '@/lib/api/students'
 import type { Student, YearLevel } from '@/lib/api/students'
 import {
@@ -54,6 +55,7 @@ import {
   deleteSession as apiDeleteSession,
 } from '@/lib/api/sessions'
 import type { Session, SessionType } from '@/lib/api/sessions'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import {
   parseUnitCode,
   SUBJECTS,
@@ -500,8 +502,13 @@ function UnitFormFields({
   return (
     <div className="grid gap-4">
       {error && (
-        <p className="text-sm" style={{ color: 'var(--state-error)' }}>
-          {error}
+        <p
+          className="text-sm flex items-start gap-1.5"
+          style={{ color: 'var(--state-error)' }}
+          role="alert"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
         </p>
       )}
 
@@ -781,6 +788,9 @@ export default function UnitsPage() {
   const [deletingUnit, setDeletingUnit] = useState<Unit | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null)
+
   const [filters, setFilters] = useState<UnitFilters>(EMPTY_UNIT_FILTERS)
 
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits })
@@ -912,7 +922,27 @@ export default function UnitsPage() {
       invalidateDependentQueries(id)
       setEditOpen(false)
     },
-    onError: (err: Error) => setEditError(err.message),
+    onError: (err: Error, variables) => {
+      setEditError(err.message)
+      // A failed save (e.g. a session removal blocked by Unit 111) must not
+      // leave a pending removal looking permanent: reconcile the form against
+      // the backend's actual session list so anything that didn't really
+      // delete reappears rather than staying silently missing.
+      listUnitSessions(variables.id)
+        .then((backendSessions) => {
+          setEditForm((prev) => {
+            const presentBackendIds = new Set(
+              prev.sessions.filter((s) => s.backendId).map((s) => s.backendId)
+            )
+            const missing = backendSessions.filter((s) => !presentBackendIds.has(s.id))
+            if (missing.length === 0) return prev
+            return { ...prev, sessions: [...prev.sessions, ...missing.map(toShellSession)] }
+          })
+        })
+        .catch(() => {
+          // Best-effort reconciliation; the edit error message above still stands.
+        })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -924,7 +954,19 @@ export default function UnitsPage() {
       queryClient.invalidateQueries({ queryKey: ['assignments'] })
       setDeleteOpen(false)
     },
-    onError: (err: Error) => setDeleteError(err.message),
+    onError: (err: unknown) => setDeleteError(deleteBlockedMessage(err)),
+  })
+
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllUnits,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['units'] })
+      queryClient.invalidateQueries({ queryKey: ['lecturers'] })
+      queryClient.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      queryClient.invalidateQueries({ queryKey: ['assignments'] })
+      setDeleteAllOpen(false)
+    },
+    onError: (err: unknown) => setDeleteAllError(deleteBlockedMessage(err)),
   })
 
   function applyUpdate(
@@ -1016,6 +1058,17 @@ export default function UnitsPage() {
     deleteMutation.mutate(deletingUnit.id)
   }
 
+  function openDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.reset()
+    setDeleteAllOpen(true)
+  }
+
+  function handleDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.mutate()
+  }
+
   function renderTableBody() {
     if (unitsQuery.isLoading) {
       return (
@@ -1093,10 +1146,13 @@ export default function UnitsPage() {
         title="Units"
         description="Manage course units and their sessions. Sessions created here appear in the timetable scheduling pool."
         action={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Create unit
-          </Button>
+          <div className="flex items-center gap-2">
+            <LecturerUnitUpload />
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Create unit
+            </Button>
+          </div>
         }
       />
 
@@ -1104,6 +1160,12 @@ export default function UnitsPage() {
         <FilterBar
           isActive={unitFiltersActive(filters)}
           onClear={() => setFilters(EMPTY_UNIT_FILTERS)}
+          trailing={
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          }
         >
           <SearchInput
             value={filters.search}
@@ -1239,8 +1301,13 @@ export default function UnitsPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>
@@ -1250,6 +1317,43 @@ export default function UnitsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete unit'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete all confirmation dialog */}
+      <Dialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAllOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete all units</DialogTitle>
+            <DialogDescription>
+              Delete all {unitsQuery.data?.length ?? 0} units? All units and their sessions
+              will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteAllError && (
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteAllError}</span>
+            </p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deleteAllMutation.isPending}
+            >
+              {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all units'}
             </Button>
           </DialogFooter>
         </DialogContent>

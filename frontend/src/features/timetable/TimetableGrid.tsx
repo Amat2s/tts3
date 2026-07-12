@@ -5,6 +5,7 @@ import { GridCell } from './GridCell'
 import type { TimetableGridMetrics } from './hoverHighlight'
 import type { TimetableAssignment } from './assignment'
 import { buildBlockAnchorData, type BlockedCell } from './blocks'
+import { computeTutorialLetters } from './tutorialLetters'
 
 export interface RoomColumn {
   id: string
@@ -36,6 +37,9 @@ interface TimetableGridProps {
   // whether to render the wider, horizontally scrollable extended layout.
   visibleDays?: Day[]
   extended?: boolean
+  // Unit 108: session ids whose scheduled card should be dimmed (non-matching
+  // for the active search). View-only — the cards stay in place, just faded.
+  dimmedSessionIds?: Set<string>
 }
 
 const TIME_COL_W = '6rem'
@@ -109,7 +113,11 @@ export function TimetableGrid({
   onMetricsChange,
   visibleDays = DAYS,
   extended = false,
+  dimmedSessionIds,
 }: TimetableGridProps) {
+  // Unit 108: room sub-header shrinks further in the narrow (non-extended)
+  // layout, keeping truncation; the extended layout keeps the Unit 103 size.
+  const roomHeaderTextSize = extended ? 'text-[0.65rem]' : 'text-[0.4rem]'
   // Hooks must run unconditionally and before any early return so the hook
   // order stays stable when `rooms` changes from empty to non-empty.
   // Measure the first grid cell and report dimensions to the parent.
@@ -155,6 +163,13 @@ export function TimetableGrid({
     [blockedCells, rooms]
   )
 
+  // Excel-export-style tutorial order letters ("Tutorial A"), recomputed
+  // whenever the visible assignment set or room order changes.
+  const tutorialLetters = useMemo(
+    () => computeTutorialLetters(assignments, rooms),
+    [assignments, rooms]
+  )
+
   if (rooms.length === 0) return null
 
   const assignmentMap = buildAssignmentMap(assignments)
@@ -168,9 +183,12 @@ export function TimetableGrid({
 
   return (
     <div className="w-full overflow-x-auto">
+    {/* overflow-hidden clips the absolutely-positioned session/block cards to the
+        grid box so a sub-pixel span at the last row/column can never spill past
+        the table border or trigger a spurious vertical scrollbar. */}
     <div
       ref={containerRef}
-      className="w-full border rounded-none"
+      className="w-full border rounded-none overflow-hidden"
       style={{ borderColor: 'var(--grid-border-emphasis)', minWidth }}
     >
       {/* Day header row */}
@@ -211,7 +229,7 @@ export function TimetableGrid({
           rooms.map((room, rIdx) => (
             <div
               key={`header-${day}-${room.id}`}
-              className="flex-1 flex items-center justify-center py-1 border-r text-[0.65rem] select-none overflow-hidden"
+              className={`flex-1 flex items-center justify-center py-1 border-r ${roomHeaderTextSize} select-none overflow-hidden`}
               style={{
                 borderRightColor:
                   rIdx === rooms.length - 1
@@ -248,6 +266,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  tutorialLetter={a ? tutorialLetters.get(a.session_id) : undefined}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
                   blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
                   blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
@@ -258,6 +277,7 @@ export function TimetableGrid({
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  isDimmed={a ? (dimmedSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
                   blockSelectionMode={blockSelectionMode}
                   isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}
@@ -326,6 +346,7 @@ export function TimetableGrid({
                   roomId={room.id}
                   isDayBoundary={rIdx === rooms.length - 1}
                   assignment={a}
+                  tutorialLetter={a ? tutorialLetters.get(a.session_id) : undefined}
                   blockedCell={blockedCells?.get(cellKey) ?? null}
                   blockRoomSpan={anchorMap.get(cellKey)?.roomSpan}
                   blockSlotSpan={anchorMap.get(cellKey)?.slotSpan}
@@ -336,6 +357,7 @@ export function TimetableGrid({
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
+                  isDimmed={a ? (dimmedSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
                   blockSelectionMode={blockSelectionMode}
                   isBlockSelected={blockSelectionKeys?.has(cellKey) ?? false}

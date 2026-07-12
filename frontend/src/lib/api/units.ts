@@ -111,3 +111,7 @@ export async function updateUnit(unitId: string, data: UnitUpdate): Promise<Unit
 export async function deleteUnit(unitId: string): Promise<void> {
   return apiRequest<void>(`/units/${unitId}`, { method: 'DELETE' })
 }
+
+export async function deleteAllUnits(): Promise<void> {
+  return apiRequest<void>('/units', { method: 'DELETE' })
+}

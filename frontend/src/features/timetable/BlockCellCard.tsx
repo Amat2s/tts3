@@ -1,4 +1,5 @@
 import { getBlockColorTokens, type BlockedCell } from './blocks'
+import { slotSpanHeight } from './slots'
 
 interface BlockCellCardProps {
   block: BlockedCell
@@ -18,9 +19,6 @@ interface BlockCellCardProps {
  * visually distinguished from session cards by the absence of a left border
  * accent and by their dedicated `--block-*` colour tokens.
  */
-// Must match the h-14 (3.5rem) used in GridCell, same as ScheduledSessionCard.
-const CELL_HEIGHT_REM = 3.5
-
 export function BlockCellCard({
   block,
   interactive = false,
@@ -50,16 +48,18 @@ export function BlockCellCard({
   // N*W - 1px, but N*100% = N*(W-1px) = N*W - N*px → (N-1)px short.
   // Adding (roomSpan - 1)px corrects for the internal cell borders.
   //
-  // Vertical span: row borders live on the row flex-div, not on GridCell,
-  // so 100% = full cell height = 3.5rem. calc(N * 3.5rem) matches the span
-  // used by ScheduledSessionCard and is correct without a pixel correction.
+  // Vertical span: mirror ScheduledSessionCard via the shared slotSpanHeight
+  // helper, which adds +1px per extra slot-row so a multi-row block exactly
+  // covers its rows (each row carries a 1px border). This vertical correction
+  // applies only to multi-slot spans; multi-room-only blocks get no height
+  // change (their width correction above is a separate concern).
   const spanStyle: React.CSSProperties = {
     ...(roomSpan > 1 && {
       width: `calc(${roomSpan * 100}% + ${roomSpan - 1}px)`,
       right: 'auto',
     }),
     ...(slotSpan > 1 && {
-      height: `calc(${slotSpan} * ${CELL_HEIGHT_REM}rem)`,
+      height: slotSpanHeight(slotSpan),
       bottom: 'auto',
     }),
   }

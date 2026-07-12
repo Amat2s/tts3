@@ -45,3 +45,11 @@ def delete_unit(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     unit_service.delete_unit(db, unit_id)
+
+
+@router.delete("", status_code=204)
+def delete_all_units(
+    _: Annotated[CurrentAdmin, Depends(get_current_admin)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    unit_service.delete_all_units(db)

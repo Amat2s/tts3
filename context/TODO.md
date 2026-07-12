@@ -4,29 +4,10 @@
 
 The project is looking good, but there are a few final things to do before its ready for the customers. These are:
 
-- Adding a new constraint feature, where the user can add in soft constraints
 - Add a go back to previous saves feature
 - Add a soft constraint to make the timetable as similar as possible to the last save.
-- Add another upload feature for lecture information.
 - Text display in scheduled sessions
 - Bug fixes
-
-## Export Feature - DONE
-
-At the moment, the new excel spreadsheet created from the timetable doesn't look as it should. Create another spec file to carefully implement.
-
-## Contraints tab - V1, bug fixes
-
-Add another tab, called Preferences, that takes soft constraints from the user. Generate several spec files to implement this.
-
-### Bug fixes
-
-- Lecturer names displayed rather than id
-- backend logic messing with frontend; only the frontend should be controling what gets changed, backend/db just store
-- remove text; make constraints look nicer, rounder
-- smaller text for rooms; extend button (makes timetable wider and adds scroll); particular days selector
-- legend with green = prefer, red = avoid
-- tab goes to the right end
 
 ## Saved tables feature
 
@@ -37,19 +18,20 @@ This includes a few things:
 
 ## Similar timetable
 
-When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
+- When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
 
-## Upload Lecturers
-
-Like the students upload, this will read the Lecturer information and fill it out accordingly
 
 ## Bug fixes/ UX problems
 
-- When saving, can get stuck; make sure updates after successful save
-- Lock download table if draft is not saved
-- Clear messages when a new one comes
-- dragging sessions actually works
-- timetable one pixel off
-- can edit blocks when not saved
-- change the way edit blocks works
-- Add a feature to extend timetable???
+- blocks scheduled over lunch are currently covering lunch rather than skipping over it. Make sure they don't cover lunch
+- smaller text
+- match how the excel file renders scheduled classes, same format in sessions (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
+
+
+## FINAL THINGS
+
+- Order rooms on timetable (left/right) by order in rooms (top to bottom), be able to move room position
+- Add seminars to session types, same function as tutorials, but they don't overlap their student sorting  
+
+
+- Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))

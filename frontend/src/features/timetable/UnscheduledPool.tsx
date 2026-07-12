@@ -16,6 +16,7 @@ import {
   unscheduledPoolFiltersActive,
   type UnscheduledPoolFilters,
 } from './unscheduledPoolView'
+import { sessionMatchesSearch, type StudentSearchIndex } from './sessionFilter'
 
 const YEAR_LEVEL_OPTIONS = [
   { value: 'all', label: 'All years' },
@@ -34,6 +35,12 @@ interface UnscheduledPoolProps {
   pendingSessionId?: string | null
   editingDisabled?: boolean
   onSelectSession?: (sessionId: string) => void
+  // Unit 108: resolves allocated student ids to searchable name/number text so
+  // the pool's own search (and the grid search below) can match students.
+  studentIndex?: StudentSearchIndex
+  // Unit 108: the grid controls' session search, layered on top of the pool's
+  // own filters — non-matching sessions are hidden while it is active.
+  externalSearch?: string
 }
 
 export function UnscheduledPool({
@@ -46,6 +53,8 @@ export function UnscheduledPool({
   pendingSessionId,
   editingDisabled = false,
   onSelectSession,
+  studentIndex,
+  externalSearch,
 }: UnscheduledPoolProps) {
   const [filters, setFilters] = useState<UnscheduledPoolFilters>(
     EMPTY_UNSCHEDULED_POOL_FILTERS
@@ -61,10 +70,26 @@ export function UnscheduledPool({
     }
     return map
   }, [units])
-  const filteredSessions = useMemo(
-    () => filterUnscheduledSessions(sessions, filters, unitTeachingTeams),
-    [filters, sessions, unitTeachingTeams]
-  )
+  const externalQuery = externalSearch?.trim() ?? ''
+  const filteredSessions = useMemo(() => {
+    const base = filterUnscheduledSessions(
+      sessions,
+      filters,
+      unitTeachingTeams,
+      studentIndex
+    )
+    // Layer the grid controls' session search on top of the pool's own filters:
+    // while it is active, hide sessions it does not match.
+    if (externalQuery.length === 0) return base
+    return base.filter((session) =>
+      sessionMatchesSearch(
+        session,
+        externalQuery,
+        studentIndex,
+        unitTeachingTeams?.get(session.unit_id)
+      )
+    )
+  }, [filters, sessions, unitTeachingTeams, studentIndex, externalQuery])
   const unitBuckets = useMemo(
     () => buildUnitBuckets(filteredSessions),
     [filteredSessions]

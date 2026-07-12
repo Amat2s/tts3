@@ -26,6 +26,14 @@ import {
 } from '@/components/ui/dialog'
 import type { SolverRunStatusResponse } from '@/lib/api/solver'
 
+// Visual tone for a one-time transient notice. Maps to a colour + icon below.
+export type TransientNoticeTone = 'success' | 'info' | 'warning' | 'accent'
+
+export interface TransientNotice {
+  text: string
+  tone: TransientNoticeTone
+}
+
 interface TimetableActionBarProps {
   isDirty: boolean
   isSaving: boolean
@@ -54,8 +62,6 @@ interface TimetableActionBarProps {
   downloadDisabledReason?: string | null
   isExporting?: boolean
   onDownloadTimetable?: () => void
-  downloadNotice?: string | null
-  onDismissDownloadNotice?: () => void
   // Solver lifecycle
   solverRunStatus: SolverRunStatusResponse | null
   isSolverStarting: boolean
@@ -68,9 +74,11 @@ interface TimetableActionBarProps {
   // Timetable block load error (Unit 85)
   blocksError?: string | null
   onRetryBlocks?: () => void
-  // One-time notice after a block edit/delete (e.g. unscheduled-session count)
-  blockNotice?: string | null
-  onDismissBlockNotice?: () => void
+  // Consolidated one-time transient notice (block edit/delete, download, etc.).
+  // A newer notice replaces the previously shown one rather than stacking with
+  // it (Unit 106).
+  notice?: TransientNotice | null
+  onDismissNotice?: () => void
   // Local draft-persistence notice (Unit 79)
   draftNotice?: 'restored' | 'discarded' | null
   onDismissDraftNotice?: () => void
@@ -91,6 +99,36 @@ interface MessageState {
 
 function sessionLabel(count: number): string {
   return `${count} session${count !== 1 ? 's' : ''}`
+}
+
+// Colour + icon for a consolidated transient notice, keyed by its tone.
+function noticeAppearance(tone: TransientNoticeTone): {
+  color: string
+  icon: React.ReactNode
+} {
+  switch (tone) {
+    case 'warning':
+      return {
+        color: 'var(--state-warning)',
+        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+      }
+    case 'info':
+      return {
+        color: 'var(--state-info)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+      }
+    case 'accent':
+      return {
+        color: 'var(--accent-primary)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+      }
+    case 'success':
+    default:
+      return {
+        color: 'var(--state-success)',
+        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+      }
+  }
 }
 
 export function TimetableActionBar({
@@ -119,8 +157,6 @@ export function TimetableActionBar({
   downloadDisabledReason,
   isExporting = false,
   onDownloadTimetable,
-  downloadNotice = null,
-  onDismissDownloadNotice,
   solverRunStatus,
   isSolverStarting,
   solverStartError,
@@ -130,8 +166,8 @@ export function TimetableActionBar({
   onRetryAssignments,
   blocksError,
   onRetryBlocks,
-  blockNotice = null,
-  onDismissBlockNotice,
+  notice = null,
+  onDismissNotice,
   draftNotice = null,
   onDismissDraftNotice,
 }: TimetableActionBarProps) {
@@ -158,13 +194,41 @@ export function TimetableActionBar({
     if (!hasIssues) setShowDetails(false)
   }, [hasIssues])
 
-  function getMessageState(): MessageState {
+  // Clash / conflict summary (blocking + warning validation). This is a
+  // *persistent* message: it is derived from the current validation state and
+  // stays visible until validation no longer reports it, regardless of any
+  // transient notice showing above it (Unit 106).
+  const clashMessage: MessageState | null =
+    violationCount > 0
+      ? {
+          text: `${violationCount} blocking violation${violationCount !== 1 ? 's' : ''} must be resolved before saving or running the solver.`,
+          color: 'var(--state-error)',
+          icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+          isAlert: true,
+          dismissible: false,
+          retryable: false,
+        }
+      : warningCount > 0
+        ? {
+            text: `${warningCount} scheduling warning${warningCount !== 1 ? 's' : ''} must be resolved before running the solver.`,
+            color: 'var(--state-warning)',
+            icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
+            isAlert: false,
+            dismissible: false,
+            retryable: false,
+          }
+        : null
+
+  // The primary line carries the newest *transient* message (errors, solver
+  // lifecycle, one-time notices, editing hints). It returns null when the only
+  // thing left to say is covered by the clash line, so the two never duplicate.
+  function getPrimaryMessage(): MessageState | null {
     // Priority 0: block-selection mode instructions take over the bar entirely.
     if (blockMode) {
       return {
         text: hasBlockSelection
-          ? 'Block mode — click another cell to extend the selection, then Create block to reserve it.'
-          : 'Block mode — click a cell, then click another to select a rectangle of slots to block. Already-blocked cells can’t be selected.',
+          ? 'Block mode — click cells to select or deselect them, then Create block to reserve the selection.'
+          : 'Block mode — click cells to select them for blocking. Click a selected cell again to deselect it. Already-blocked cells can’t be selected.',
         color: 'var(--accent-primary)',
         icon: <Lock className="h-3.5 w-3.5 shrink-0" />,
         isAlert: false,
@@ -287,29 +351,19 @@ export function TimetableActionBar({
       }
     }
 
-    // Priority 2.5: block edit/delete notice (dismissible, one-time)
-    if (blockNotice) {
+    // Priority 2.5: consolidated one-time transient notice (block edit/delete,
+    // download, …). Upstream replaces a newer notice over the previous one, so
+    // at most one is ever present here.
+    if (notice) {
+      const { color, icon } = noticeAppearance(notice.tone)
       return {
-        text: blockNotice,
-        color: 'var(--state-info)',
-        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
+        text: notice.text,
+        color,
+        icon,
         isAlert: false,
         dismissible: true,
         retryable: false,
-        onDismiss: onDismissBlockNotice,
-      }
-    }
-
-    // Priority 2.5: timetable-download notice (dismissible, one-time)
-    if (downloadNotice) {
-      return {
-        text: downloadNotice,
-        color: 'var(--state-success)',
-        icon: <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />,
-        isAlert: false,
-        dismissible: true,
-        retryable: false,
-        onDismiss: onDismissDownloadNotice,
+        onDismiss: onDismissNotice,
       }
     }
 
@@ -349,29 +403,9 @@ export function TimetableActionBar({
       }
     }
 
-    // Priority 4: blocking validation summary
-    if (violationCount > 0) {
-      return {
-        text: `${violationCount} blocking violation${violationCount !== 1 ? 's' : ''} must be resolved before saving or running the solver.`,
-        color: 'var(--state-error)',
-        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
-        isAlert: true,
-        dismissible: false,
-        retryable: false,
-      }
-    }
-
-    // Priority 5: warning validation summary
-    if (warningCount > 0) {
-      return {
-        text: `${warningCount} scheduling warning${warningCount !== 1 ? 's' : ''} must be resolved before running the solver.`,
-        color: 'var(--state-warning)',
-        icon: <AlertTriangle className="h-3.5 w-3.5 shrink-0" />,
-        isAlert: false,
-        dismissible: false,
-        retryable: false,
-      }
-    }
+    // Priority 4/5: blocking + warning validation summaries are handled by the
+    // persistent `clashMessage` line, not here, so they can stay visible beneath
+    // whichever transient message is showing.
 
     // Editing disabled (solver active, no run status yet available)
     if (editingDisabled) {
@@ -397,6 +431,11 @@ export function TimetableActionBar({
       }
     }
 
+    // When an active clash/conflict is present, the persistent clash line below
+    // already carries the state — suppress the neutral/dirty fallback so the two
+    // lines never say contradictory things ("No issues" beside a warning).
+    if (clashMessage) return null
+
     // Priority 6: unsaved changes / saved state
     if (isDirty) {
       return {
@@ -420,7 +459,14 @@ export function TimetableActionBar({
     }
   }
 
-  const msgState = getMessageState()
+  const primaryMsg = getPrimaryMessage()
+
+  // Only one message is shown at a time. A transient message (error, solver
+  // lifecycle, notice, hint) sits *on top of* the persistent clash line rather
+  // than beside it; the clash itself is never removed — it keeps gating the
+  // solver and stays reachable via "View details", and re-appears here as soon
+  // as the transient message is dismissed or cleared.
+  const displayMsg = primaryMsg ?? clashMessage
 
   function handleConfirmClear() {
     onClearAll()
@@ -444,55 +490,63 @@ export function TimetableActionBar({
           }}
         >
           <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            {/* Left: message + details trigger */}
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-              <div
-                className="flex min-w-0 items-center gap-1.5 text-sm"
-                role={msgState.isAlert ? 'alert' : 'status'}
-                aria-live={msgState.isAlert ? 'assertive' : 'polite'}
-                style={{ color: msgState.color }}
-              >
-                {msgState.icon}
-                <span className="min-w-0">{msgState.text}</span>
-                {msgState.retryable && (msgState.onRetry ?? onRetryAssignments) && (
-                  <button
-                    type="button"
-                    className="ml-1 shrink-0 text-xs underline"
-                    style={{ color: msgState.color }}
-                    onClick={msgState.onRetry ?? onRetryAssignments}
+            {/* Left: a single message at a time — the newest transient message
+                sits on top of the persistent clash line; the "View details"
+                trigger stays available whenever a clash exists, even while a
+                transient message is covering it. */}
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {displayMsg && (
+                <div className="flex min-w-0 flex-wrap items-center gap-3">
+                  <div
+                    className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm"
+                    role={displayMsg.isAlert ? 'alert' : 'status'}
+                    aria-live={displayMsg.isAlert ? 'assertive' : 'polite'}
+                    style={{ color: displayMsg.color }}
                   >
-                    Try again
-                  </button>
-                )}
-                {msgState.dismissible && (
-                  <button
-                    type="button"
-                    className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
-                    aria-label="Dismiss message"
-                    style={{ color: msgState.color }}
-                    onClick={msgState.onDismiss ?? onDismissSolver}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+                    {displayMsg.icon}
+                    <span className="min-w-0">{displayMsg.text}</span>
+                    {displayMsg.retryable &&
+                      (displayMsg.onRetry ?? onRetryAssignments) && (
+                        <button
+                          type="button"
+                          className="ml-1 shrink-0 text-xs underline"
+                          style={{ color: displayMsg.color }}
+                          onClick={displayMsg.onRetry ?? onRetryAssignments}
+                        >
+                          Try again
+                        </button>
+                      )}
+                    {displayMsg.dismissible && (
+                      <button
+                        type="button"
+                        className="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
+                        aria-label="Dismiss message"
+                        style={{ color: displayMsg.color }}
+                        onClick={displayMsg.onDismiss ?? onDismissSolver}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
 
-              {hasIssues && (
-                <button
-                  type="button"
-                  className="flex shrink-0 items-center gap-1 text-xs underline"
-                  style={{ color: 'var(--text-muted)' }}
-                  aria-expanded={showDetails}
-                  aria-controls="timetable-validation-details"
-                  onClick={() => setShowDetails((v) => !v)}
-                >
-                  {showDetails ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
+                  {hasIssues && (
+                    <button
+                      type="button"
+                      className="flex shrink-0 items-center gap-1 text-xs underline"
+                      style={{ color: 'var(--text-muted)' }}
+                      aria-expanded={showDetails}
+                      aria-controls="timetable-validation-details"
+                      onClick={() => setShowDetails((v) => !v)}
+                    >
+                      {showDetails ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                      {showDetails ? 'Hide' : 'View'} details ({totalIssues})
+                    </button>
                   )}
-                  {showDetails ? 'Hide' : 'View'} details ({totalIssues})
-                </button>
+                </div>
               )}
             </div>
 

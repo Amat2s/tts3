@@ -25,6 +25,7 @@ export function makeRoom(overrides: Partial<Room> = {}): Room {
     name: 'Room A',
     capacity: 30,
     room_type: 'lecture',
+    position: 0,
     created_at: ISO,
     updated_at: ISO,
     ...overrides,

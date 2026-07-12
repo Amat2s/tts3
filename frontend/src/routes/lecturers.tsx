@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserCheck, Plus, Pencil, Trash2, CalendarDays } from 'lucide-react'
+import { UserCheck, Plus, Pencil, Trash2, CalendarDays, AlertTriangle } from 'lucide-react'
 import { AppFrame } from '@/components/layout/AppFrame'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { FilterBar } from '@/components/filters/FilterBar'
@@ -33,16 +33,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { AvailabilityEditor } from '@/features/lecturers/AvailabilityEditor'
+import { LecturerUnitUpload } from '@/features/lecturers/LecturerUnitUpload'
 import {
   listLecturers,
   createLecturer,
   updateLecturer,
   deleteLecturer,
+  deleteAllLecturers,
   setLecturerAvailability,
 } from '@/lib/api/lecturers'
 import type { Lecturer, LecturerTitle, LecturerUpdate, AvailabilityEntry } from '@/lib/api/lecturers'
 import { listUnits } from '@/lib/api/units'
 import type { Unit } from '@/lib/api/units'
+import { deleteBlockedMessage } from '@/lib/api/deleteErrorMessage'
 import {
   EMPTY_LECTURER_FILTERS,
   filterLecturers,
@@ -252,6 +255,9 @@ export default function LecturersPage() {
   const [lecturerToDelete, setLecturerToDelete] = useState<Lecturer | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [deleteAllError, setDeleteAllError] = useState<string | null>(null)
+
   const [lecturerForAvailability, setLecturerForAvailability] = useState<Lecturer | null>(null)
   const [availabilityEntries, setAvailabilityEntries] = useState<AvailabilityEntry[]>([])
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
@@ -352,8 +358,22 @@ export default function LecturersPage() {
       setLecturerToDelete(null)
       setDeleteError(null)
     },
-    onError: (err: Error) => {
-      setDeleteError(err.message)
+    onError: (err: unknown) => {
+      setDeleteError(deleteBlockedMessage(err))
+    },
+  })
+
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllLecturers,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lecturers'] })
+      qc.invalidateQueries({ queryKey: ['units'] })
+      qc.invalidateQueries({ queryKey: ['schedulable-sessions'] })
+      qc.invalidateQueries({ queryKey: ['assignments'] })
+      setDeleteAllOpen(false)
+    },
+    onError: (err: unknown) => {
+      setDeleteAllError(deleteBlockedMessage(err))
     },
   })
 
@@ -416,6 +436,17 @@ export default function LecturersPage() {
   function handleDelete() {
     if (!lecturerToDelete) return
     deleteMutation.mutate(lecturerToDelete.id)
+  }
+
+  function openDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.reset()
+    setDeleteAllOpen(true)
+  }
+
+  function handleDeleteAll() {
+    setDeleteAllError(null)
+    deleteAllMutation.mutate()
   }
 
   function handleSaveAvailability() {
@@ -536,16 +567,19 @@ export default function LecturersPage() {
         title="Lecturers"
         description="Manage lecturers and their weekly availability. Availability is used as a hard scheduling constraint."
         action={
-          <Button
-            onClick={() => {
-              setCreateOpen(true)
-              setCreateForm(EMPTY_FORM)
-              setCreateError(null)
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            Add lecturer
-          </Button>
+          <div className="flex items-center gap-2">
+            <LecturerUnitUpload />
+            <Button
+              onClick={() => {
+                setCreateOpen(true)
+                setCreateForm(EMPTY_FORM)
+                setCreateError(null)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add lecturer
+            </Button>
+          </div>
         }
       />
 
@@ -553,6 +587,12 @@ export default function LecturersPage() {
         <FilterBar
           isActive={lecturerFiltersActive(filters)}
           onClear={() => setFilters(EMPTY_LECTURER_FILTERS)}
+          trailing={
+            <Button variant="destructive" size="sm" onClick={openDeleteAll}>
+              <Trash2 className="h-4 w-4" />
+              Delete all
+            </Button>
+          }
         >
           <SearchInput
             value={filters.search}
@@ -687,8 +727,13 @@ export default function LecturersPage() {
             </DialogDescription>
           </DialogHeader>
           {deleteError && (
-            <p className="text-sm px-1" style={{ color: 'var(--state-error)' }}>
-              {deleteError}
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteError}</span>
             </p>
           )}
           <DialogFooter showCloseButton>
@@ -698,6 +743,43 @@ export default function LecturersPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting…' : 'Delete lecturer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete all confirmation dialog */}
+      <Dialog
+        open={deleteAllOpen}
+        onOpenChange={(open) => {
+          if (!open) setDeleteAllOpen(false)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete all lecturers</DialogTitle>
+            <DialogDescription>
+              Delete all {lecturers?.length ?? 0} lecturers? They and their availability
+              settings will be permanently removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteAllError && (
+            <p
+              className="text-sm px-1 flex items-start gap-1.5"
+              style={{ color: 'var(--state-error)' }}
+              role="alert"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{deleteAllError}</span>
+            </p>
+          )}
+          <DialogFooter showCloseButton>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAll}
+              disabled={deleteAllMutation.isPending}
+            >
+              {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all lecturers'}
             </Button>
           </DialogFooter>
         </DialogContent>

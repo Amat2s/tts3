@@ -1,15 +1,20 @@
 from sqlalchemy import delete
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from api.errors import AppError
 from models.lecturer import Lecturer, LecturerAvailability
+from models.session import Session as TimetableSession
+from models.unit import Unit
 from schemas.lecturer import (
     AvailabilityEntry,
     LecturerAvailabilitySet,
     LecturerCreate,
     LecturerUpdate,
 )
+
+# Cap the number of unit codes enumerated in a delete-blocked message.
+_MAX_LISTED_UNITS = 5
 
 
 def list_lecturers(db: Session) -> list[Lecturer]:
@@ -49,10 +54,99 @@ def update_lecturer(db: Session, lecturer_id: str, data: LecturerUpdate) -> Lect
     return lecturer
 
 
+def _blocking_unit_codes(db: Session, lecturer_id: str) -> list[str]:
+    """Unit codes of sessions still taught by this lecturer (``Session.lecturer_id``).
+
+    Unlike ``unit_lecturers`` team membership (which cascades away on delete),
+    ``Session.lecturer_id`` has no cascade, so a session still assigned to this
+    lecturer would otherwise fail with a raw ``IntegrityError``.
+    """
+    codes = (
+        db.query(Unit.code)
+        .join(TimetableSession, TimetableSession.unit_id == Unit.id)
+        .filter(TimetableSession.lecturer_id == lecturer_id)
+        .distinct()
+        .order_by(Unit.code)
+        .all()
+    )
+    return [c[0] for c in codes]
+
+
+def _format_unit_list(codes: list[str]) -> str:
+    shown = codes[:_MAX_LISTED_UNITS]
+    remaining = len(codes) - len(shown)
+    text = ", ".join(shown)
+    if remaining > 0:
+        text += f", and {remaining} more"
+    return text
+
+
 def delete_lecturer(db: Session, lecturer_id: str) -> None:
     lecturer = get_lecturer(db, lecturer_id)
+
+    blocking_codes = _blocking_unit_codes(db, lecturer_id)
+    if blocking_codes:
+        raise AppError(
+            "lecturer_delete_blocked",
+            (
+                "Can't delete this lecturer yet — they're on the teaching "
+                f"team of {_format_unit_list(blocking_codes)}. Reassign or "
+                "remove their sessions in those units first."
+            ),
+            status_code=409,
+        )
+
     db.delete(lecturer)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "lecturer_delete_blocked",
+            "Can't delete this lecturer yet — they're still referenced elsewhere.",
+            status_code=409,
+        )
+
+
+def delete_all_lecturers(db: Session) -> int:
+    """Delete every lecturer, atomically. Returns the number of lecturers deleted.
+
+    Blocked (all-or-nothing) if any lecturer is still assigned to a session via
+    ``Session.lecturer_id`` (that reference has no cascade). Team-only
+    membership (``unit_lecturers``) cascades away and never blocks.
+    """
+    blocking_ids = {
+        row[0]
+        for row in db.query(TimetableSession.lecturer_id)
+        .filter(TimetableSession.lecturer_id.isnot(None))
+        .distinct()
+        .all()
+    }
+    if blocking_ids:
+        raise AppError(
+            "lecturer_delete_blocked",
+            (
+                "Can't delete all lecturers yet — "
+                f"{len(blocking_ids)} lecturer(s) are still assigned to "
+                "sessions. Reassign or remove those sessions first."
+            ),
+            status_code=409,
+        )
+
+    lecturers = db.query(Lecturer).all()
+    count = len(lecturers)
+    for lecturer in lecturers:
+        db.delete(lecturer)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise AppError(
+            "lecturer_delete_blocked",
+            "Can't delete all lecturers yet — some are still referenced elsewhere.",
+            status_code=409,
+        )
+    return count
 
 
 def set_availability(

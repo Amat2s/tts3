@@ -1,5 +1,5 @@
 import type { AvailabilityDay, AvailabilitySlot } from '@/lib/api/lecturers'
-import type { TimetableBlock, TimetableBlockColour } from '@/lib/api/timetableBlocks'
+import type { TimetableBlockColour } from '@/lib/api/timetableBlocks'
 
 // A single blocked cell, flattened out of its block group and carrying the
 // group's display attributes so the grid can render it directly.
@@ -12,13 +12,27 @@ export interface BlockedCell {
   room_id: string
 }
 
+// The minimal block shape the flattening helpers need. Both saved backend blocks
+// (`TimetableBlock`, whose cells also carry an `id`) and draft blocks
+// (`DraftBlock`) satisfy this, so the grid renders either without conversion.
+export interface BlockLike {
+  id: string
+  name: string | null
+  colour: TimetableBlockColour | null
+  cells: ReadonlyArray<{
+    day: AvailabilityDay
+    slot: AvailabilitySlot
+    room_id: string
+  }>
+}
+
 /**
  * Flatten block groups into a cell lookup keyed by `day:room_id:slot` — the same
  * key shape the timetable grid uses for assignments. Because the backend enforces
  * a unique `(day, slot, room_id)`, at most one block can own any given cell.
  */
 export function buildBlockedCellMap(
-  blocks: TimetableBlock[]
+  blocks: ReadonlyArray<BlockLike>
 ): Map<string, BlockedCell> {
   const map = new Map<string, BlockedCell>()
   for (const block of blocks) {
@@ -83,6 +97,12 @@ const SLOT_INDEX: Record<string, number> = {
   s1: 0, s2: 1, s3: 2, s4: 3, s5: 4, s6: 5, s7: 6,
 }
 const SLOT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
+
+// First PM slot index (s4). The grid renders a Lunch/Mass divider row between
+// s3 and s4 that is not part of the slot sequence visually — a merged block
+// rectangle must never bridge that gap, or its absolutely-positioned card
+// would stretch tall enough to cover the divider instead of skipping over it.
+const PM_START_INDEX = SLOT_INDEX.s4
 
 /**
  * For each block group, compute the minimal set of visual "rectangles" (one
@@ -157,9 +177,14 @@ export function buildBlockAnchorData(
     )
     let runStart = 0
     for (let i = 1; i <= sorted.length; i++) {
+      const prevIdx = SLOT_INDEX[sorted[i - 1]] ?? 99
+      const curIdx = i < sorted.length ? (SLOT_INDEX[sorted[i]] ?? 99) : 99
       const isRunEnd =
         i === sorted.length ||
-        (SLOT_INDEX[sorted[i]] ?? 99) !== (SLOT_INDEX[sorted[i - 1]] ?? 99) + 1
+        curIdx !== prevIdx + 1 ||
+        // Break the run across the lunch boundary (s3 -> s4) even though the
+        // slot indices are numerically consecutive.
+        (prevIdx < PM_START_INDEX && curIdx >= PM_START_INDEX)
       if (isRunEnd) {
         const run = sorted.slice(runStart, i)
         allRuns.push({

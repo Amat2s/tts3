@@ -6,7 +6,9 @@ import { DAYS, type Day } from './slots'
 // Extended-mode geometry — each room column gets at least this width so columns
 // stop squeezing on dense (many-room) timetables; the grid then overflows its
 // container horizontally (scroll) instead of shrinking cells to nothing.
-export const EXTENDED_MIN_COL_PX = 92
+// Unit 108: halved (92 → 46) so the extended layout is ~2× narrower overall —
+// less aggressive while still widening past the container and staying scrollable.
+export const EXTENDED_MIN_COL_PX = 46
 // Matches TIME_COL_W (6rem) in the grids.
 export const GRID_TIME_COL_PX = 96
 
