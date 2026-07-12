@@ -1,4 +1,4 @@
-"""Timetable Excel export service (Units 93, 96).
+"""Timetable Excel export service (Units 93, 96, 117).
 
 Renders the current *saved* timetable state into the fixed Campion timetable
 ``.xlsx`` template. The static template (``export_templates/
@@ -222,29 +222,36 @@ def _require_lecturer(session: Session) -> object:
     return lecturer
 
 
-def _session_label(session: Session, tutorial_letter: str | None) -> str:
+def _session_label(session: Session, letter: str | None) -> str:
     lecturer = _require_lecturer(session)
     initials = lecturer_initials(lecturer.first_name, lecturer.last_name)
     code = session.unit.code
     if session.session_type == SessionType.TUTORIAL:
-        suffix = f" {tutorial_letter}" if tutorial_letter else ""
+        suffix = f" {letter}" if letter else ""
         return f"{code} Tutorial{suffix} ({initials})"
+    if session.session_type == SessionType.SEMINAR:
+        suffix = f" {letter}" if letter else ""
+        return f"{code} Seminar{suffix} ({initials})"
     return f"{code} Lecture ({initials})"
 
 
-# --- Tutorial lettering ------------------------------------------------------
+# --- Tutorial / seminar lettering --------------------------------------------
 
 
-def _tutorial_letters(assignments: list[TimetableAssignment]) -> dict[str, str]:
-    """Assign export-only tutorial letters per unit, in timetable order.
+def _order_letters(
+    assignments: list[TimetableAssignment], session_type: SessionType
+) -> dict[str, str]:
+    """Assign export-only order letters (A, B, C…) per unit, in timetable order.
 
     Order: day (Mon-Fri), start slot (s1-s7), room (fixed template order),
-    then stable session id as the final tie-breaker. Only exported tutorials
-    consume letters.
+    then stable session id as the final tie-breaker. Only exported sessions of
+    the given type consume letters, so each session type gets an independent
+    per-unit A/B/C… series (mirroring the frontend Unit 116 letters). Call once
+    per type.
     """
     by_unit: dict[str, list[TimetableAssignment]] = {}
     for a in assignments:
-        if a.session.session_type == SessionType.TUTORIAL:
+        if a.session.session_type == session_type:
             by_unit.setdefault(a.session.unit_id, []).append(a)
 
     letters: dict[str, str] = {}
@@ -261,6 +268,16 @@ def _tutorial_letters(assignments: list[TimetableAssignment]) -> dict[str, str]:
         for index, a in enumerate(ordered):
             letters[a.session_id] = chr(ord("A") + index)
     return letters
+
+
+def _tutorial_letters(assignments: list[TimetableAssignment]) -> dict[str, str]:
+    """Export-only tutorial letters per unit, in timetable order."""
+    return _order_letters(assignments, SessionType.TUTORIAL)
+
+
+def _seminar_letters(assignments: list[TimetableAssignment]) -> dict[str, str]:
+    """Export-only seminar letters per unit, independent of tutorial letters."""
+    return _order_letters(assignments, SessionType.SEMINAR)
 
 
 # --- Block rectangle merging -------------------------------------------------
@@ -404,6 +421,7 @@ def generate_timetable_export(db: DBSession, title: str) -> io.BytesIO:
     )
 
     tutorial_letters = _tutorial_letters(assignments)
+    seminar_letters = _seminar_letters(assignments)
 
     # Write classes (saved scheduled assignments only).
     for a in assignments:
@@ -412,7 +430,13 @@ def generate_timetable_export(db: DBSession, title: str) -> io.BytesIO:
         top, col = cell_anchor(a.day.value, room_name, a.start_slot.value)
         _, bottom = _slot_row_span(a.start_slot.value, session.duration)
         style_name = _class_style_name(session.unit.code)
-        label = _session_label(session, tutorial_letters.get(a.session_id))
+        if session.session_type == SessionType.TUTORIAL:
+            letter = tutorial_letters.get(a.session_id)
+        elif session.session_type == SessionType.SEMINAR:
+            letter = seminar_letters.get(a.session_id)
+        else:
+            letter = None
+        label = _session_label(session, letter)
         _paint(ws, top, col, bottom, col, style_name, label)
 
     _write_blocks(db, ws)

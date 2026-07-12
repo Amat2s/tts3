@@ -20,7 +20,6 @@ This includes a few things:
 
 - When the Generate Timetable runs, it checks the last saved timetable. If the session is saved on the last one, it will try to leave it where it was. This is a soft constraint.
 
-
 ## Bug fixes/ UX problems
 
 - Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
@@ -28,7 +27,6 @@ This includes a few things:
 
 ## FINAL THINGS
 
-- Add seminars to session types, same function as tutorials, but they don't overlap their student sorting  
+- Add seminars to session types, same function as tutorials, but they don't overlap their student sorting
 
 - Remove /sign-up page, add trusted emails, enable RLS
-

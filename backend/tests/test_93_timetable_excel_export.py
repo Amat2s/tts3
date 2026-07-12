@@ -376,6 +376,74 @@ def test_unscheduled_tutorials_do_not_consume_letters(db):
     assert ws["B6"].value == "THE202 Tutorial A (LH)"
 
 
+def test_seminar_label_with_letter(db):
+    rooms = base_rooms(db)
+    unit = make_unit(db, code="THE202")
+    lec = make_lecturer(db, first="Luke", last="Holohan")
+    # Two seminars of the same unit -> lettered A/B in timetable order.
+    sem_mon = make_session(db, "sem-mon", unit, lec, SessionType.SEMINAR, duration=1)
+    sem_tue = make_session(db, "sem-tue", unit, lec, SessionType.SEMINAR, duration=1)
+    make_assignment(db, "a-mon", sem_mon, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["PDS"])
+    make_assignment(db, "a-tue", sem_tue, AvailabilityDay.TUESDAY, AvailabilitySlot.S1, rooms["PDS"])
+
+    _, ws = load_ws(ex.generate_timetable_export(db, "T"))
+    assert ws["B6"].value == "THE202 Seminar A (LH)"   # Monday PDS s1
+    assert ws["J6"].value == "THE202 Seminar B (LH)"   # Tuesday PDS s1
+
+
+def test_lone_seminar_gets_letter_a(db):
+    rooms = base_rooms(db)
+    unit = make_unit(db, code="THE202")
+    lec = make_lecturer(db, first="Luke", last="Holohan")
+    sem = make_session(db, "sem", unit, lec, SessionType.SEMINAR, duration=1)
+    make_assignment(db, "a1", sem, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["PDS"])
+
+    _, ws = load_ws(ex.generate_timetable_export(db, "T"))
+    # A lone seminar is lettered "A", exactly mirroring the tutorial rule and
+    # the frontend Unit 116 card (computeSeminarLetters) so export and on-card
+    # letters agree.
+    assert ws["B6"].value == "THE202 Seminar A (LH)"
+
+
+def test_seminar_letters_independent_of_tutorial_letters(db):
+    rooms = base_rooms(db)
+    unit = make_unit(db, code="THE202")
+    lec = make_lecturer(db, first="Luke", last="Holohan")
+    # A unit with two tutorials and two seminars gets Tutorial A/B and Seminar
+    # A/B on independent per-unit counters.
+    t_mon = make_session(db, "t-mon", unit, lec, SessionType.TUTORIAL, duration=1)
+    t_tue = make_session(db, "t-tue", unit, lec, SessionType.TUTORIAL, duration=1)
+    sem_mon = make_session(db, "sem-mon", unit, lec, SessionType.SEMINAR, duration=1)
+    sem_tue = make_session(db, "sem-tue", unit, lec, SessionType.SEMINAR, duration=1)
+    make_assignment(db, "at-mon", t_mon, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["L1.05"])
+    make_assignment(db, "at-tue", t_tue, AvailabilityDay.TUESDAY, AvailabilitySlot.S1, rooms["L1.05"])
+    make_assignment(db, "as-mon", sem_mon, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["PDS"])
+    make_assignment(db, "as-tue", sem_tue, AvailabilityDay.TUESDAY, AvailabilitySlot.S1, rooms["PDS"])
+
+    _, ws = load_ws(ex.generate_timetable_export(db, "T"))
+    assert ws["C6"].value == "THE202 Tutorial A (LH)"   # Monday L1.05 s1
+    assert ws["K6"].value == "THE202 Tutorial B (LH)"   # Tuesday L1.05 s1
+    assert ws["B6"].value == "THE202 Seminar A (LH)"    # Monday PDS s1
+    assert ws["J6"].value == "THE202 Seminar B (LH)"    # Tuesday PDS s1
+
+
+def test_seminar_uses_subject_class_style(db):
+    rooms = base_rooms(db)
+    unit = make_unit(db, code="HIS101")
+    lec = make_lecturer(db)
+    # A seminar and a lecture of the same unit share the subject class style.
+    sem = make_session(db, "sem", unit, lec, SessionType.SEMINAR, duration=1)
+    lec_s = make_session(db, "lec", unit, lec, SessionType.LECTURE, duration=1)
+    make_assignment(db, "a-sem", sem, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["PDS"])
+    make_assignment(db, "a-lec", lec_s, AvailabilityDay.MONDAY, AvailabilitySlot.S1, rooms["L1.05"])
+
+    _, ws = load_ws(ex.generate_timetable_export(db, "T"))
+    # Same subject prefix -> identical class fill (no seminar-specific style).
+    assert ws["B6"].value == "HIS101 Seminar A (SC)"
+    assert ws["B6"].fill.fgColor.theme == ws["C6"].fill.fgColor.theme
+    assert round(ws["B6"].fill.fgColor.tint, 4) == round(ws["C6"].fill.fgColor.tint, 4)
+
+
 def test_lecturer_initials_helper():
     assert ex.lecturer_initials("Steve", "Chavura") == "SC"
     assert ex.lecturer_initials("luke", "holohan") == "LH"
