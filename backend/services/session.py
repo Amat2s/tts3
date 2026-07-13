@@ -116,20 +116,23 @@ def delete_session(db: DBSession, session_id: str) -> None:
     session = _require_session(db, session_id)
     unit_id = session.unit_id
     db.delete(session)
+    # Narrowly convert only a delete/flush integrity failure into a 409: a
+    # session still referenced elsewhere (no cascade) surfaces here. Rebalance
+    # and commit stay outside so their failures propagate as themselves rather
+    # than being mislabelled a dependency block.
     try:
-        # The deleted session's allocation rows cascade away; rebalance so a
-        # removed tutorial's students are redistributed across the remaining
-        # tutorials.
         db.flush()
-        rebalance_unit_session_allocations(db, unit_id)
-        db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
         raise AppError(
             "session_delete_blocked",
             "Can't delete this session yet — it's still referenced elsewhere.",
             status_code=409,
-        )
+        ) from err
+    # The deleted session's allocation rows cascade away; rebalance so a removed
+    # tutorial's students are redistributed across the remaining tutorials.
+    rebalance_unit_session_allocations(db, unit_id)
+    db.commit()
 
 
 def list_schedulable_sessions(db: DBSession) -> list[SchedulableSessionResponse]:

@@ -1,4 +1,4 @@
-"""Hidden session-student allocation service (Unit 60).
+"""Hidden session-student allocation service (Unit 60, extended Unit 115).
 
 Allocations are system-owned: there is no API route to view or edit them. This
 module is the sole writer. The public entry point is
@@ -9,10 +9,12 @@ Rules implemented here:
   - Lecture sessions allocate *every* student enrolled in the parent unit.
   - When at least one tutorial session exists, every enrolled student is
     allocated to exactly one tutorial session, with groups kept as even as
-    possible.
+    possible. Seminars follow the identical rule as a second, independent
+    partition — a student's tutorial and seminar group memberships are computed
+    with no reference to each other and may coincidentally overlap.
   - Allocation is deterministic (stable ordering by student id and session id),
-    never truly random, and preserves existing tutorial placements where doing
-    so does not break the target even distribution — so repeated edits move the
+    never truly random, and preserves existing placements where doing so does
+    not break the target even distribution — so repeated edits move the
     smallest practical number of students.
 
 Allocation refresh does NOT commit: it mutates the session within the caller's
@@ -66,21 +68,23 @@ def _reconcile(
         )
 
 
-def _tutorial_target(
-    tutorial_session_ids: list[str],
+def _group_target(
+    session_ids: list[str],
     enrolled: set[str],
     existing_by_session: dict[str, set[str]],
 ) -> dict[str, set[str]]:
-    """Compute the desired even tutorial membership, preserving placements.
+    """Compute a balanced, stable partition of ``enrolled`` across ``session_ids``.
 
-    Each enrolled student ends up in exactly one tutorial session. Existing valid
-    placements are kept where they do not break the target distribution; only the
-    surplus needed to even the groups is moved.
+    Each enrolled student ends up in exactly one of the given sessions. Existing
+    valid placements are kept where they do not break the target distribution;
+    only the surplus needed to even the groups is moved. Type-agnostic: used for
+    both tutorial and seminar partitions (Unit 115), invoked independently per
+    type so the two never influence each other.
     """
-    if not tutorial_session_ids:
+    if not session_ids:
         return {}
 
-    tut_ids = sorted(tutorial_session_ids)
+    tut_ids = sorted(session_ids)
 
     # 1. Deduplicate existing placements: keep each enrolled student in exactly
     #    one tutorial (the lowest session id), drop the rest as part of the diff.
@@ -134,6 +138,7 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
     sessions = db.query(Session).filter(Session.unit_id == unit_id).all()
     lecture_ids = [s.id for s in sessions if s.session_type == SessionType.LECTURE]
     tutorial_ids = [s.id for s in sessions if s.session_type == SessionType.TUTORIAL]
+    seminar_ids = [s.id for s in sessions if s.session_type == SessionType.SEMINAR]
 
     all_ids = [s.id for s in sessions]
     existing = (
@@ -161,13 +166,24 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
 
     # Tutorials: evenly divide enrolled students across the tutorial sessions.
     tutorial_id_set = set(tutorial_ids)
-    tutorial_target = _tutorial_target(tutorial_ids, enrolled, existing_by_session)
+    tutorial_target = _group_target(tutorial_ids, enrolled, existing_by_session)
     tutorial_rows = {
         pair: row
         for pair, row in rows_by_pair.items()
         if pair[0] in tutorial_id_set
     }
     _reconcile(db, tutorial_target, tutorial_rows)
+
+    # Seminars: a second, independent even partition — computed with no
+    # reference to the tutorial target, reconciled only against seminar rows.
+    seminar_id_set = set(seminar_ids)
+    seminar_target = _group_target(seminar_ids, enrolled, existing_by_session)
+    seminar_rows = {
+        pair: row
+        for pair, row in rows_by_pair.items()
+        if pair[0] in seminar_id_set
+    }
+    _reconcile(db, seminar_target, seminar_rows)
 
     db.flush()
 

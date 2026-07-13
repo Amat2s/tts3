@@ -39,3 +39,41 @@ describe('ScheduledSessionCard — multi-slot height', () => {
     expect(card).toHaveStyle({ height: `calc(3 * ${SLOT_HEIGHT_REM}rem + 2px)` })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Seminar labels (Unit 116)
+// ---------------------------------------------------------------------------
+describe('ScheduledSessionCard — stacked abbreviated label', () => {
+  it('renders "SEM A" and "(initials)" on separate lines when an order letter is supplied', () => {
+    render(
+      <DndContext>
+        <ScheduledSessionCard
+          assignment={makeAssignment({
+            session_type: 'seminar',
+            lecturer_display_name: 'Dr. Ada Lovelace',
+          })}
+          colorTokens={TOKENS}
+          orderLetter="A"
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('SEM A')).toBeInTheDocument()
+    expect(screen.getByText('(AL)')).toBeInTheDocument()
+  })
+
+  it('renders "SEM" with no letter when it is the only seminar in its unit', () => {
+    render(
+      <DndContext>
+        <ScheduledSessionCard
+          assignment={makeAssignment({
+            session_type: 'seminar',
+            lecturer_display_name: 'Dr. Ada Lovelace',
+          })}
+          colorTokens={TOKENS}
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('SEM')).toBeInTheDocument()
+    expect(screen.getByText('(AL)')).toBeInTheDocument()
+  })
+})

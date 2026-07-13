@@ -22,6 +22,15 @@ const SESSION_TUT = makeSchedulableSession({
   lecturer_display_name: 'Prof. Turing',
 })
 
+const SESSION_SEM = makeSchedulableSession({
+  session_id: 'sess-3',
+  unit_code: 'THE202',
+  session_type: 'seminar',
+  duration: 1,
+  student_count: 6,
+  lecturer_display_name: 'Fr. Alan Turing',
+})
+
 describe('DragPreviewCard — scheduled-card shape, not unscheduled shape', () => {
   it('renders the unit code in compact form', () => {
     render(<DragPreviewCard session={SESSION} metrics={null} />)
@@ -38,6 +47,12 @@ describe('DragPreviewCard — scheduled-card shape, not unscheduled shape', () =
     render(<DragPreviewCard session={SESSION_TUT} metrics={null} />)
     expect(screen.getByText('Tut')).toBeInTheDocument()
     expect(screen.queryByText('Tutorial')).not.toBeInTheDocument()
+  })
+
+  it('renders seminar type as "Sem" not "Seminar"', () => {
+    render(<DragPreviewCard session={SESSION_SEM} metrics={null} />)
+    expect(screen.getByText('Sem')).toBeInTheDocument()
+    expect(screen.queryByText('Seminar')).not.toBeInTheDocument()
   })
 
   it('renders lecturer display name', () => {

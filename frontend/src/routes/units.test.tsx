@@ -236,7 +236,7 @@ describe('UnitsPage post-v1 unit modal', () => {
     expect(within(dialog).getByText('Theology · Pink · Year 3')).toBeVisible()
   })
 
-  it('offers only Lecture/Tutorial and clamps duration to 1-4 hours', async () => {
+  it('offers only Lecture/Tutorial/Seminar and clamps duration to 1-4 hours', async () => {
     const { user, dialog } = await openCreateDialog()
 
     await user.click(within(dialog).getByRole('checkbox', { name: /Ada Lovelace/ }))
@@ -257,8 +257,55 @@ describe('UnitsPage post-v1 unit modal', () => {
     await user.click(within(dialog).getByText('Lecture'))
     expect(await screen.findByRole('option', { name: 'Lecture' })).toBeVisible()
     expect(screen.getByRole('option', { name: 'Tutorial' })).toBeVisible()
+    expect(screen.getByRole('option', { name: 'Seminar' })).toBeVisible()
     expect(screen.queryByRole('option', { name: 'Lab' })).not.toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'Workshop' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Unit 116: seminar session type surfaces', () => {
+  it('creates a seminar session from the sessions side', async () => {
+    vi.mocked(createUnit).mockResolvedValue(
+      makeUnit({ id: 'unit-9', code: 'HIS101', name: 'Ancient History' })
+    )
+    vi.mocked(createUnitSession).mockResolvedValue(makeSessionDto({ session_type: 'seminar' }))
+
+    const { user, dialog } = await openCreateDialog()
+    await user.type(within(dialog).getByLabelText('Unit code'), 'HIS101')
+    await user.type(within(dialog).getByLabelText('Unit name'), 'Ancient History')
+    await user.click(within(dialog).getByRole('checkbox', { name: /Ada Lovelace/ }))
+    await user.click(within(dialog).getByRole('button', { name: /Add session/ }))
+
+    await user.click(within(dialog).getByText('Lecture'))
+    await user.click(await screen.findByRole('option', { name: 'Seminar' }))
+
+    await user.click(within(dialog).getByRole('button', { name: 'Create unit' }))
+
+    await waitFor(() => expect(createUnit).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(createUnitSession).toHaveBeenCalledWith(
+        'unit-9',
+        expect.objectContaining({ session_type: 'seminar' })
+      )
+    )
+  })
+
+  it('edits an existing session to the seminar type', async () => {
+    mockListUnitSessions.mockResolvedValue([makeSessionDto()])
+    vi.mocked(mockUpdateSession).mockResolvedValue(makeSessionDto({ session_type: 'seminar' }))
+
+    const { user, dialog } = await openEditDialog()
+
+    await user.click(within(dialog).getByText('Lecture'))
+    await user.click(await screen.findByRole('option', { name: 'Seminar' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(mockUpdateSession).toHaveBeenCalledWith(
+        'sess-1',
+        expect.objectContaining({ session_type: 'seminar' })
+      )
+    )
   })
 })
 

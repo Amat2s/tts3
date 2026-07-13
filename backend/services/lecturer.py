@@ -105,7 +105,7 @@ def delete_lecturer(db: Session, lecturer_id: str) -> None:
             "lecturer_delete_blocked",
             "Can't delete this lecturer yet — they're still referenced elsewhere.",
             status_code=409,
-        )
+        ) from None
 
 
 def delete_all_lecturers(db: Session) -> int:
@@ -145,7 +145,7 @@ def delete_all_lecturers(db: Session) -> int:
             "lecturer_delete_blocked",
             "Can't delete all lecturers yet — some are still referenced elsewhere.",
             status_code=409,
-        )
+        ) from None
     return count
 
 

@@ -14,6 +14,7 @@ class LecturerTitle(str, enum.Enum):
     MRS = "Mrs"
     DR = "Dr"
     FR = "Fr"
+    REV_DR = "Rev. Dr"
     ASSOC_PROF = "A/Prof."
     PROF = "Prof."
 

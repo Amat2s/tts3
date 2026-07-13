@@ -242,18 +242,36 @@ the grid box only.
 
 ### Scheduled session card label
 
-A scheduled session card's type line reads `Lecture (INITIALS)` or
-`Tutorial [LETTER] (INITIALS)` — matching the Unit 93 Excel export's session label
-(`_session_label` in `services/timetable_excel_export.py`) — sitting next to the
-bold unit code, so the card reads e.g. `HIS101 Lecture (SC)` / `THE202 Tutorial A (LH)`.
-Lecturer initials are derived client-side from `lecturer_display_name`
-(`lib/lecturerInitials.ts`, dropping the leading title token). The tutorial order
-letter is computed client-side per unit (`features/timetable/tutorialLetters.ts`),
+A scheduled session card stacks its text on **three left-aligned lines** so it fits the
+narrow grid cell: the bold **unit code** on top (e.g. `HIS101`), an **abbreviated type
+line** below (`LEC`, `TUT [LETTER]`, or `SEM [LETTER]` — e.g. `TUT A`, `SEM A`), and the
+**lecturer initials in parentheses** at the bottom (e.g. `(SC)`). The abbreviated on-card
+type differs from the Unit 93/117 Excel export's fuller session label (`_session_label` in
+`services/timetable_excel_export.py`, `Lecture`/`Tutorial X`/`Seminar X`); the export
+label is unchanged, only the on-card presentation is condensed. Lecturer initials are
+derived client-side from `lecturer_display_name` (`lib/lecturerInitials.ts`, dropping the
+leading title token). The tutorial and seminar order letters are each computed client-side
+per unit (`features/timetable/tutorialLetters.ts`,
+`computeTutorialLetters`/`computeSeminarLetters` sharing one ordering implementation),
 ordered by day, start slot, then the fixed export room order, mirroring — but computed
 independently from — the export-only letters the backend assigns at export time; letters
 can therefore differ between the editor and a given export when the draft has unsaved
-tutorial placements. The separate full lecturer-name line was removed in favour of this
-single combined label.
+tutorial/seminar placements. Seminar letters are their own independent A/B/C… series per
+unit — never sharing a counter with tutorial letters, so a unit with both starts each
+series at A.
+
+The three text lines are **centre-aligned** and sized in **container-query units (`cqw`)**
+against the card's own width (the card sets `container-type: inline-size`), each wrapped in
+a `clamp()` floor and ceiling, so the text auto-shrinks in the contracted grid and grows
+(capped) in the extended grid and the 6-character unit code always fits at any column
+width. The **unschedule cross** is absolutely positioned in the top-right corner and hidden
+at rest (revealed only on hover, keyboard focus, or when the card is selected for a move),
+so the resting text spans the full cell width and is never pushed aside by the cross.
+
+The card's coloured **left-border accent** is `4px` in the extended layout and halves to
+`2px` in the contracted (default) layout so it stays proportional in the narrower cells;
+the `extended` flag is threaded `TimetableGrid → GridCell → ScheduledSessionCard` for this
+(the font sizing needs no such prop — `cqw` handles it).
 
 ## AI / Solver Accent Variants
 

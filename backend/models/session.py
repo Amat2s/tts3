@@ -13,6 +13,9 @@ class SessionType(str, enum.Enum):
     # are migrated to tutorial (see migration 0011).
     LECTURE = "lecture"
     TUTORIAL = "tutorial"
+    # Unit 115: seminars behave like tutorials for allocation purposes but are
+    # partitioned independently (see services/session_allocation.py).
+    SEMINAR = "seminar"
 
 
 class Session(Base):

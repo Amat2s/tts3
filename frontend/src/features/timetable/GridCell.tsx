@@ -12,9 +12,9 @@ interface GridCellProps {
   roomId: string
   isDayBoundary?: boolean
   assignment?: TimetableAssignment
-  // Excel-export-style tutorial order letter ("Tutorial A") for this cell's
-  // assignment, if it is a tutorial. Undefined for lectures.
-  tutorialLetter?: string
+  // Excel-export-style order letter ("Tutorial A" / "Seminar A") for this
+  // cell's assignment, if it is a tutorial or seminar. Undefined for lectures.
+  orderLetter?: string
   // Unit 85: a reserved (blocked) cell, rendered passively below the session
   // layer. Placement validation against blocks lives in lib/validation/blocking.
   blockedCell?: BlockedCell | null
@@ -33,6 +33,10 @@ interface GridCellProps {
   // search). View-only de-emphasis — the card stays in place.
   isDimmed?: boolean
   editingDisabled?: boolean
+  // Unit 103: extended (wider) grid layout — forwarded to the session card so
+  // its coloured left border stays full-width in extended and halves when
+  // contracted.
+  extended?: boolean
   isHoverHighlighted?: boolean
   // Unit 86/110: block-selection mode. When active, clicking any cell toggles
   // its membership in the block selection (neutral <-> selected) instead of
@@ -51,7 +55,7 @@ export function GridCell({
   roomId,
   isDayBoundary = false,
   assignment,
-  tutorialLetter,
+  orderLetter,
   blockedCell,
   blockRoomSpan,
   blockSlotSpan,
@@ -63,6 +67,7 @@ export function GridCell({
   hasWarning = false,
   isDimmed = false,
   editingDisabled = false,
+  extended = false,
   isHoverHighlighted = false,
   blockSelectionMode = false,
   isBlockSelected = false,
@@ -143,11 +148,12 @@ export function GridCell({
       {assignment && (
         <ScheduledSessionCard
           assignment={assignment}
-          tutorialLetter={tutorialLetter}
+          orderLetter={orderLetter}
           colorTokens={getSubjectTokens(assignment.unit_code)}
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}
           isDimmed={isDimmed}
+          extended={extended}
           // In block mode the card must not absorb clicks or drags — block
           // selection over an occupied cell is allowed (it unschedules on save).
           editingDisabled={editingDisabled || blockSelectionMode}

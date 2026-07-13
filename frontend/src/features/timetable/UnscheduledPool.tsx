@@ -14,6 +14,7 @@ import {
   EMPTY_UNSCHEDULED_POOL_FILTERS,
   filterUnscheduledSessions,
   unscheduledPoolFiltersActive,
+  withEvenSplitDisplayCounts,
   type UnscheduledPoolFilters,
 } from './unscheduledPoolView'
 import { sessionMatchesSearch, type StudentSearchIndex } from './sessionFilter'
@@ -70,10 +71,20 @@ export function UnscheduledPool({
     }
     return map
   }, [units])
+  // Recompute tutorial/seminar card counts as the intended even split of each
+  // unit's cohort (lectures keep the whole cohort), independent of the hidden
+  // allocation rows. Display-only — the drop/validation path uses the raw
+  // `sessions`. Falls back to raw counts when unit enrolment is unavailable.
+  const displaySessions = useMemo(() => {
+    if (!units) return sessions
+    const enrolment = new Map<string, number>()
+    for (const unit of units) enrolment.set(unit.id, unit.students.length)
+    return withEvenSplitDisplayCounts(sessions, enrolment)
+  }, [sessions, units])
   const externalQuery = externalSearch?.trim() ?? ''
   const filteredSessions = useMemo(() => {
     const base = filterUnscheduledSessions(
-      sessions,
+      displaySessions,
       filters,
       unitTeachingTeams,
       studentIndex
@@ -89,7 +100,7 @@ export function UnscheduledPool({
         unitTeachingTeams?.get(session.unit_id)
       )
     )
-  }, [filters, sessions, unitTeachingTeams, studentIndex, externalQuery])
+  }, [filters, displaySessions, unitTeachingTeams, studentIndex, externalQuery])
   const unitBuckets = useMemo(
     () => buildUnitBuckets(filteredSessions),
     [filteredSessions]

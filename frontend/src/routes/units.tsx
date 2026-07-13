@@ -72,6 +72,7 @@ import type { UnitFilters } from '@/features/units/filters'
 const SESSION_TYPES: { value: SessionType; label: string }[] = [
   { value: 'lecture', label: 'Lecture' },
   { value: 'tutorial', label: 'Tutorial' },
+  { value: 'seminar', label: 'Seminar' },
 ]
 
 const MIN_DURATION = 1
@@ -907,13 +908,24 @@ export default function UnitsPage() {
         // create sessions newly added in the form
         ...sessions
           .filter((s) => !s.backendId)
-          .map((s) =>
-            createUnitSession(id, {
+          .map(async (s) => {
+            const created = await createUnitSession(id, {
               session_type: s.session_type,
               duration: s.duration,
               lecturer_id: s.lecturer_id || null,
             })
-          ),
+            // Stamp the new backendId onto the matching form row (keyed by its
+            // stable client id) the moment the create resolves. If a sibling
+            // create/update later rejects, this row already carries a backendId
+            // so a retry updates it in place instead of creating a duplicate,
+            // and the onError reconciliation matches it rather than re-appending.
+            setEditForm((prev) => ({
+              ...prev,
+              sessions: prev.sessions.map((row) =>
+                row.id === s.id ? { ...row, backendId: created.id } : row
+              ),
+            }))
+          }),
       ])
 
       return id

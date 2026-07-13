@@ -89,7 +89,7 @@ describe('LecturersPage — title selector (Unit 72/73/75)', () => {
     // Open the Title select.
     await user.click(within(dialog).getByText('Select a title'))
 
-    const expected = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'A/Prof.', 'Prof.']
+    const expected = ['Mr', 'Ms', 'Mrs', 'Dr', 'Fr', 'Rev. Dr', 'A/Prof.', 'Prof.']
     for (const title of expected) {
       expect(await screen.findByRole('option', { name: title })).toBeInTheDocument()
     }

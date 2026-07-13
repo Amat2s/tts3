@@ -10,9 +10,15 @@ export function getLecturerInitials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return ''
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  // Titles ("Dr", "A/Prof.", "Prof.") are always a single leading token, so a
-  // name with 3+ parts has a title to drop; a 2-part name has none.
-  const rest = parts.length >= 3 ? parts.slice(1) : parts
+  // Most titles ("Dr", "A/Prof.", "Prof.") are a single leading token, but
+  // "Rev. Dr" is two tokens — drop both when we see it. Otherwise a name with
+  // 3+ parts has a single title token to drop; a 2-part name has none.
+  let rest = parts
+  if (parts.length >= 4 && /^rev\.?$/i.test(parts[0]) && /^dr\.?$/i.test(parts[1])) {
+    rest = parts.slice(2)
+  } else if (parts.length >= 3) {
+    rest = parts.slice(1)
+  }
   const first = rest[0]
   const last = rest[rest.length - 1]
   return `${first[0]}${last[0]}`.toUpperCase()

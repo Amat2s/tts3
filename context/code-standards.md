@@ -16,8 +16,8 @@
 - Names imported via the unit/lecturer CSV (`services/lecturer_import.py`: lecturer `first_name`/`last_name`, unit `name`) and the student CSV (`services/student_import.py`: student `first_name`/`last_name`) are normalized to title case via the shared `services/text.py::to_title_case` before persistence, applied after row-level validation so blank-field skip checks are unaffected. This normalization is upload-only — manual create/edit forms and unit codes are unaffected.
 - Student year level must be restricted to 1-3 on create, update, and at rest.
 - Unit teaching teams use `unit_lecturers`; session lecturer identity comes from `Session.lecturer_id`, not from the unit team as a whole.
-- Session types are limited to `lecture` and `tutorial`.
-- Hidden `session_student_allocations` are the canonical per-session membership used by validation, capacity checks, and solver input. Do not expose tutorial group membership in the UI.
+- Session types are `lecture`, `tutorial`, and `seminar` (Unit 115). Seminars reuse the tutorial balanced-partition algorithm verbatim but as a second, independent partition — never coordinated with, and never cross-reconciled against, the tutorial partition.
+- Hidden `session_student_allocations` are the canonical per-session membership used by validation, capacity checks, and solver input. Do not expose tutorial or seminar group membership in the UI.
 - Treat scheduled sessions as locked by definition.
 - Do not introduce a third persistent session state beyond scheduled and unscheduled in v1.
 - Warning placements are allowed in the UI, but they must be represented as validation warnings, not as a separate persistent state. Blocking placements must be rejected before entering the frontend draft.

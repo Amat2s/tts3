@@ -95,7 +95,7 @@ def delete_student(db: Session, student_id: str) -> None:
             "student_delete_blocked",
             "Can't delete this student yet — they're still referenced elsewhere.",
             status_code=409,
-        )
+        ) from None
 
 
 def delete_all_students(db: Session) -> int:
@@ -116,5 +116,5 @@ def delete_all_students(db: Session) -> int:
             "student_delete_blocked",
             "Can't delete all students yet — some are still referenced elsewhere.",
             status_code=409,
-        )
+        ) from None
     return count

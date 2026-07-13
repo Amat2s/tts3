@@ -38,10 +38,10 @@ This application is a university timetable scheduling system for administrators.
 10. Inside each unit, the admin creates sessions.
 11. A session becomes schedulable when it has:
     - a unit
-    - a Lecture or Tutorial type
+    - a Lecture, Tutorial, or Seminar type
     - a session-level lecturer from the unit's teaching team
     - a duration
-12. Hidden session-student allocations are rebuilt from unit enrolment. Lectures include every enrolled student; tutorials divide enrolled students into balanced, stable groups. A zero-allocation session has no student-conflict constraints.
+12. Hidden session-student allocations are rebuilt from unit enrolment. Lectures include every enrolled student; tutorials divide enrolled students into balanced, stable groups. Seminars (Unit 115/116) divide enrolled students the same way, as a second, independent partition unrelated to the tutorial grouping. A zero-allocation session has no student-conflict constraints.
 13. Schedulable sessions appear underneath the timetable grid in the unscheduled pool.
 14. The unscheduled pool groups sessions by unit.
 15. The admin can drag an unscheduled session onto the timetable grid.
@@ -94,13 +94,14 @@ This application is a university timetable scheduling system for administrators.
   - enrolled students through the shared `unit_students` relationship
 - Each session has:
   - unit/course
-  - type (`lecture` or `tutorial`)
+  - type (`lecture`, `tutorial`, or `seminar` — Units 115/116)
   - one session-level lecturer selected from the unit teaching team
   - integer slot duration (displayed as hours in the UI)
 - Sessions are schedulable once they have a unit, a session-level lecturer, a supported type, and a duration.
 - Hidden session-student allocation rows are system-owned and not shown or editable in the UI.
 - Lectures allocate all enrolled unit students.
 - Tutorials allocate each enrolled student to exactly one tutorial, balanced and stable where practical.
+- Seminars allocate each enrolled student to exactly one seminar the same way, but as a second, independent partition — the tutorial and seminar groupings never coordinate and may coincidentally overlap. Seminars get their own independent order-letter series (`Seminar A/B/C…`), parallel to and never sharing a counter with tutorial letters.
 - Room requirements are not stored directly on sessions in v1.
 - Room capacity checks are derived from the session allocation count.
 - A unit code is valid only when it has the `AAA999` structure, a supported subject prefix (HIS, PHI, THE, LIT, LAN, GRE, SCI), and a derived year of 1-3.
@@ -255,7 +256,7 @@ If a room, unit, session, student, or lecturer change makes an existing schedule
 - Unit years derived from codes and student years restricted to 1-3.
 - Shared unit-student enrolment editable from unit and student management.
 - Unit teaching teams and session-level lecturers.
-- Hidden lecture/tutorial student allocations used for capacity and conflicts.
+- Hidden lecture/tutorial/seminar student allocations used for capacity and conflicts (Units 115/116).
 - Frontend-only management search and filters.
 - Main `/timetable` workspace.
 - Fixed weekly timetable grid from Monday to Friday.

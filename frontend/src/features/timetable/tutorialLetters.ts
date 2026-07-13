@@ -32,21 +32,25 @@ function roomSortIndex(
 }
 
 /**
- * Assign display-only tutorial order letters (A, B, C…) per unit, for the
- * "UNITCODE Tutorial A (INITIALS)" card label. Ordering mirrors the Unit 93
- * export's `_tutorial_letters`: day (Mon-Fri), start slot (s1-s7), room,
- * then session id as the final tie-breaker. Only tutorials consume letters.
+ * Assign display-only order letters (A, B, C…) per unit, for the
+ * "UNITCODE Tutorial A (INITIALS)" / "UNITCODE Seminar A (INITIALS)" card
+ * label. Ordering mirrors the Unit 93 export's `_tutorial_letters`: day
+ * (Mon-Fri), start slot (s1-s7), room, then session id as the final
+ * tie-breaker. Only sessions of the given type consume letters from a given
+ * call, so tutorial and seminar letters (Unit 115/116) are independent A/B/C…
+ * series that never share a counter — call once per type.
  */
-export function computeTutorialLetters(
+function computeOrderLetters(
   assignments: ReadonlyArray<TimetableAssignment>,
-  rooms: ReadonlyArray<{ id: string; name: string }>
+  rooms: ReadonlyArray<{ id: string; name: string }>,
+  sessionType: TimetableAssignment['session_type']
 ): Map<string, string> {
   const roomNameById = new Map(rooms.map((r) => [r.id, r.name]))
   const fallbackIndex = new Map(rooms.map((r, i) => [r.id, i]))
 
   const byUnit = new Map<string, TimetableAssignment[]>()
   for (const a of assignments) {
-    if (a.session_type !== 'tutorial') continue
+    if (a.session_type !== sessionType) continue
     const list = byUnit.get(a.unit_id)
     if (list) list.push(a)
     else byUnit.set(a.unit_id, [a])
@@ -70,4 +74,18 @@ export function computeTutorialLetters(
     })
   }
   return letters
+}
+
+export function computeTutorialLetters(
+  assignments: ReadonlyArray<TimetableAssignment>,
+  rooms: ReadonlyArray<{ id: string; name: string }>
+): Map<string, string> {
+  return computeOrderLetters(assignments, rooms, 'tutorial')
+}
+
+export function computeSeminarLetters(
+  assignments: ReadonlyArray<TimetableAssignment>,
+  rooms: ReadonlyArray<{ id: string; name: string }>
+): Map<string, string> {
+  return computeOrderLetters(assignments, rooms, 'seminar')
 }

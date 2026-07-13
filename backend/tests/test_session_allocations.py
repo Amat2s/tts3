@@ -109,8 +109,8 @@ def alloc_ids(db, session_id) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_session_type_only_lecture_and_tutorial():
-    assert {t.value for t in SessionType} == {"lecture", "tutorial"}
+def test_session_type_is_lecture_tutorial_seminar():
+    assert {t.value for t in SessionType} == {"lecture", "tutorial", "seminar"}
 
 
 # ---------------------------------------------------------------------------

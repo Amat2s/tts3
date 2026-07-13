@@ -193,6 +193,38 @@ describe('unscheduled pool view model', () => {
       result[1].sessions.map((session) => session.session_id)
     ).toEqual(['lecture-a', 'lecture-z', 'tutorial'])
   })
+
+  it('orders sessions lecture -> tutorial -> seminar within a unit (Unit 116)', () => {
+    const result = buildUnitBuckets([
+      makeSchedulableSession({
+        session_id: 'seminar',
+        unit_id: 'unit-1',
+        unit_code: 'HIS101',
+        session_type: 'seminar',
+        lecturer_display_name: 'A',
+      }),
+      makeSchedulableSession({
+        session_id: 'tutorial',
+        unit_id: 'unit-1',
+        unit_code: 'HIS101',
+        session_type: 'tutorial',
+        lecturer_display_name: 'A',
+      }),
+      makeSchedulableSession({
+        session_id: 'lecture',
+        unit_id: 'unit-1',
+        unit_code: 'HIS101',
+        session_type: 'lecture',
+        lecturer_display_name: 'A',
+      }),
+    ])
+
+    expect(result[0].sessions.map((session) => session.session_id)).toEqual([
+      'lecture',
+      'tutorial',
+      'seminar',
+    ])
+  })
 })
 
 describe('UnscheduledPool rendering', () => {
@@ -264,6 +296,17 @@ describe('UnscheduledPool rendering', () => {
     expect(screen.getByText('Tutorial')).toBeInTheDocument()
     expect(screen.getByText('2 hours')).toBeInTheDocument()
     expect(screen.getByText('18 students')).toBeInTheDocument()
+  })
+
+  it('renders the seminar type label (Unit 116)', () => {
+    renderPool(
+      <UnscheduledPool
+        sessions={[makeSchedulableSession({ session_type: 'seminar' })]}
+        totalSchedulableCount={1}
+      />
+    )
+
+    expect(screen.getByText('Seminar')).toBeInTheDocument()
   })
 
   it('shows a filter-empty state and clears the filters', async () => {
