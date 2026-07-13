@@ -22,14 +22,12 @@ This includes a few things:
 
 ## Bug fixes/ UX problems
 
-- Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
-- Remove cross in scheduled sessions unless hovered over or selected
+- timetable only downloads properly for excel for the web
 
 ## CAN BE DONE LATER
+
 - should not be converting unit names to title case - leave them as they are 
 
 ## FINAL THINGS
-
-- Add seminars to session types, same function as tutorials, but they don't overlap their student sorting
 
 - Remove /sign-up page, add trusted emails, enable RLS

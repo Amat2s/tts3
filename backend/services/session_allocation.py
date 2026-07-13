@@ -9,9 +9,9 @@ Rules implemented here:
   - Lecture sessions allocate *every* student enrolled in the parent unit.
   - When at least one tutorial session exists, every enrolled student is
     allocated to exactly one tutorial session, with groups kept as even as
-    possible. Seminars follow the identical rule as a second, independent
-    partition — a student's tutorial and seminar group memberships are computed
-    with no reference to each other and may coincidentally overlap.
+    possible.
+  - Seminar sessions, like lectures, allocate *every* student enrolled in the
+    parent unit to *every* seminar session (no partition).
   - Allocation is deterministic (stable ordering by student id and session id),
     never truly random, and preserves existing placements where doing so does
     not break the target even distribution — so repeated edits move the
@@ -174,10 +174,12 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
     }
     _reconcile(db, tutorial_target, tutorial_rows)
 
-    # Seminars: a second, independent even partition — computed with no
-    # reference to the tutorial target, reconciled only against seminar rows.
+    # Seminars: like lectures, every enrolled student attends every seminar
+    # session (no partition). Kept as its own block, mirroring the lecture rule,
+    # so it can be flipped back to an independent partition (_group_target) if
+    # the seminar model changes again.
     seminar_id_set = set(seminar_ids)
-    seminar_target = _group_target(seminar_ids, enrolled, existing_by_session)
+    seminar_target = {sid: set(enrolled) for sid in seminar_ids}
     seminar_rows = {
         pair: row
         for pair, row in rows_by_pair.items()
