@@ -43,8 +43,8 @@ describe('ScheduledSessionCard — multi-slot height', () => {
 // ---------------------------------------------------------------------------
 // Seminar labels (Unit 116)
 // ---------------------------------------------------------------------------
-describe('ScheduledSessionCard — seminar label', () => {
-  it('renders "Seminar A (initials)" when an order letter is supplied', () => {
+describe('ScheduledSessionCard — stacked abbreviated label', () => {
+  it('renders "SEM A" and "(initials)" on separate lines when an order letter is supplied', () => {
     render(
       <DndContext>
         <ScheduledSessionCard
@@ -57,10 +57,11 @@ describe('ScheduledSessionCard — seminar label', () => {
         />
       </DndContext>
     )
-    expect(screen.getByText('Seminar A (AL)')).toBeInTheDocument()
+    expect(screen.getByText('SEM A')).toBeInTheDocument()
+    expect(screen.getByText('(AL)')).toBeInTheDocument()
   })
 
-  it('renders "Seminar (initials)" with no letter when it is the only seminar in its unit', () => {
+  it('renders "SEM" with no letter when it is the only seminar in its unit', () => {
     render(
       <DndContext>
         <ScheduledSessionCard
@@ -72,6 +73,7 @@ describe('ScheduledSessionCard — seminar label', () => {
         />
       </DndContext>
     )
-    expect(screen.getByText('Seminar (AL)')).toBeInTheDocument()
+    expect(screen.getByText('SEM')).toBeInTheDocument()
+    expect(screen.getByText('(AL)')).toBeInTheDocument()
   })
 })
