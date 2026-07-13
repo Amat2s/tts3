@@ -237,6 +237,15 @@ def build() -> Path:
             wb.remove(ws)
     ws = keep
 
+    # The source workbook remembered the *second* of its three sheets as the
+    # first-shown tab (firstSheet=1); after dropping the other sheets that index
+    # is out of range. Desktop Excel treats the stale reference as a corrupt
+    # record — it prompts to "recover" and strips content/styling in the process
+    # — while Excel Online silently clamps it. Reset the view to the sole sheet.
+    if wb.views:
+        wb.views[0].firstSheet = 0
+        wb.views[0].activeTab = 0
+
     # Bake template-derived class/block styles BEFORE blanking the grid, while
     # the exemplar class/event cells still carry their original styles.
     _register_named_styles(ws, wb)

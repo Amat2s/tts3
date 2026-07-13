@@ -22,7 +22,7 @@ This includes a few things:
 
 ## Bug fixes/ UX problems
 
-- timetable only downloads properly for excel for the web
+- ~~timetable only downloads properly for excel for the web~~ FIXED: the export template baked an out-of-range `firstSheet="1"` workbook-view reference (source had 3 sheets, 2 removed by `build_template.py`); desktop Excel treated it as corrupt and repaired/stripped content while Excel Online clamped it silently. Reset the workbook view in `build_template.py` (+ regenerated template) and defensively in the export service. The export sheet tab is now named after the given timetable title (sanitized to Excel's 31-char, no `\/?*[]:` rules).
 
 ## CAN BE DONE LATER
 
