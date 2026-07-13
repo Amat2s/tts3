@@ -5,11 +5,12 @@ the whole admin path — create -> allocate -> schedule -> capacity -> solve ->
 export — through the actual services, solver, and export renderer (no new
 behaviour of its own). It proves the three slices compose:
 
-* hidden allocations give each enrolled student exactly one tutorial *and*
-  exactly one seminar, both partitions balanced and independent (Unit 115);
+* hidden allocations give each enrolled student exactly one tutorial (a
+  balanced partition) while every seminar session, like a lecture, holds the
+  whole enrolled cohort (Unit 115);
 * the export renders independent ``Tutorial A/B`` and ``Seminar A/B`` letter
   series that agree with the frontend on-card letters (Units 116/117);
-* capacity is checked against the seminar's own allocated group, not the full
+* capacity is checked against the seminar's group, which is now the full
   enrolment; and
 * the solver schedules unscheduled seminars exactly like tutorials, with no
   feasibility regression and deterministic output.
@@ -142,19 +143,27 @@ def load_ws(stream: io.BytesIO):
 # ---------------------------------------------------------------------------
 
 
-def test_each_student_has_exactly_one_tutorial_and_one_seminar(db):
+def test_each_student_has_exactly_one_tutorial_and_every_seminar(db):
     unit, students = make_unit(db, 10, n_tutorials=3, n_seminars=2)
     tut_map = group_map(db, unit.id, SessionType.TUTORIAL)
-    sem_map = group_map(db, unit.id, SessionType.SEMINAR)
     assert set(tut_map.keys()) == set(students)
-    assert set(sem_map.keys()) == set(students)
+    # Every seminar session holds the whole cohort, like a lecture.
+    for sem in sessions_of(db, unit.id, SessionType.SEMINAR):
+        members = {
+            r.student_id
+            for r in db.query(SessionStudentAllocation).filter(
+                SessionStudentAllocation.session_id == sem.id
+            )
+        }
+        assert members == set(students)
 
 
-def test_both_partitions_are_balanced(db):
+def test_tutorials_balanced_and_seminars_hold_full_cohort(db):
     unit, _ = make_unit(db, 10, n_tutorials=3, n_seminars=4)
-    # 10 across 3 -> 4/3/3; 10 across 4 -> 3/3/2/2. Each balanced independently.
+    # Tutorials: 10 across 3 -> 4/3/3 (balanced partition). Seminars: every
+    # session holds the full cohort of 10, like lectures.
     assert group_sizes(db, unit.id, SessionType.TUTORIAL) == [3, 3, 4]
-    assert group_sizes(db, unit.id, SessionType.SEMINAR) == [2, 2, 3, 3]
+    assert group_sizes(db, unit.id, SessionType.SEMINAR) == [10, 10, 10, 10]
 
 
 def test_partitions_are_independent_both_directions(db):
@@ -173,7 +182,7 @@ def test_partitions_are_independent_both_directions(db):
 
 
 # ---------------------------------------------------------------------------
-# Step 5: capacity fires against the seminar's own group, not full enrolment
+# Step 5: capacity fires against the seminar's group, now the full enrolment
 # ---------------------------------------------------------------------------
 
 
@@ -188,20 +197,20 @@ def _save_one(db, session_id, room_id, slot=AvailabilitySlot.S1, day=Availabilit
     )
 
 
-def test_seminar_capacity_uses_allocated_group_not_full_enrolment(db):
-    unit, _ = make_unit(db, 10, n_tutorials=0, n_seminars=2)  # two seminars of 5
+def test_seminar_capacity_uses_full_enrolment(db):
+    unit, _ = make_unit(db, 10, n_tutorials=0, n_seminars=2)  # two seminars of 10
     base_rooms(db, capacity=100)
-    # A room that fits the group of 5 but not the full enrolment of 10.
-    db.add(Room(id="exact", name="exact", capacity=5, room_type=RoomType.TUTORIAL))
-    db.add(Room(id="tight", name="tight", capacity=4, room_type=RoomType.TUTORIAL))
+    # A seminar now holds the whole cohort, so capacity is checked against 10.
+    db.add(Room(id="exact", name="exact", capacity=10, room_type=RoomType.TUTORIAL))
+    db.add(Room(id="tight", name="tight", capacity=9, room_type=RoomType.TUTORIAL))
     db.commit()
     sem = sessions_of(db, unit.id, SessionType.SEMINAR)[0]
 
-    # capacity == group size (5) succeeds — proves it is not checked against 10.
+    # capacity == cohort size (10) succeeds.
     saved = _save_one(db, sem.id, "exact")
-    assert saved[0].student_count == 5
+    assert saved[0].student_count == 10
 
-    # capacity < group size (4 < 5) is rejected by the defensive capacity check.
+    # capacity < cohort size (9 < 10) is rejected by the defensive capacity check.
     with pytest.raises(AppError):
         _save_one(db, sem.id, "tight")
 

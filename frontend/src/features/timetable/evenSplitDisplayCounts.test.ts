@@ -35,7 +35,7 @@ describe('withEvenSplitDisplayCounts', () => {
     expect(countsById(result)).toEqual({ lec: 31, 'tut-a': 16, 'tut-b': 15 })
   })
 
-  it('partitions seminars independently of tutorials', () => {
+  it('shows the whole cohort on every seminar, like lectures', () => {
     const sessions = [
       makeSchedulableSession({ session_id: 't1', session_type: 'tutorial', student_count: 10 }),
       makeSchedulableSession({ session_id: 't2', session_type: 'tutorial', student_count: 10 }),
@@ -47,13 +47,13 @@ describe('withEvenSplitDisplayCounts', () => {
       sessions,
       new Map([['unit-1', 10]])
     )
-    // Tutorials: 10 / 2 -> 5, 5. Seminars: 10 / 3 -> 4, 3, 3.
+    // Tutorials: 10 / 2 -> 5, 5. Seminars each hold the whole cohort of 10.
     expect(countsById(result)).toEqual({
       t1: 5,
       t2: 5,
-      s1: 4,
-      s2: 3,
-      s3: 3,
+      s1: 10,
+      s2: 10,
+      s3: 10,
     })
   })
 

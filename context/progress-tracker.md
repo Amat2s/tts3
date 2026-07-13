@@ -5,6 +5,10 @@ change.
 
 ## Current Phase
 
+- **Excel export desktop-Excel corruption fix + title-named sheet tab (2026-07-13).** Bug fix: the timetable `.xlsx` download opened fine in Excel-for-web but desktop Excel prompted to "recover" it and stripped content/styling. Root cause: the export template (`backend/export_templates/campion_timetable_export_template.xlsx`) carried an out-of-range workbook-view reference `firstSheet="1"` — the source workbook had three sheets and remembered the second as the first-shown tab, but `build_template.py` removes two of the three sheets, leaving index 1 dangling. Desktop Excel treats the stale view record as corrupt (repairs + drops records); Excel Online silently clamps it. **Fix** (`export_templates/build_template.py`): after the sheet-removal loop, reset `wb.views[0].firstSheet = 0` / `activeTab = 0`, then regenerated + recommitted the template (`firstSheet` now `0`). **Defensive** (`services/timetable_excel_export.py`): the same view reset runs in `generate_timetable_export` just before save, so a future template glitch can't reintroduce the repair. **Also** (per request): the single sheet tab is now named after the given timetable **title** instead of the static `S2, 2025 Timetable ` — new `_sheet_name(title)` drops the Excel-forbidden characters `\/?*[]:` and truncates to the 31-char sheet-name limit (empty → `Timetable` fallback), so the tab name itself never triggers a repair. **Tests** (`tests/test_96_excel_export_style_parity.py`): replaced the old "sheet keeps template name" assertion with `test_one_sheet_named_after_title`, `test_sheet_name_sanitized_and_truncated`, and `test_workbook_view_references_only_sheet`; suite green (50 passed; combined export suites 78 passed). Verified on real service bytes: template + export both emit `firstSheet="0"` and reopen cleanly. `context/TODO.md` bug marked fixed. **Pending:** final confirmation is opening a regenerated export in full desktop Excel (can't drive desktop Excel from CI).
+
+- **Seminars now behave like lectures — whole cohort in every seminar (2026-07-13).** Plan change: seminars no longer split enrolled students into balanced groups; instead every enrolled student is allocated to **every** seminar session, exactly like a lecture. Deliberately kept minimal and reversible (the seminar model may change again): only two source spots changed. **Backend** (`services/session_allocation.py`): the seminar block now builds `{sid: set(enrolled) for sid in seminar_ids}` (mirroring the lecture rule) instead of calling `_group_target`; kept as its own labelled block so it can be flipped back to an independent partition later. `_group_target` and the tutorial path are untouched, and seminar reconciliation still never perturbs tutorial rows. **Frontend** (`features/timetable/unscheduledPoolView.ts`): `withEvenSplitDisplayCounts` treats `seminar` like `lecture` (whole cohort per session); tutorials still show the even split. Card/pool labels and the independent `Seminar A/B` order-letters are unchanged (letters still distinguish the multiple seminar sessions). **Tests updated to the new semantics:** `test_115_seminar_session_type.py` (every-student-in-every-seminar, all sessions hold the full cohort, add-seminar keeps full cohort, capacity checked against full cohort), `test_118_seminar_acceptance.py` (tutorials balanced + seminars hold full cohort, capacity uses full enrolment), and frontend `evenSplitDisplayCounts.test.ts` (seminars show the whole cohort). **Verification:** backend seminar + export + allocation suites pass (36 seminar tests, 30 export tests); frontend even-split/letters/pool tests pass. `context/architecture-context.md` invariant 19 rewritten (seminars mirror lectures; the mirrors-lectures rule replaced the independent-partition rule). Invariant 32 (export labels) unchanged — seminars still get independent `Seminar X` letters.
+
 - **Scheduled card: centred text + halved contracted left border (2026-07-13).** The `ScheduledSessionCard` stacked text lines are now centre-aligned (`items-center text-center`, spans `max-w-full`), and the coloured left-border accent halves from `4px` to `2px` in the contracted (default) layout while staying `4px` in the extended layout. Implemented by threading the existing `extended` flag `TimetableGrid → GridCell → ScheduledSessionCard` (font sizing still uses `cqw`, no prop needed there). `context/ui-context.md` card-label section updated. Existing card/grid/timetable tests still pass (79).
 
 - **Scheduled card: stacked auto-fitting label + corner-only cross (2026-07-13).** `ScheduledSessionCard` now stacks its text on three left-aligned lines — bold unit code (`HIS101`), abbreviated type line (`LEC`/`TUT A`/`SEM A`), then lecturer initials `(SC)` — replacing the former single combined line. The lines are sized in **container-query units** (`cqw`, card sets `container-type: inline-size`) with `clamp()` floors/ceilings, so the text auto-shrinks in the contracted grid and grows (capped) in the extended grid and the 6-char unit code always fits at any column width (no `extended` prop threaded to the card). The `✕` unschedule cross was moved to an **absolutely-positioned** top-right corner button, hidden at rest and revealed only on hover, keyboard focus, or when the card is selected for a move (`isPending`) via `group-hover:opacity-100 focus-visible:opacity-100` + `isPending ? opacity-100 : opacity-0` — so at rest the text spans the full cell width and is never pushed aside by the cross. On-card type is now abbreviated and no longer verbatim-matches the Excel export's fuller `Lecture`/`Tutorial X`/`Seminar X` label (export unchanged). `ScheduledSessionCard.test.tsx` updated (`SEM A` + `(AL)` on separate lines); `context/ui-context.md` "Scheduled session card label" section updated.
@@ -960,3 +964,35 @@ change.
   is to let it write `components.json` then add components individually via `npx shadcn@latest add`.
 - The `form` component is not available via the `base-nova` registry; it was written manually
   using the standard shadcn form pattern with `react-hook-form` and `@radix-ui/react-label`.
+
+## Security Hardening (2026-07-13)
+
+Context: locking the app down to manually-provisioned Supabase Auth users only, and
+closing the Supabase auto-exposed Data API. Prior state already had solid auth
+plumbing — every FastAPI route depends on `get_current_admin` (Supabase JWT verified
+against the project JWKS, RS256/ES256, `backend/auth/`), the internal solver endpoint
+uses a separate fail-closed shared-secret token, and the frontend guards all routes
+with `ProtectedRoute` and attaches the bearer token via `lib/api/client.ts`. The
+frontend uses Supabase only for auth (no direct `.from/.rpc/.storage` data access).
+
+- **RLS deny-all (migration `0019_enable_rls_deny_all.py`)**: RLS was disabled on all 15
+  public tables, so the browser-shipped `anon` key could read/write every row directly
+  through PostgREST, bypassing the backend entirely (Supabase critical advisor, incl.
+  sensitive-column flags on `students`, `timetable_assignments`, `session_student_allocations`).
+  Migration 0019 enables `ROW LEVEL SECURITY` + `FORCE` on every public table with **no
+  policies** (deny-by-default). The backend connects as `postgres` (`rolbypassrls = true`,
+  verified) so its access is unchanged; the frontend never used the Data API, so the app
+  is unaffected. Reversible via downgrade. **Must be applied by a human** (`alembic upgrade
+  head` from `backend/` with the target env) — not applied here because the local global
+  Python lacks `psycopg2`, and applying via the Supabase MCP would bypass Alembic bookkeeping.
+- **Sign-up removed (frontend)**: deleted `routes/signup.tsx`, its route + import in
+  `App.tsx`, and the "Create one" link (and now-unused `Link` import) in `routes/login.tsx`.
+  Frontend typechecks clean.
+- **Decision — no per-user admin gating**: per product direction, any authenticated Supabase
+  user is a full-access admin; `get_current_admin` is unchanged. Access control therefore
+  rests on (a) sign-up being disabled so only manually-provisioned accounts exist, and (b)
+  RLS closing the direct Data API path.
+- **Manual Supabase dashboard steps still required (human)**: disable "Allow new users to
+  sign up" in Auth settings (the real enforcement — the removed UI does not stop a direct
+  `POST /auth/v1/signup`); optionally enable leaked-password protection (advisor WARN) and
+  admin MFA.

@@ -1,10 +1,10 @@
-"""Tests for Unit 115: seminar session type and independent allocations.
+"""Tests for Unit 115: seminar session type and allocations.
 
-Seminars behave exactly like tutorials for hidden allocation purposes, except
-the seminar partition is a second, wholly independent partition of the same
-enrolled set — computed with no reference to the tutorial partition and never
-cross-mutating tutorial rows (or vice versa). Uses the in-memory SQLite ``db``
-fixture from conftest.
+Seminars behave like lectures for hidden allocation purposes: every enrolled
+student is allocated to every seminar session (no partition). Seminar
+allocation is independent of the tutorial partition and never cross-mutates
+tutorial rows (or vice versa). Uses the in-memory SQLite ``db`` fixture from
+conftest.
 """
 import itertools
 import os
@@ -148,17 +148,23 @@ def test_seminar_accepted_by_update(db):
 
 
 # ---------------------------------------------------------------------------
-# Seminar allocation: balanced, exactly-one membership
+# Seminar allocation: every student in every seminar (lecture-like)
 # ---------------------------------------------------------------------------
 
 
-def test_seminar_each_student_allocated_exactly_once(db):
+def test_seminar_allocates_every_student_to_every_session(db):
     unit, students = _make_unit_with(db, 10, n_seminars=3)
-    mapping = group_map(db, unit.id, SessionType.SEMINAR)
-    assert set(mapping.keys()) == set(students)
+    sem_ids = [
+        s.id
+        for s in db.query(Session).filter(
+            Session.unit_id == unit.id, Session.session_type == SessionType.SEMINAR
+        )
+    ]
+    for sid in sem_ids:
+        assert alloc_ids(db, sid) == set(students)
 
 
-def test_seminar_groups_are_even(db):
+def test_seminar_sessions_all_hold_the_full_cohort(db):
     unit, _ = _make_unit_with(db, 10, n_seminars=3)
     sem_ids = [
         s.id
@@ -167,7 +173,7 @@ def test_seminar_groups_are_even(db):
         )
     ]
     sizes = sorted(len(alloc_ids(db, sid)) for sid in sem_ids)
-    assert sizes == [3, 3, 4]
+    assert sizes == [10, 10, 10]
 
 
 def test_no_seminar_sessions_means_zero_seminar_allocation_rows(db):
@@ -237,7 +243,7 @@ def test_changing_tutorials_never_perturbs_seminars(db):
     assert group_map(db, unit.id, SessionType.SEMINAR) == sem_before
 
 
-def test_adding_seminar_rebalances_with_minimal_movement(db):
+def test_adding_seminar_keeps_full_cohort_in_every_session(db):
     unit, students = _make_unit_with(db, 8, n_seminars=1)  # all 8 in one seminar
     first_sem = next(
         s.id
@@ -247,14 +253,15 @@ def test_adding_seminar_rebalances_with_minimal_movement(db):
     )
     before_members = alloc_ids(db, first_sem)
     create_session(db, unit.id, SessionCreate(session_type=SessionType.SEMINAR, duration=1))
+    # Both seminars now hold the whole cohort; the first seminar is unchanged.
     sizes = sorted(
         len(alloc_ids(db, s.id))
         for s in db.query(Session).filter(
             Session.unit_id == unit.id, Session.session_type == SessionType.SEMINAR
         )
     )
-    assert sizes == [4, 4]
-    assert alloc_ids(db, first_sem) <= before_members
+    assert sizes == [8, 8]
+    assert alloc_ids(db, first_sem) == before_members == set(students)
 
 
 # ---------------------------------------------------------------------------
@@ -262,9 +269,9 @@ def test_adding_seminar_rebalances_with_minimal_movement(db):
 # ---------------------------------------------------------------------------
 
 
-def test_capacity_check_uses_seminar_group_not_unit_total(db):
-    unit, _ = _make_unit_with(db, 10, n_seminars=2)  # seminars of 5
-    make_room(db, "small", capacity=5)
+def test_capacity_check_uses_full_cohort_for_seminar(db):
+    unit, _ = _make_unit_with(db, 10, n_seminars=2)  # each seminar holds all 10
+    make_room(db, "big", capacity=10)
     sem = next(
         s
         for s in db.query(Session).filter(
@@ -279,12 +286,12 @@ def test_capacity_check_uses_seminar_group_not_unit_total(db):
                     session_id=sem.id,
                     day=AvailabilityDay.MONDAY,
                     start_slot=AvailabilitySlot.S1,
-                    room_id="small",
+                    room_id="big",
                 )
             ]
         ),
     )
-    assert saved[0].student_count == 5
+    assert saved[0].student_count == 10
 
 
 # ---------------------------------------------------------------------------

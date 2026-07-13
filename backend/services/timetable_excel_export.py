@@ -377,6 +377,22 @@ def _write_lecturer_key(ws: Worksheet, assignments: list[TimetableAssignment]) -
 # --- Public API --------------------------------------------------------------
 
 
+# Excel sheet-name rules: max 31 chars and none of \ / ? * [ ] : (an unsanitized
+# title would itself trigger a desktop-Excel repair). Fallback keeps a non-empty
+# name when a title sanitizes down to nothing.
+_INVALID_SHEET_CHARS = re.compile(r"[\\/?*\[\]:]")
+SHEET_NAME_FALLBACK = "Timetable"
+EXCEL_SHEET_NAME_LIMIT = 31
+
+
+def _sheet_name(title: str) -> str:
+    """The given timetable title as a valid Excel sheet (tab) name: forbidden
+    characters dropped, trimmed, and truncated to Excel's 31-char limit."""
+    cleaned = _INVALID_SHEET_CHARS.sub("", title).strip()
+    cleaned = cleaned[:EXCEL_SHEET_NAME_LIMIT].strip()
+    return cleaned or SHEET_NAME_FALLBACK
+
+
 def _load_template() -> Worksheet:
     if not EXPORT_TEMPLATE_PATH.exists():
         # Never leak the filesystem path to the caller.
@@ -406,6 +422,9 @@ def generate_timetable_export(db: DBSession, title: str) -> io.BytesIO:
 
     wb = _load_template()
     ws = wb.worksheets[0]
+
+    # Name the sheet tab after the given timetable title (sanitized for Excel).
+    ws.title = _sheet_name(cleaned)
 
     ws[TITLE_CELL] = cleaned
     ws[VERSION_CELL] = STATIC_VERSION
@@ -441,6 +460,12 @@ def generate_timetable_export(db: DBSession, title: str) -> io.BytesIO:
 
     _write_blocks(db, ws)
     _write_lecturer_key(ws, assignments)
+
+    # Defensive: ensure the workbook view never references a removed sheet, so a
+    # future template glitch can't reintroduce the desktop-Excel repair prompt.
+    if wb.views:
+        wb.views[0].firstSheet = 0
+        wb.views[0].activeTab = 0
 
     stream = io.BytesIO()
     wb.save(stream)

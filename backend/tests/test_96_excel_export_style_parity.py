@@ -111,10 +111,28 @@ def static_merges(ws) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_sheet_with_template_name(db, template_ws):
-    wb, ws = load_ws(ex.generate_timetable_export(db, "T"))
+def test_one_sheet_named_after_title(db):
+    # The single sheet tab is named after the given timetable title (sanitized
+    # for Excel), not the template's original sheet name.
+    wb, ws = load_ws(ex.generate_timetable_export(db, "Semester 2 2026"))
     assert len(wb.worksheets) == 1
-    assert ws.title == template_ws.title
+    assert ws.title == "Semester 2 2026"
+
+
+def test_sheet_name_sanitized_and_truncated(db):
+    # Forbidden Excel sheet-name characters are dropped and the name is capped at
+    # Excel's 31-char limit, so the tab name never itself triggers a repair.
+    _, ws = load_ws(ex.generate_timetable_export(db, "A/B:C*[x]?\\" + "z" * 40))
+    assert "/" not in ws.title and ":" not in ws.title and "[" not in ws.title
+    assert len(ws.title) <= 31
+
+
+def test_workbook_view_references_only_sheet(db):
+    # firstSheet/activeTab must point at the sole sheet (index 0); a stale
+    # out-of-range reference is what made desktop Excel repair the download.
+    wb, _ = load_ws(ex.generate_timetable_export(db, "T"))
+    assert wb.views[0].firstSheet in (0, None)
+    assert wb.views[0].activeTab in (0, None)
 
 
 def test_dimension_is_a1_ap40(db):
