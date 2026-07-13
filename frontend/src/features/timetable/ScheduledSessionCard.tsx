@@ -20,6 +20,10 @@ interface ScheduledSessionCardProps {
   // A view-only focus aid — the card keeps its place and stays interactive.
   isDimmed?: boolean
   editingDisabled?: boolean
+  // Unit 103: whether the grid is rendered in the wider extended layout. The
+  // contracted (default) layout halves the coloured left border so it stays
+  // proportional in the narrower cells.
+  extended?: boolean
   onUnschedule?: () => void
   onMoveSelect?: () => void
 }
@@ -46,6 +50,7 @@ export function ScheduledSessionCard({
   hasWarning = false,
   isDimmed = false,
   editingDisabled = false,
+  extended = false,
   onUnschedule,
   onMoveSelect,
 }: ScheduledSessionCardProps) {
@@ -65,12 +70,14 @@ export function ScheduledSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className="group absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1 py-0.5 flex flex-col gap-0 select-none"
+      className="group absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1 py-0.5 flex flex-col gap-0 items-center text-center select-none"
       style={{
         height: slotSpanHeight(assignment.duration),
         backgroundColor: colorTokens.background,
         borderColor: hasWarning ? 'var(--state-warning)' : colorTokens.border,
-        borderLeftWidth: '4px',
+        // Contracted view halves the coloured left accent so it stays in
+        // proportion with the narrower cells; extended keeps the full 4px.
+        borderLeftWidth: extended ? '4px' : '2px',
         outline: isPending ? `2px solid ${colorTokens.border}` : undefined,
         outlineOffset: isPending ? '1px' : undefined,
         // Dragging and pending states keep their existing emphasis; otherwise a
@@ -91,7 +98,7 @@ export function ScheduledSessionCard({
           The unschedule cross is absolutely positioned (below), so at rest the
           text spans the full width and is never pushed aside by it. */}
       <span
-        className="font-semibold leading-tight truncate"
+        className="max-w-full font-semibold leading-tight truncate"
         style={{
           color: colorTokens.text,
           fontSize: 'clamp(0.3rem, 19cqw, 0.72rem)',
@@ -100,7 +107,7 @@ export function ScheduledSessionCard({
         {assignment.unit_code}
       </span>
       <span
-        className="leading-tight truncate"
+        className="max-w-full leading-tight truncate"
         style={{
           color: 'var(--text-muted)',
           fontSize: 'clamp(0.28rem, 16cqw, 0.6rem)',
@@ -109,7 +116,7 @@ export function ScheduledSessionCard({
         {sessionTypeAbbrev(assignment, orderLetter)}
       </span>
       <span
-        className="leading-tight truncate"
+        className="max-w-full leading-tight truncate"
         style={{
           color: 'var(--text-muted)',
           fontSize: 'clamp(0.28rem, 16cqw, 0.6rem)',
@@ -119,7 +126,7 @@ export function ScheduledSessionCard({
       </span>
       {assignment.duration > 1 && (
         <span
-          className="leading-tight truncate"
+          className="max-w-full leading-tight truncate"
           style={{
             color: 'var(--text-muted)',
             fontSize: 'clamp(0.28rem, 15cqw, 0.58rem)',

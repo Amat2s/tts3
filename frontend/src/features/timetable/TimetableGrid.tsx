@@ -279,6 +279,7 @@ export function TimetableGrid({
                   isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
+                  extended={extended}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   isDimmed={a ? (dimmedSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}
@@ -359,6 +360,7 @@ export function TimetableGrid({
                   isOccupied={coveredSet.has(cellKey)}
                   pendingSessionId={pendingSessionId}
                   editingDisabled={editingDisabled}
+                  extended={extended}
                   hasWarning={a ? (warningSessionIds?.has(a.session_id) ?? false) : false}
                   isDimmed={a ? (dimmedSessionIds?.has(a.session_id) ?? false) : false}
                   isHoverHighlighted={hoverHighlightKeys?.has(cellKey) ?? false}

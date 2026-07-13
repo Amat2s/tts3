@@ -33,6 +33,10 @@ interface GridCellProps {
   // search). View-only de-emphasis — the card stays in place.
   isDimmed?: boolean
   editingDisabled?: boolean
+  // Unit 103: extended (wider) grid layout — forwarded to the session card so
+  // its coloured left border stays full-width in extended and halves when
+  // contracted.
+  extended?: boolean
   isHoverHighlighted?: boolean
   // Unit 86/110: block-selection mode. When active, clicking any cell toggles
   // its membership in the block selection (neutral <-> selected) instead of
@@ -63,6 +67,7 @@ export function GridCell({
   hasWarning = false,
   isDimmed = false,
   editingDisabled = false,
+  extended = false,
   isHoverHighlighted = false,
   blockSelectionMode = false,
   isBlockSelected = false,
@@ -148,6 +153,7 @@ export function GridCell({
           isPending={pendingSessionId === assignment.session_id}
           hasWarning={hasWarning}
           isDimmed={isDimmed}
+          extended={extended}
           // In block mode the card must not absorb clicks or drags — block
           // selection over an occupied cell is allowed (it unschedules on save).
           editingDisabled={editingDisabled || blockSelectionMode}

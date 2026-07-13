@@ -260,14 +260,18 @@ tutorial/seminar placements. Seminar letters are their own independent A/B/C… 
 unit — never sharing a counter with tutorial letters, so a unit with both starts each
 series at A.
 
-The three text lines are sized in **container-query units (`cqw`)** against the card's own
-width (the card sets `container-type: inline-size`), each wrapped in a `clamp()` floor and
-ceiling, so the text auto-shrinks in the contracted grid and grows (capped) in the extended
-grid and the 6-character unit code always fits at any column width — no `extended` prop is
-threaded to the card. The **unschedule cross** is absolutely positioned in the top-right
-corner and hidden at rest (revealed only on hover, keyboard focus, or when the card is
-selected for a move), so the resting text spans the full cell width and is never pushed
-aside by the cross.
+The three text lines are **centre-aligned** and sized in **container-query units (`cqw`)**
+against the card's own width (the card sets `container-type: inline-size`), each wrapped in
+a `clamp()` floor and ceiling, so the text auto-shrinks in the contracted grid and grows
+(capped) in the extended grid and the 6-character unit code always fits at any column
+width. The **unschedule cross** is absolutely positioned in the top-right corner and hidden
+at rest (revealed only on hover, keyboard focus, or when the card is selected for a move),
+so the resting text spans the full cell width and is never pushed aside by the cross.
+
+The card's coloured **left-border accent** is `4px` in the extended layout and halves to
+`2px` in the contracted (default) layout so it stays proportional in the narrower cells;
+the `extended` flag is threaded `TimetableGrid → GridCell → ScheduledSessionCard` for this
+(the font sizing needs no such prop — `cqw` handles it).
 
 ## AI / Solver Accent Variants
 
