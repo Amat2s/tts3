@@ -69,7 +69,7 @@ export function ScheduledSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className="absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
+      className="group absolute inset-x-0 top-0 rounded-md border overflow-hidden z-10 px-1.5 py-1 flex flex-col gap-0.5 select-none"
       style={{
         height: slotSpanHeight(assignment.duration),
         backgroundColor: colorTokens.background,
@@ -102,7 +102,12 @@ export function ScheduledSessionCard({
         <div className="flex items-center gap-0.5 shrink-0">
           {!editingDisabled && (
             <button
-              className="flex items-center justify-center h-4 w-4 rounded-sm transition-colors"
+              // The unschedule cross stays hidden until the card is hovered,
+              // keyboard-focused, or selected for a move (isPending), so resting
+              // cards read cleanly. opacity (not display) keeps it focusable.
+              className={`flex items-center justify-center h-4 w-4 rounded-sm transition-opacity focus-visible:opacity-100 group-hover:opacity-100 ${
+                isPending ? 'opacity-100' : 'opacity-0'
+              }`}
               style={{ color: 'var(--text-muted)' }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={handleUnschedule}

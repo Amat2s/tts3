@@ -23,6 +23,10 @@ This includes a few things:
 ## Bug fixes/ UX problems
 
 - Smaller text in scheduled blocks, check that they actually have the right format in the /timetable (UNITCODE CLASSTYPE [ORDER] (LECTURERINITIALS))
+- Remove cross in scheduled sessions unless hovered over or selected
+
+## CAN BE DONE LATER
+- should not be converting unit names to title case - leave them as they are 
 
 ## FINAL THINGS
 
