@@ -964,3 +964,35 @@ change.
   is to let it write `components.json` then add components individually via `npx shadcn@latest add`.
 - The `form` component is not available via the `base-nova` registry; it was written manually
   using the standard shadcn form pattern with `react-hook-form` and `@radix-ui/react-label`.
+
+## Security Hardening (2026-07-13)
+
+Context: locking the app down to manually-provisioned Supabase Auth users only, and
+closing the Supabase auto-exposed Data API. Prior state already had solid auth
+plumbing — every FastAPI route depends on `get_current_admin` (Supabase JWT verified
+against the project JWKS, RS256/ES256, `backend/auth/`), the internal solver endpoint
+uses a separate fail-closed shared-secret token, and the frontend guards all routes
+with `ProtectedRoute` and attaches the bearer token via `lib/api/client.ts`. The
+frontend uses Supabase only for auth (no direct `.from/.rpc/.storage` data access).
+
+- **RLS deny-all (migration `0019_enable_rls_deny_all.py`)**: RLS was disabled on all 15
+  public tables, so the browser-shipped `anon` key could read/write every row directly
+  through PostgREST, bypassing the backend entirely (Supabase critical advisor, incl.
+  sensitive-column flags on `students`, `timetable_assignments`, `session_student_allocations`).
+  Migration 0019 enables `ROW LEVEL SECURITY` + `FORCE` on every public table with **no
+  policies** (deny-by-default). The backend connects as `postgres` (`rolbypassrls = true`,
+  verified) so its access is unchanged; the frontend never used the Data API, so the app
+  is unaffected. Reversible via downgrade. **Must be applied by a human** (`alembic upgrade
+  head` from `backend/` with the target env) — not applied here because the local global
+  Python lacks `psycopg2`, and applying via the Supabase MCP would bypass Alembic bookkeeping.
+- **Sign-up removed (frontend)**: deleted `routes/signup.tsx`, its route + import in
+  `App.tsx`, and the "Create one" link (and now-unused `Link` import) in `routes/login.tsx`.
+  Frontend typechecks clean.
+- **Decision — no per-user admin gating**: per product direction, any authenticated Supabase
+  user is a full-access admin; `get_current_admin` is unchanged. Access control therefore
+  rests on (a) sign-up being disabled so only manually-provisioned accounts exist, and (b)
+  RLS closing the direct Data API path.
+- **Manual Supabase dashboard steps still required (human)**: disable "Allow new users to
+  sign up" in Auth settings (the real enforcement — the removed UI does not stop a direct
+  `POST /auth/v1/signup`); optionally enable leaked-password protection (advisor WARN) and
+  admin MFA.

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -137,17 +137,6 @@ export default function LoginPage() {
             </Button>
           </form>
         </div>
-
-        <p className="text-center text-sm mt-6" style={{ color: 'var(--text-secondary)' }}>
-          Don't have an account?{' '}
-          <Link
-            to="/signup"
-            className="font-medium"
-            style={{ color: 'var(--accent-primary)' }}
-          >
-            Create one
-          </Link>
-        </p>
       </div>
     </div>
   )

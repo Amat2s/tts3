@@ -10,7 +10,6 @@ import LecturersPage from '@/routes/lecturers'
 import StudentsPage from '@/routes/students'
 import UnitsPage from '@/routes/units'
 import LoginPage from '@/routes/login'
-import SignupPage from '@/routes/signup'
 
 const queryClient = new QueryClient()
 
@@ -22,7 +21,6 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
           <Route
             path="/timetable"
             element={<ProtectedRoute><TimetablePage /></ProtectedRoute>}
