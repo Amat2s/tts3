@@ -952,6 +952,8 @@ change.
 - **Layout components in `src/components/layout/`**: Reusable shell components are kept
   separate from route pages and feature modules. Route pages compose layout primitives.
 
+- **Unscheduled pool shows the intended even split, not raw allocation counts**: The pool derives each tutorial/seminar card's student count as an even split of the unit's enrolment across its same-type sessions (lectures show the full cohort), via `withEvenSplitDisplayCounts` in `unscheduledPoolView.ts`. This is display-only — the drop/validation path still reads the backend's raw per-session `student_count`/`allocated_student_ids`. It keeps the pool's group sizes correct even when the hidden allocation rows are transiently out of sync (e.g. every student appearing in every tutorial). Units without loaded enrolment fall back to raw counts.
+
 ## Session Notes
 
 - shadcn 4.10.0 `init -d` fails at workspace config loading in monorepo layouts; workaround
