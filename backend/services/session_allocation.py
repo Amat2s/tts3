@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from models.session import Session, SessionType
 from models.session_allocation import SessionStudentAllocation
-from models.unit import unit_students
+from models.unit import Unit, unit_students
 
 
 def _enrolled_student_ids(db: DBSession, unit_id: str) -> set[str]:
@@ -133,6 +133,18 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
     Idempotent and robust to stale rows. Flushes within the caller's transaction
     but does not commit.
     """
+    # Serialize concurrent allocation refreshes for the same unit. Session and
+    # student creates fire in parallel (e.g. the unit modal persists its sessions
+    # with Promise.all -> one POST/transaction each). Without a per-unit lock two
+    # concurrent rebalances can each read a session list that is missing the
+    # other's just-inserted session and each allocate the whole cohort to its own
+    # tutorial, leaving every student in every tutorial with no later refresh to
+    # correct it. Locking the unit row makes the second refresh wait for the first
+    # to commit, then re-read the full session set (READ COMMITTED) and partition
+    # correctly. Guarded to Postgres so the SQLite test fixture is unaffected.
+    if db.get_bind().dialect.name == "postgresql":
+        db.query(Unit).filter(Unit.id == unit_id).with_for_update().first()
+
     enrolled = _enrolled_student_ids(db, unit_id)
 
     sessions = db.query(Session).filter(Session.unit_id == unit_id).all()
