@@ -347,7 +347,9 @@ def _apply_candidates(
         db.flush()
         # Rebalance hidden allocations for every unit that gained an enrolment so
         # new students join each lecture and one tutorial group, atomically.
-        for unit_id in affected_unit_ids:
+        # Sorted by unit id so concurrent multi-unit transactions take the
+        # per-unit advisory locks in a consistent order and cannot deadlock.
+        for unit_id in sorted(affected_unit_ids):
             rebalance_unit_session_allocations(db, unit_id)
         db.commit()
     except AppError:

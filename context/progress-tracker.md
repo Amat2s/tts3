@@ -996,3 +996,49 @@ frontend uses Supabase only for auth (no direct `.from/.rpc/.storage` data acces
   sign up" in Auth settings (the real enforcement — the removed UI does not stop a direct
   `POST /auth/v1/signup`); optionally enable leaked-password protection (advisor WARN) and
   admin MFA.
+
+## Tutorial Allocation Concurrency Race + Backfill (2026-07-17)
+
+Bug: tutorial room-capacity checks locked tutorials against the **whole unit cohort**
+instead of the specific tutorial's group size. 7 of 11 multi-tutorial units carried
+"every student in every tutorial" rows (e.g. HIS205: both tutorials held the identical
+30-student set). The frontend `withEvenSplitDisplayCounts` (display-only) masked this on
+the pool cards, but the drop/click capacity check (`timetable.tsx` → `blocking.ts`) and
+the solver snapshot both read the raw authoritative per-session counts, so both locked
+tutorials on the full cohort.
+
+**Root cause (code defect — a concurrency race), not legacy data.** The unit create/edit
+modal persists its sessions with `Promise.all` (`units.tsx` ~L857 / L893) → one parallel
+`POST /sessions` per session, each running `create_session` in its **own transaction**,
+each calling `rebalance_unit_session_allocations`. Concurrent tutorial creates race: each
+transaction reads a session list missing the sibling's just-inserted (uncommitted) tutorial,
+so each allocates the whole cohort to its own tutorial, and no later refresh corrects it.
+Confirmed by `sessions.created_at`: HIS104 (correct 16/15) had its tutorials created ~1
+minute apart; every broken unit had all its sessions created in the same millisecond.
+
+Fix (code, `services/session_allocation.py`): serialize per-unit allocation refreshes
+with a **transaction-scoped advisory lock** (`pg_advisory_xact_lock(hashtext('session_alloc:'||unit_id))`,
+guarded to Postgres so the SQLite test fixture is unaffected) at the top of
+`rebalance_unit_session_allocations`. The second concurrent refresh waits for the first to
+commit, then re-reads the full session set (READ COMMITTED) and partitions correctly. The
+allocator logic itself was already correct (`test_session_allocations.py` etc. — 36 pass;
+broader sweep 108 pass). The frontend `Promise.all` is left parallel (now safe behind the
+lock).
+
+**Important — do NOT use `SELECT ... FOR UPDATE` on the units row here.** `create_session`
+INSERTs the new session before rebalancing, and that FK insert already holds a
+`FOR KEY SHARE` lock on the parent units row. Two concurrent creates both hold that share
+lock, so upgrading to `FOR UPDATE` inside rebalance produces a **deadlock** (observed in
+prod). The advisory lock avoids this by living in a separate lock space that never
+interacts with the FK row locks.
+
+Data backfill (one-off, direct SQL): re-partitioned the 7 already-broken units' tutorial
+allocations in a transaction (delete stale rows → insert an even round-robin split, each
+enrolled student in exactly one tutorial). Verified every tutorial unit now has
+`total_alloc == enrolled` and zero students in multiple tutorials (HIS205 15/15, LIT204
+15/14, etc.); HIS104 untouched. Seminars/lectures were already correct. `withEvenSplitDisplayCounts`
+is now redundant (a no-op) but left as a defensive display fallback.
+
+Note: a true concurrency regression test needs two real Postgres connections; the in-memory
+SQLite fixture serializes writes and can't exercise the race, so this is covered by the
+dialect-guarded lock + manual reasoning rather than an automated concurrency test.

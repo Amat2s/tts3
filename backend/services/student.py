@@ -54,8 +54,10 @@ def create_student(db: Session, data: StudentCreate) -> Student:
     # Refresh allocations for every unit the student was auto-enrolled into so
     # the new student joins each lecture and one tutorial group, atomically.
     db.flush()
-    for unit in matching_units:
-        rebalance_unit_session_allocations(db, unit.id)
+    # Sorted by unit id so concurrent multi-unit transactions take the per-unit
+    # advisory locks in a consistent order and cannot deadlock.
+    for unit_id in sorted(unit.id for unit in matching_units):
+        rebalance_unit_session_allocations(db, unit_id)
     db.commit()
     db.refresh(student)
     return student
@@ -86,7 +88,9 @@ def delete_student(db: Session, student_id: str) -> None:
     db.delete(student)
     try:
         db.flush()
-        for unit_id in affected_unit_ids:
+        # Sorted by unit id so concurrent multi-unit transactions take the
+        # per-unit advisory locks in a consistent order and cannot deadlock.
+        for unit_id in sorted(affected_unit_ids):
             rebalance_unit_session_allocations(db, unit_id)
         db.commit()
     except IntegrityError:
@@ -107,7 +111,9 @@ def delete_all_students(db: Session) -> int:
         db.delete(student)
     try:
         db.flush()
-        for unit_id in affected_unit_ids:
+        # Sorted by unit id so concurrent multi-unit transactions take the
+        # per-unit advisory locks in a consistent order and cannot deadlock.
+        for unit_id in sorted(affected_unit_ids):
             rebalance_unit_session_allocations(db, unit_id)
         db.commit()
     except IntegrityError:
