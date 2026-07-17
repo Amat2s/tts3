@@ -1016,13 +1016,21 @@ so each allocates the whole cohort to its own tutorial, and no later refresh cor
 Confirmed by `sessions.created_at`: HIS104 (correct 16/15) had its tutorials created ~1
 minute apart; every broken unit had all its sessions created in the same millisecond.
 
-Fix (code, `services/session_allocation.py`): take a per-unit row lock
-(`SELECT ... FOR UPDATE` on the `units` row, guarded to Postgres so the SQLite test
-fixture is unaffected) at the top of `rebalance_unit_session_allocations`. The second
-concurrent refresh now waits for the first to commit, then re-reads the full session set
-(READ COMMITTED) and partitions correctly. The allocator logic itself was already correct
-(`test_session_allocations.py` etc. — 36 pass; broader sweep 108 pass). The frontend
-`Promise.all` is left parallel (now safe behind the lock).
+Fix (code, `services/session_allocation.py`): serialize per-unit allocation refreshes
+with a **transaction-scoped advisory lock** (`pg_advisory_xact_lock(hashtext('session_alloc:'||unit_id))`,
+guarded to Postgres so the SQLite test fixture is unaffected) at the top of
+`rebalance_unit_session_allocations`. The second concurrent refresh waits for the first to
+commit, then re-reads the full session set (READ COMMITTED) and partitions correctly. The
+allocator logic itself was already correct (`test_session_allocations.py` etc. — 36 pass;
+broader sweep 108 pass). The frontend `Promise.all` is left parallel (now safe behind the
+lock).
+
+**Important — do NOT use `SELECT ... FOR UPDATE` on the units row here.** `create_session`
+INSERTs the new session before rebalancing, and that FK insert already holds a
+`FOR KEY SHARE` lock on the parent units row. Two concurrent creates both hold that share
+lock, so upgrading to `FOR UPDATE` inside rebalance produces a **deadlock** (observed in
+prod). The advisory lock avoids this by living in a separate lock space that never
+interacts with the FK row locks.
 
 Data backfill (one-off, direct SQL): re-partitioned the 7 already-broken units' tutorial
 allocations in a transaction (delete stale rows → insert an even round-robin split, each

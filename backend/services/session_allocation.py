@@ -23,12 +23,12 @@ atomic and never left partially updated. Callers own the ``commit()``.
 """
 from collections import defaultdict
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session as DBSession
 
 from models.session import Session, SessionType
 from models.session_allocation import SessionStudentAllocation
-from models.unit import Unit, unit_students
+from models.unit import unit_students
 
 
 def _enrolled_student_ids(db: DBSession, unit_id: str) -> set[str]:
@@ -139,11 +139,21 @@ def rebalance_unit_session_allocations(db: DBSession, unit_id: str) -> None:
     # concurrent rebalances can each read a session list that is missing the
     # other's just-inserted session and each allocate the whole cohort to its own
     # tutorial, leaving every student in every tutorial with no later refresh to
-    # correct it. Locking the unit row makes the second refresh wait for the first
-    # to commit, then re-read the full session set (READ COMMITTED) and partition
+    # correct it.
+    #
+    # We use a transaction-scoped *advisory* lock rather than SELECT ... FOR UPDATE
+    # on the units row: the caller has already INSERTed the new session, which
+    # holds a FOR KEY SHARE lock on the parent units row, so two concurrent
+    # transactions both hold that share lock and upgrading it to FOR UPDATE
+    # deadlocks. An advisory lock lives in its own lock space (no interaction with
+    # the FK row locks), so the second refresh simply waits for the first to
+    # commit, then re-reads the full session set (READ COMMITTED) and partitions
     # correctly. Guarded to Postgres so the SQLite test fixture is unaffected.
     if db.get_bind().dialect.name == "postgresql":
-        db.query(Unit).filter(Unit.id == unit_id).with_for_update().first()
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"session_alloc:{unit_id}"},
+        )
 
     enrolled = _enrolled_student_ids(db, unit_id)
 
